@@ -26,7 +26,7 @@ serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 
 derive_more = { version = "1.0.0", features = ["display"] }
-thiserror = "1.0.65"
+thiserror = "1.0.66"
 
 ordered-float = "4.4.0"
 flate2 = "1.0.34"
