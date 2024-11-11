@@ -41,7 +41,7 @@ serde_json = "1.0.132"
 
 # Error handling dependencies
 derive_more = { version = "1.0.0", features = ["display", "constructor"] }
-thiserror = "1.0.66"
+thiserror = "2.0.3"
 
 # Misc and compression dependencies
 ordered-float = "4.4.0"
