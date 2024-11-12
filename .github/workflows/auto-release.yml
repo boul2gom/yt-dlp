@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: 🔍 Check if last CI run was successful
         id: check_ci
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const runs = await github.rest.actions.listWorkflowRuns({
