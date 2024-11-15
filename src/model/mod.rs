@@ -45,7 +45,7 @@ pub struct Video {
     /// The URL of the channel.
     pub channel_url: String,
     /// The number of subscribers the channel has.
-    pub channel_follower_count: i64,
+    pub channel_follower_count: Option<i64>,
 
     /// The available formats of the video.
     pub formats: Vec<Format>,
