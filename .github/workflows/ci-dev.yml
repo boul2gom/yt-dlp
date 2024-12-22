@@ -85,7 +85,7 @@ jobs:
           publish_results: true
 
       - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@v4.4.3
+        uses: actions/upload-artifact@v4.5.0
         with:
           name: sarif-results
           path: results.sarif
