@@ -178,3 +178,8 @@ pub fn set_executable(executable: impl AsRef<Path>) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+pub fn set_executable(executable: impl AsRef<Path>) -> Result<()> {
+    Ok(())
+}
