@@ -39,7 +39,7 @@ serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 
 # Error handling dependencies
-derive_more = { version = "1.0.0", features = ["display", "constructor"] }
+derive_more = { version = "2.0.1", features = ["display", "constructor"] }
 thiserror = "2.0.3"
 
 # Misc and compression dependencies
