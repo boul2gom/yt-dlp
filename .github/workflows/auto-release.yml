@@ -12,8 +12,10 @@ jobs:
   check_status:
     name: ✅ Check Github CI - Development status
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     outputs:
-      ci_success: ${{ steps.check.outputs.ci_success }}
+      ci_success: ${{ steps.check_status.outputs.ci_success }}
     steps:
       - name: 🔍 Check if last CI run was successful
         id: check_ci
