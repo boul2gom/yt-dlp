@@ -1,6 +1,7 @@
 //! The errors that can occur.
 
 use crate::utils::platform::{Architecture, Platform};
+use std::time::Duration;
 use thiserror::Error;
 
 /// A type alias for `Result<T, Error>`.
@@ -40,6 +41,18 @@ pub enum Error {
     /// An error occurred manipulating a path.
     #[error("An invalid path was provided: {0}")]
     Path(String),
+    /// An error occurred due to a timeout.
+    #[error("Operation timed out after {0:?}")]
+    Timeout(Duration),
+    /// An error occurred due to missing URL in format.
+    #[error("Format {0} has no URL available")]
+    MissingUrl(String),
+    /// An error occurred due to missing format.
+    #[error("No {0} format available for video")]
+    MissingFormat(String),
+    /// An error occurred due to incompatible format.
+    #[error("Format {0} is not compatible: {1}")]
+    IncompatibleFormat(String, String),
 
     /// An unknown error occurred.
     #[error("An unknown error occurred: {0}")]

@@ -42,7 +42,7 @@ impl Youtube {
     pub async fn download_thumbnail_from_url(
         &self,
         url: String,
-        file_name: impl AsRef<str>,
+        file_name: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail from {}", url);
@@ -90,7 +90,24 @@ impl Youtube {
     pub async fn download_thumbnail(
         &self,
         video: &Video,
-        file_name: impl AsRef<str>,
+        file_name: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+    ) -> crate::error::Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading thumbnail {}", video.title);
+
+        let path = self.output_dir.join(file_name.as_ref());
+
+        let fetcher = Fetcher::new(&video.thumbnail);
+        fetcher.fetch_asset(path.clone()).await?;
+
+        Ok(path)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    pub async fn download_thumbnail_from_video(
+        &self,
+        video: &Video,
+        file_name: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail {}", video.title);

@@ -51,3 +51,7 @@ xz2 = "0.1.7"
 
 # Logging dependencies
 tracing = { version = "0.1.40", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.41.1", features = ["rt", "rt-multi-thread", "macros", "fs", "time", "process"] }
+tempfile = "3.10.1"

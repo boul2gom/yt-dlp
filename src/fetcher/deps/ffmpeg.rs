@@ -7,16 +7,41 @@ use crate::utils::platform::{Architecture, Platform};
 use derive_more::Display;
 use std::path::{Path, PathBuf};
 
-#[cfg(target_os = "windows")]
-const FFMPEG_BUILD_URL: &'static str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+/// URL templates for FFmpeg builds based on platform and architecture
+#[derive(Debug, Clone)]
+struct Url;
 
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const FFMPEG_BUILD_URL: &'static str = "https://www.osxexperts.net/ffmpeg71intel.zip";
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const FFMPEG_BUILD_URL: &'static str = "https://www.osxexperts.net/ffmpeg71arm.zip";
+impl Url {
+    fn windows() -> &'static str {
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    }
 
-#[cfg(target_os = "linux")]
-const FFMPEG_BUILD_URL: &'static str = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-{}-static.tar.xz";
+    fn macos_intel() -> &'static str {
+        "https://www.osxexperts.net/ffmpeg71intel.zip"
+    }
+
+    fn macos_arm() -> &'static str {
+        "https://www.osxexperts.net/ffmpeg71arm.zip"
+    }
+
+    fn linux(arch: &str) -> String {
+        format!(
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-{}-static.tar.xz",
+            arch
+        )
+    }
+}
+
+/// Information about FFmpeg binary extraction based on platform
+#[derive(Debug, Clone)]
+struct Extraction {
+    /// Path to the executable within the extracted archive
+    executable_path: PathBuf,
+    /// Name of the extracted directory (for Linux)
+    extracted_dir: Option<String>,
+    /// File extension for the binary
+    binary_extension: String,
+}
 
 /// The ffmpeg fetcher is responsible for fetching the ffmpeg binary for the current platform and architecture.
 /// It can also extract the binary from the downloaded archive.
@@ -103,46 +128,127 @@ impl BuildFetcher {
             architecture
         );
 
-        let url = match (platform, architecture) {
+        match (platform, architecture) {
             (Platform::Windows, _) => {
-                "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                let url = Url::windows().to_string();
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
             }
 
-            (Platform::Mac, Architecture::X64) => "https://www.osxexperts.net/ffmpeg71intel.zip",
-            (Platform::Mac, Architecture::Aarch64) => "https://www.osxexperts.net/ffmpeg71arm.zip",
+            (Platform::Mac, Architecture::X64) => {
+                let url = Url::macos_intel().to_string();
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
+            }
+            (Platform::Mac, Architecture::Aarch64) => {
+                let url = Url::macos_arm().to_string();
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
+            }
 
             (Platform::Linux, Architecture::X64) => {
-                "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+                let url = Url::linux("amd64");
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
             }
             (Platform::Linux, Architecture::X86) => {
-                "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz"
+                let url = Url::linux("i686");
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
             }
             (Platform::Linux, Architecture::Armv7l) => {
-                "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz"
+                let url = Url::linux("armhf");
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
             }
             (Platform::Linux, Architecture::Aarch64) => {
-                "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+                let url = Url::linux("arm64");
+                let name = url.split('/').last()?.to_string();
+                Some(Asset {
+                    name,
+                    download_url: url,
+                })
             }
 
-            _ => return None,
-        };
+            _ => None,
+        }
+    }
 
-        let name = url.split('/').last()?;
-        let asset = Asset {
-            name: name.to_string(),
-            download_url: url.to_string(),
-        };
+    /// Get extraction information for the given platform and architecture
+    fn get_extraction_info(
+        &self,
+        platform: &Platform,
+        architecture: &Architecture,
+    ) -> Option<Extraction> {
+        match (platform, architecture) {
+            (Platform::Windows, _) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg-7.1-essentials_build/bin/ffmpeg.exe"),
+                extracted_dir: None,
+                binary_extension: "exe".to_string(),
+            }),
 
-        Some(asset)
+            (Platform::Mac, _) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                extracted_dir: None,
+                binary_extension: "".to_string(),
+            }),
+
+            (Platform::Linux, Architecture::X64) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                extracted_dir: Some("ffmpeg-7.0.2-amd64-static".to_string()),
+                binary_extension: "".to_string(),
+            }),
+            (Platform::Linux, Architecture::X86) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                extracted_dir: Some("ffmpeg-7.0.2-i686-static".to_string()),
+                binary_extension: "".to_string(),
+            }),
+            (Platform::Linux, Architecture::Armv7l) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                extracted_dir: Some("ffmpeg-7.0.2-armhf-static".to_string()),
+                binary_extension: "".to_string(),
+            }),
+            (Platform::Linux, Architecture::Aarch64) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                extracted_dir: Some("ffmpeg-7.0.2-arm64-static".to_string()),
+                binary_extension: "".to_string(),
+            }),
+
+            _ => None,
+        }
     }
 
     /// Extract the ffmpeg binary from the downloaded archive, for the current platform and architecture.
     /// The resulting binary will be placed in the same directory as the archive.
     /// The archive will be deleted after the binary has been extracted.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
-    pub async fn extract_binary(&self, archive: impl AsRef<Path>) -> Result<PathBuf> {
+    pub async fn extract_binary(
+        &self,
+        archive: impl AsRef<Path> + std::fmt::Debug,
+    ) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Extracting ffmpeg binary from archive: {:?}", archive);
+        tracing::debug!(
+            "Extracting ffmpeg binary from archive: {:?}",
+            archive.as_ref()
+        );
 
         let platform = Platform::detect();
         let architecture = Architecture::detect();
@@ -160,11 +266,10 @@ impl BuildFetcher {
     /// * `archive` - The path to the downloaded archive.
     /// * `platform` - The platform to extract the binary for.
     /// * `architecture` - The architecture to extract the binary for.
-    #[allow(unused_variables)]
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn extract_binary_for_platform(
         &self,
-        archive: impl AsRef<Path>,
+        archive: impl AsRef<Path> + std::fmt::Debug,
         platform: Platform,
         architecture: Architecture,
     ) -> Result<PathBuf> {
@@ -173,80 +278,74 @@ impl BuildFetcher {
             "Extracting ffmpeg binary for platform: {:?}, architecture: {:?}, from archive: {:?}",
             platform,
             architecture,
-            archive
+            archive.as_ref()
         );
 
-        let destination = archive.as_ref().with_extension("");
+        let archive_path = archive.as_ref().to_path_buf();
+        let destination = archive_path.with_extension("");
 
-        #[cfg(target_os = "windows")] {
-            return self.extract_archive(archive, destination.clone()).await
-        }
+        let extraction_info = self
+            .get_extraction_info(&platform, &architecture)
+            .ok_or(Error::Binary(platform.clone(), architecture.clone()))?;
 
-        #[cfg(target_os = "macos")] {
-            return self.extract_archive(archive, destination.clone()).await
-        }
-
-        #[cfg(target_os = "linux")] {
-            let extracted = match architecture {
-                Architecture::X64 => "ffmpeg-7.0.2-amd64-static",
-                Architecture::X86 => "ffmpeg-7.0.2-i686-static",
-                Architecture::Armv7l => "ffmpeg-7.0.2-armhf-static",
-                Architecture::Aarch64 => "ffmpeg-7.0.2-arm64-static",
-                _ => return Err(Error::Binary(platform, architecture)),
-            };
-
-            return self.extract_archive(archive, destination.clone(), extracted).await
-        }
+        self.extract_archive(archive_path, destination, extraction_info, platform)
+            .await
     }
 
-    #[cfg(target_os = "windows")]
-    pub async fn extract_archive(&self, archive: PathBuf, destination: impl AsRef<Path>) -> Result<PathBuf> {
-        file_system::extract_zip(archive.clone(), destination_clone).await?;
+    /// Extract the archive and move the binary to the correct location
+    async fn extract_archive(
+        &self,
+        archive: PathBuf,
+        destination: PathBuf,
+        extraction_info: Extraction,
+        platform: Platform,
+    ) -> Result<PathBuf> {
+        // Extract the archive based on platform
+        match platform {
+            Platform::Windows | Platform::Mac => {
+                file_system::extract_zip(&archive, &destination).await?;
+            }
+            Platform::Linux => {
+                file_system::extract_tar_xz(&archive, &destination).await?;
+            }
+            _ => return Err(Error::Binary(platform.clone(), Architecture::detect())),
+        }
 
-        let extracted = destination.join("ffmpeg-7.1-essentials_build");
-        let executable = extracted.join("bin").join("ffmpeg.exe");
-
+        // Get the parent directory of the destination
         let parent = file_system::try_parent(&destination)?;
-        let binary = parent.join("ffmpeg.exe");
 
+        // Construct paths
+        let binary_name = format!(
+            "ffmpeg{}",
+            if !extraction_info.binary_extension.is_empty() {
+                format!(".{}", extraction_info.binary_extension)
+            } else {
+                "".to_string()
+            }
+        );
+        let binary = parent.join(binary_name);
+
+        // Find the executable path
+        let executable = if let Some(extracted_dir) = extraction_info.extracted_dir {
+            destination
+                .join(extracted_dir)
+                .join(extraction_info.executable_path)
+        } else {
+            destination.join(extraction_info.executable_path)
+        };
+
+        // Copy the executable to the final location
         tokio::fs::copy(executable, binary.clone()).await?;
+
+        // Clean up
         tokio::fs::remove_dir_all(destination).await?;
         tokio::fs::remove_file(archive).await?;
 
-        Ok(binary)
-    }
+        // Set executable permissions on Unix platforms
+        if matches!(platform, Platform::Mac | Platform::Linux) {
+            file_system::set_executable(binary.clone())?;
+        }
 
-    #[cfg(target_os = "macos")]
-    pub async fn extract_archive(&self, archive: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<PathBuf> {
-        file_system::extract_zip(&archive, &destination).await?;
-
-        let executable = destination.as_ref().join("ffmpeg");
-
-        let parent = file_system::try_parent(&destination)?;
-        let binary = parent.join("ffmpeg");
-
-        tokio::fs::copy(executable, binary.clone()).await?;
-        tokio::fs::remove_dir_all(destination).await?;
-        tokio::fs::remove_file(archive).await?;
-
-        file_system::set_executable(binary.clone())?;
-        Ok(binary)
-    }
-
-    #[cfg(target_os = "linux")]
-    pub async fn extract_archive(&self, archive: PathBuf, destination: PathBuf, extracted: impl AsRef<str>) -> Result<PathBuf> {
-        file_system::extract_tar_xz(archive.clone(), destination.clone()).await?;
-
-        let extracted = destination.join(extracted);
-        let executable = extracted.join("ffmpeg");
-
-        let parent = file_system::try_parent(&destination)?;
-        let binary = parent.join("ffmpeg");
-
-        tokio::fs::copy(executable, binary.clone()).await?;
-        tokio::fs::remove_dir_all(destination).await?;
-
-        file_system::set_executable(binary.clone())?;
         Ok(binary)
     }
 }

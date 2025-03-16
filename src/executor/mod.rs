@@ -86,7 +86,7 @@ impl Executor {
             Ok(result) => result?,
             Err(_) => {
                 child.kill().await?;
-                return Err(Error::Command("Process timed out".to_string()));
+                return Err(Error::Timeout(self.timeout));
             }
         };
 

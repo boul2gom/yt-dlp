@@ -7,7 +7,7 @@ use crate::utils::platform::Architecture;
 use crate::utils::platform::Platform;
 use derive_more::Display;
 
-const BASE_ASSET_NAME: &'static str = "yt-dlp";
+const BASE_ASSET_NAME: &str = "yt-dlp";
 
 /// The GitHub fetcher is responsible for fetching the latest release of 'yt-dlp' from a GitHub repository.
 /// It can also select the correct asset for the current platform and architecture.

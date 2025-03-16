@@ -73,8 +73,8 @@ impl LibraryInstaller {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_youtube_from_repo(
         &self,
-        owner: impl AsRef<str>,
-        repo: impl AsRef<str>,
+        owner: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        repo: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
         auth_token: Option<String>,
         custom_name: Option<String>,
     ) -> Result<PathBuf> {
@@ -241,12 +241,12 @@ impl WantedRelease {
     /// # Ok(())
     /// # }
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
-    pub async fn download(&self, destination: impl AsRef<Path>) -> Result<()> {
+    pub async fn download(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Downloading asset: {} to {}",
-            self.asset_name,
-            destination.display()
+            "Downloading asset from {} to {}",
+            self.asset_url,
+            destination.as_ref().display()
         );
 
         let fetcher = Fetcher::new(&self.asset_url);

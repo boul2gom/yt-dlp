@@ -94,7 +94,7 @@ pub struct Version {
     /// The commit hash of the current 'yt-dlp' version, if not a release.
     pub current_git_head: Option<String>,
     /// The commit hash of the release 'yt-dlp' version.
-    pub release_git_head: String,
+    pub release_git_head: Option<String>,
     /// The repository of the 'yt-dlp' version used, e.g. 'yt-dlp/yt-dlp'.
     pub repository: String,
 }

@@ -81,6 +81,8 @@ pub fn create_dir(destination: impl AsRef<Path>) -> Result<()> {
 pub fn create_parent_dir(destination: impl AsRef<Path>) -> Result<()> {
     if let Some(parent) = destination.as_ref().parent() {
         std::fs::create_dir_all(parent)?;
+    } else {
+        std::fs::create_dir_all(destination.as_ref())?;
     }
 
     Ok(())
@@ -94,8 +96,8 @@ pub fn create_parent_dir(destination: impl AsRef<Path>) -> Result<()> {
 /// * `destination` - The path to extract the zip file to.
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
 pub async fn extract_zip(
-    zip_path: impl AsRef<Path>,
-    destination: impl AsRef<Path>,
+    zip_path: impl AsRef<Path> + std::fmt::Debug,
+    destination: impl AsRef<Path> + std::fmt::Debug,
 ) -> Result<()> {
     #[cfg(feature = "tracing")]
     tracing::debug!(
@@ -179,7 +181,13 @@ pub fn set_executable(executable: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
+/// No-op implementation for Windows, as Windows doesn't use executable bits.
+///
+/// # Arguments
+///
+/// * `executable` - The path to the executable file.
 #[cfg(target_os = "windows")]
-pub fn set_executable(executable: impl AsRef<Path>) -> Result<()> {
+pub fn set_executable(_executable: impl AsRef<Path>) -> Result<()> {
+    // Windows doesn't use executable bits, so this is a no-op
     Ok(())
 }

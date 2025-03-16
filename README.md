@@ -330,21 +330,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 🐛 Bugs reported
-- [ ] Output dir not created, so video are downloaded in the void
-- [ ] Dependencies are re-installed
-- [ ] Download is very slow
-
 ## 💡Support coming soon
 - [ ] Subtitles
 - [ ] Chapters
 - [ ] Heatmap
 - [ ] Playlist (and index)
-- [ ] TikTok videos
-- [ ] Instagram videos
-- [ ] Twitter videos
-- [ ] Twitch videos
-- [ ] Global ```yt-dlp``` providers
 
 ## 💡Features coming soon
 - [ ] Common traits on all structs

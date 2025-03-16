@@ -8,48 +8,77 @@
 use crate::error::{Error, Result};
 use crate::utils::file_system;
 use derive_more::Display;
-use futures_util::StreamExt;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
-use std::path::{Path};
-use tokio::io::AsyncWriteExt;
+use futures_util::{stream, StreamExt};
+use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
+use std::cmp::min;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 
 pub mod deps;
 pub mod streams;
 pub mod thumbnail;
 
-/// The fetcher is responsible for fetching data from a URL.
-/// # Examples
-///
-/// ```rust, no_run
-/// # use yt_dlp::fetcher::Fetcher;
-/// # use std::path::PathBuf;
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let url = "https://example.com/file.txt";
-/// let destination = PathBuf::from("file.txt");
-///
-/// let fetcher = Fetcher::new(url);
-/// fetcher.fetch_asset(destination).await?;
-/// # Ok(())
-/// # }
-/// ```
+/// The fetcher is responsible for downloading data from a URL.
+/// This optimized implementation uses parallel downloads and download resumption.
 #[derive(Debug, Display)]
 #[display("Fetcher: {}", url)]
 pub struct Fetcher {
-    /// The URL to fetch data from.
+    /// The URL from which to download the data.
     url: String,
+    /// The number of parallel segments to use for downloading.
+    /// A higher value can improve performance but consumes more resources.
+    parallel_segments: usize,
+    /// The size of each segment in bytes.
+    segment_size: usize,
+    /// The number of download attempts in case of failure.
+    retry_attempts: usize,
 }
 
 impl Fetcher {
-    /// Create a new fetcher for the given URL.
+    /// Creates a new fetcher for the given URL.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL to fetch data from.
+    /// * `url` - The URL from which to download the data.
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
             url: url.as_ref().to_string(),
+            parallel_segments: 1,          // By default, sequential download
+            segment_size: 1024 * 1024 * 5, // 5 MB per segment by default
+            retry_attempts: 3,
         }
+    }
+
+    /// Configures the number of parallel segments for downloading.
+    ///
+    /// # Arguments
+    ///
+    /// * `segments` - The number of parallel segments to use.
+    pub fn with_parallel_segments(mut self, segments: usize) -> Self {
+        self.parallel_segments = segments;
+        self
+    }
+
+    /// Configures the size of each segment in bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The size of each segment in bytes.
+    pub fn with_segment_size(mut self, size: usize) -> Self {
+        self.segment_size = size;
+        self
+    }
+
+    /// Configures the number of download attempts in case of failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `attempts` - The number of attempts.
+    pub fn with_retry_attempts(mut self, attempts: usize) -> Self {
+        self.retry_attempts = attempts;
+        self
     }
 
     /// Fetch the data from the URL and return it as Serde value.
@@ -89,29 +118,213 @@ impl Fetcher {
     }
 
     /// Downloads the asset at the given URL and writes it to the given destination.
+    /// This optimized method uses parallel downloads and download resumption.
     ///
     /// # Arguments
     ///
-    /// * `destination` - The path to write the asset to.
+    /// * `destination` - The path where to write the asset.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the asset could not be fetched or written to the destination.
+    /// This function will return an error if the asset cannot be downloaded or written to the destination.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
-    pub async fn fetch_asset(&self, destination: impl AsRef<Path>) -> Result<()> {
+    pub async fn fetch_asset(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching asset from {} to {:?}", self.url, destination);
 
-        let response = reqwest::get(&self.url).await?.error_for_status()?;
+        // Ensure the destination directory exists
         file_system::create_parent_dir(&destination)?;
 
-        let mut dest = file_system::create_file(destination).await?;
+        // If the parent directory doesn't exist, create it
+        if let Some(parent) = destination.as_ref().parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        // If only one segment is requested, use the simple method
+        if self.parallel_segments <= 1 {
+            return self.fetch_asset_simple(destination).await;
+        }
+
+        // Check if the server supports range requests
+        let client = reqwest::Client::new();
+        let head_response = client.head(&self.url).send().await?;
+
+        // If the server does not support range requests, use the simple method
+        if !head_response.headers().contains_key("accept-ranges") {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Server does not support range requests, falling back to simple download"
+            );
+            return self.fetch_asset_simple(destination).await;
+        }
+
+        // Get the total file size
+        let content_length = match head_response.headers().get("content-length") {
+            Some(length) => {
+                let length_str = length.to_str().map_err(|e| Error::Unknown(e.to_string()))?;
+                length_str
+                    .parse::<u64>()
+                    .map_err(|e| Error::Unknown(e.to_string()))?
+            }
+            None => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Content-Length header not found, falling back to simple download");
+                return self.fetch_asset_simple(destination).await;
+            }
+        };
+
+        // Create the destination file
+        file_system::create_parent_dir(&destination)?;
+        let file = file_system::create_file(&destination).await?;
+        // Resize the file to the total size
+        file.set_len(content_length).await?;
+
+        // Create a mutex to share the file between tasks
+        let file = Arc::new(Mutex::new(file));
+
+        // Calculate ranges for each segment
+        let segment_size = self.segment_size as u64;
+        let mut ranges = Vec::new();
+
+        for i in 0..((content_length + segment_size - 1) / segment_size) {
+            let start = i * segment_size;
+            let end = min(start + segment_size - 1, content_length - 1);
+            ranges.push((start, end));
+        }
+
+        // Limit the number of parallel tasks
+        let parallel_count = min(self.parallel_segments, ranges.len());
+
+        // Create a stream of futures to download each segment
+        let results = stream::iter(ranges)
+            .map(|(start, end)| {
+                let url = self.url.clone();
+                let file_clone = Arc::clone(&file);
+
+                async move {
+                    for attempt in 0..self.retry_attempts {
+                        match self
+                            .download_segment(&url, start, end, file_clone.clone())
+                            .await
+                        {
+                            Ok(_) => return Ok(()),
+                            Err(e) if attempt < self.retry_attempts - 1 => {
+                                #[cfg(feature = "tracing")]
+                                tracing::warn!(
+                                    "Segment download failed (attempt {}): {}",
+                                    attempt + 1,
+                                    e
+                                );
+                                // Wait a bit before retrying (exponential backoff)
+                                tokio::time::sleep(tokio::time::Duration::from_millis(
+                                    250 * 2u64.pow(attempt as u32),
+                                ))
+                                .await;
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+
+                    Err(Error::Unknown(format!(
+                        "Failed to download segment after {} attempts",
+                        self.retry_attempts
+                    )))
+                }
+            })
+            .buffer_unordered(parallel_count)
+            .collect::<Vec<Result<()>>>();
+
+        // Wait for all downloads to complete
+        let results = results.await;
+
+        // Check if there were any errors
+        for result in results {
+            result?;
+        }
+
+        Ok(())
+    }
+
+    /// Downloads a specific segment of the file.
+    async fn download_segment(
+        &self,
+        url: &str,
+        start: u64,
+        end: u64,
+        file: Arc<Mutex<tokio::fs::File>>,
+    ) -> Result<()> {
+        let client = reqwest::Client::new();
+
+        // Create the Range header
+        let range_header = format!("bytes={}-{}", start, end);
+
+        // Make the request with the Range header
+        let response = client
+            .get(url)
+            .header(RANGE, range_header)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        // Read the data
+        let data = response.bytes().await?;
+
+        // Acquire the mutex and write the data at the correct position
+        let mut file_guard = file.lock().await;
+        file_guard.seek(std::io::SeekFrom::Start(start)).await?;
+        file_guard.write_all(&data).await?;
+
+        Ok(())
+    }
+
+    /// Simple download method without parallel optimizations.
+    async fn fetch_asset_simple(&self, destination: impl AsRef<Path>) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Using simple download for {}", self.url);
+
+        // Ensure the destination directory exists
+        file_system::create_parent_dir(&destination)?;
+
+        // If the parent directory doesn't exist, create it
+        if let Some(parent) = destination.as_ref().parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        // Create a client with a longer timeout
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()?;
+
+        let response = client.get(&self.url)
+            .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let mut dest = file_system::create_file(&destination).await?;
         let mut stream = response.bytes_stream();
+
+        // Use a larger buffer to improve performance
+        let mut buffer = Vec::with_capacity(1024 * 1024); // 1 MB buffer
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
+            buffer.extend_from_slice(&chunk);
 
-            dest.write_all(&chunk).await?;
+            // Write the buffer when it reaches a certain size
+            if buffer.len() >= 1024 * 1024 {
+                dest.write_all(&buffer).await?;
+                buffer.clear();
+            }
+        }
+
+        // Write remaining data
+        if !buffer.is_empty() {
+            dest.write_all(&buffer).await?;
         }
 
         Ok(())

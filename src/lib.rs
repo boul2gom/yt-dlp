@@ -58,6 +58,8 @@ pub struct Youtube {
     pub output_dir: PathBuf,
     /// The arguments to pass to 'yt-dlp'.
     pub args: Vec<String>,
+    /// The timeout for command execution.
+    pub timeout: Duration,
 }
 
 impl Youtube {
@@ -107,6 +109,7 @@ impl Youtube {
 
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
+            timeout: Duration::from_secs(30),
         })
     }
 
@@ -146,8 +149,26 @@ impl Youtube {
         tracing::debug!("Creating a new video fetcher with binaries installation");
 
         let installer = LibraryInstaller::new(executables_dir.as_ref().to_path_buf());
-        let youtube = installer.install_youtube(None).await?;
-        let ffmpeg = installer.install_ffmpeg(None).await?;
+
+        // Vérifier si les binaires existent déjà
+        let youtube_path = executables_dir
+            .as_ref()
+            .join(utils::find_executable("yt-dlp"));
+        let ffmpeg_path = executables_dir
+            .as_ref()
+            .join(utils::find_executable("ffmpeg"));
+
+        let youtube = if youtube_path.exists() {
+            youtube_path
+        } else {
+            installer.install_youtube(None).await?
+        };
+
+        let ffmpeg = if ffmpeg_path.exists() {
+            ffmpeg_path
+        } else {
+            installer.install_ffmpeg(None).await?
+        };
 
         let libraries = Libraries::new(youtube, ffmpeg);
         Self::new(libraries, output_dir)
@@ -181,6 +202,38 @@ impl Youtube {
     /// ```
     pub fn with_args(&mut self, mut args: Vec<String>) -> &mut Self {
         self.args.append(&mut args);
+        self
+    }
+
+    /// Sets the timeout for command execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The timeout duration for command execution.
+    ///
+    /// # Examples
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use std::time::Duration;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// let mut fetcher = Youtube::new(libraries, output_dir)?;
+    ///
+    /// // Set a longer timeout for large videos
+    /// fetcher.with_timeout(Duration::from_secs(300));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.timeout = timeout;
         self
     }
 
@@ -249,7 +302,7 @@ impl Youtube {
 
         let executor = Executor {
             executable_path: self.libraries.youtube.clone(),
-            timeout: Duration::from_secs(30),
+            timeout: self.timeout,
             args: utils::to_owned(args),
         };
 
@@ -301,9 +354,9 @@ impl Youtube {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn combine_audio_and_video(
         &self,
-        audio_file: impl AsRef<str>,
-        video_file: impl AsRef<str>,
-        output_file: impl AsRef<str>,
+        audio_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        video_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        output_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
     ) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -333,7 +386,7 @@ impl Youtube {
 
         let executor = Executor {
             executable_path: self.libraries.ffmpeg.clone(),
-            timeout: Duration::from_secs(30),
+            timeout: self.timeout,
             args: utils::to_owned(args),
         };
 

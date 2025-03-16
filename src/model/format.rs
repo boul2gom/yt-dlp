@@ -136,7 +136,7 @@ pub struct VideoResolution {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadInfo {
     /// The decrypted URL of the format.
-    pub url: String,
+    pub url: Option<String>,
     /// The extension of the format.
     #[serde(default)]
     pub ext: Extension,

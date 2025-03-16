@@ -7,8 +7,8 @@ use crate::model::format::Format;
 use crate::model::Video;
 use crate::utils::file_system;
 use crate::{utils, Youtube};
+use derive_more::Display;
 use std::path::PathBuf;
-use std::time::Duration;
 
 impl Youtube {
     /// Fetch the video information from the given URL.
@@ -53,7 +53,7 @@ impl Youtube {
 
         let executor = Executor {
             executable_path: self.libraries.youtube.clone(),
-            timeout: Duration::from_secs(30),
+            timeout: self.timeout,
             args: final_args,
         };
 
@@ -99,13 +99,15 @@ impl Youtube {
     pub async fn download_video_from_url(
         &self,
         url: String,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from {}", url);
 
+        // Get the video information
         let video = self.fetch_video_infos(url.clone()).await?;
 
+        // Use our optimized method to download the video
         self.download_video(&video, output).await
     }
 
@@ -147,7 +149,7 @@ impl Youtube {
     pub async fn download_video(
         &self,
         video: &Video,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
@@ -156,11 +158,28 @@ impl Youtube {
         let file_name = file_system::try_without_extension(output_path.clone())?;
 
         let audio_name = format!("audio-{}.mp3", file_name.clone());
-        self.download_audio_stream(video, &audio_name).await?;
-
         let video_name = format!("video-{}.mp4", file_name.clone());
-        self.download_video_stream(video, &video_name).await?;
 
+        // Get the best audio and video formats
+        let best_audio = video
+            .best_audio_format()
+            .ok_or(Error::MissingFormat("audio".to_string()))?;
+
+        let best_video = video
+            .best_video_format()
+            .ok_or(Error::MissingFormat("video".to_string()))?;
+
+        // Download audio and video streams in parallel
+        let (audio_result, video_result) = tokio::join!(
+            self.download_format(best_audio, &audio_name),
+            self.download_format(best_video, &video_name)
+        );
+
+        // Check the results
+        let _audio_path = audio_result?;
+        let _video_path = video_result?;
+
+        // Combiner les flux audio et vidéo
         self.combine_audio_and_video(&audio_name, &video_name, output)
             .await
     }
@@ -201,7 +220,7 @@ impl Youtube {
     pub async fn download_video_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from {}", url);
@@ -249,14 +268,14 @@ impl Youtube {
     pub async fn download_video_stream(
         &self,
         video: &Video,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream {}", video.title);
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::Video("No video format available".to_string()))?;
+            .ok_or(Error::MissingFormat("video".to_string()))?;
 
         self.download_format(best_video, output).await
     }
@@ -297,7 +316,7 @@ impl Youtube {
     pub async fn download_audio_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from {}", url);
@@ -345,16 +364,42 @@ impl Youtube {
     pub async fn download_audio_stream(
         &self,
         video: &Video,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
 
         let best_audio = video
             .best_audio_format()
-            .ok_or(Error::Video("No audio format available".to_string()))?;
+            .ok_or(Error::MissingFormat("audio".to_string()))?;
 
-        self.download_format(best_audio, output).await
+        let temp_output = format!("temp_{}", output.as_ref());
+        let temp_path = self.download_format(best_audio, &temp_output).await?;
+
+        // Post-process the audio file with ffmpeg to ensure compatibility with VLC
+        let output_path = self.output_dir.join(output.as_ref());
+
+        let temp = temp_path
+            .to_str()
+            .ok_or(Error::Path("Invalid temp path".to_string()))?;
+        let output_str = output_path
+            .to_str()
+            .ok_or(Error::Path("Invalid output path".to_string()))?;
+
+        let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str];
+
+        let executor = Executor {
+            executable_path: self.libraries.ffmpeg.clone(),
+            timeout: self.timeout,
+            args: utils::to_owned(args),
+        };
+
+        executor.execute().await?;
+
+        // Clean up temporary file
+        tokio::fs::remove_file(temp_path).await?;
+
+        Ok(output_path)
     }
 
     /// Downloads a specific format, and returns its path.
@@ -399,15 +444,26 @@ impl Youtube {
     pub async fn download_format(
         &self,
         format: &Format,
-        output: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading format {}", format.download_info.url);
+        tracing::debug!("Downloading format {}", format.format_id);
 
         let path = self.output_dir.join(output.as_ref());
-        let url = format.download_info.url.clone();
 
-        let fetcher = Fetcher::new(&url);
+        // Check if URL is available
+        let url = format
+            .download_info
+            .url
+            .clone()
+            .ok_or(Error::MissingUrl(format.format_id.clone()))?;
+
+        // Create an optimized fetcher with parallel downloading
+        let fetcher = Fetcher::new(&url)
+            .with_parallel_segments(8) // Use 8 parallel segments
+            .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
+            .with_retry_attempts(3); // 3 attempts in case of failure
+
         fetcher.fetch_asset(path.clone()).await?;
 
         Ok(path)

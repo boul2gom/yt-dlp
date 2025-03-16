@@ -50,6 +50,32 @@ jobs:
           command: build
           args: --all-features --all-targets
 
+  integration-tests:
+    name: 🧪 Integration tests
+    needs: setup-and-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: 🧪 Run integration tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --test integration_test --test audio_compatibility_test -- --nocapture
+
   sonarcloud-analysis:
     name: 🔍 SonarCloud analysis
     needs: setup-and-build
