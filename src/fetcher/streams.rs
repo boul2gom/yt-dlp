@@ -5,7 +5,6 @@ use crate::executor::Executor;
 use crate::fetcher::Fetcher;
 use crate::model::format::Format;
 use crate::model::Video;
-use crate::utils::file_system;
 use crate::{utils, Youtube};
 use derive_more::Display;
 use std::path::PathBuf;
@@ -68,7 +67,12 @@ impl Youtube {
         };
 
         let output = executor.execute().await?;
-        let video: Video = serde_json::from_str(&output.stdout).map_err(Error::Serde)?;
+        let mut video: Video = serde_json::from_str(&output.stdout).map_err(Error::Serde)?;
+
+        // Set the video ID on each format for caching purposes
+        for format in &mut video.formats {
+            format.video_id = Some(video.id.clone());
+        }
 
         // Put the video in the cache if caching is enabled
         if let Some(cache) = &self.cache {
@@ -123,16 +127,13 @@ impl Youtube {
         output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading video from {}", url);
+        tracing::debug!("Downloading video from URL {}", url);
 
-        // Get the video information
-        let video = self.fetch_video_infos(url.clone()).await?;
-
-        // Use our optimized method to download the video
+        let video = self.fetch_video_infos(url).await?;
         self.download_video(&video, output).await
     }
 
-    /// Downloads the video (with its audio), and returns its path.
+    /// Fetch the video, download it (video with audio) and returns its path.
     /// Be careful, this function may take a while to execute.
     ///
     /// # Arguments
@@ -142,7 +143,7 @@ impl Youtube {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the video could not be fetched or downloaded.
+    /// This function will return an error if the video could not be downloaded.
     ///
     /// # Examples
     ///
@@ -175,20 +176,33 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
 
-        let output_path = self.output_dir.join(output.as_ref());
-        let file_name = file_system::try_without_extension(output_path.clone())?;
+        let output_str = output.as_ref();
+        let path = self.output_dir.join(output_str);
 
-        let audio_name = format!("audio-{}.mp3", file_name.clone());
-        let video_name = format!("video-{}.mp4", file_name.clone());
+        // Check if the video is in the cache
+        if let Some(download_cache) = &self.download_cache {
+            // Try to find the video in the cache by its ID
+            if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using cached video: {}", video.id);
 
-        // Get the best audio and video formats
-        let best_audio = video
-            .best_audio_format()
-            .ok_or(Error::MissingFormat("audio".to_string()))?;
+                // Copy the file from the cache to the output directory
+                tokio::fs::copy(&cached_path, &path).await?;
+                return Ok(path);
+            }
+        }
 
         let best_video = video
             .best_video_format()
             .ok_or(Error::MissingFormat("video".to_string()))?;
+
+        let best_audio = video
+            .best_audio_format()
+            .ok_or(Error::MissingFormat("audio".to_string()))?;
+
+        // Créer des noms temporaires pour les fichiers audio et vidéo
+        let audio_name = format!("temp_audio_{}.m4a", video.id);
+        let video_name = format!("temp_video_{}.mp4", video.id);
 
         // Download audio and video streams in parallel
         let (audio_result, video_result) = tokio::join!(
@@ -201,8 +215,25 @@ impl Youtube {
         let _video_path = video_result?;
 
         // Combiner les flux audio et vidéo
-        self.combine_audio_and_video(&audio_name, &video_name, output)
-            .await
+        let output_path = self
+            .combine_audio_and_video(&audio_name, &video_name, output.as_ref())
+            .await?;
+
+        // Cache the downloaded file if caching is enabled
+        if let Some(download_cache) = &self.download_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching downloaded video: {}", video.id);
+
+            if let Err(_e) = download_cache
+                .put_file(&path, output_str, Some(video.id.clone()), None)
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache downloaded video: {}", _e);
+            }
+        }
+
+        Ok(output_path)
     }
 
     /// Fetch the video from the given URL, download it and returns its path.
@@ -301,7 +332,7 @@ impl Youtube {
         self.download_format(best_video, output).await
     }
 
-    /// Fetch the audio from the given URL, download it and returns its path.
+    /// Fetch the audio stream from the given URL, download it and returns its path.
     /// Be careful, this function may take a while to execute.
     ///
     /// # Arguments
@@ -329,7 +360,7 @@ impl Youtube {
     /// let fetcher = Youtube::new(libraries, output_dir)?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let audio_path = fetcher.download_audio_stream_from_url(url, "my-audio-stream.mp3").await?;
+    /// let audio_path = fetcher.download_audio_stream_from_url(url, "my-audio.mp3").await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -340,24 +371,23 @@ impl Youtube {
         output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading audio stream from {}", url);
+        tracing::debug!("Downloading audio stream from URL {}", url);
 
         let video = self.fetch_video_infos(url).await?;
-
         self.download_audio_stream(&video, output).await
     }
 
-    /// Downloads the audio, and returns its path.
+    /// Fetch the audio stream, download it and returns its path.
     /// Be careful, this function may take a while to execute.
     ///
     /// # Arguments
     ///
-    /// * `video` - The video to download.
+    /// * `video` - The video to download the audio from.
     /// * `output` - The name of the file to save the audio to.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the video could not be fetched or downloaded.
+    /// This function will return an error if the audio could not be downloaded.
     ///
     /// # Examples
     ///
@@ -377,7 +407,7 @@ impl Youtube {
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
     ///
-    /// let audio_path = fetcher.download_audio_stream(&video, "my-audio-stream.mp3").await?;
+    /// let audio_path = fetcher.download_audio_stream(&video, "my-audio.mp3").await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -390,24 +420,50 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
 
+        let output_str = output.as_ref();
+        let path = self.output_dir.join(output_str);
+
+        // Check if we have a cached audio file for this video
+        if let Some(download_cache) = &self.download_cache {
+            // Try to find an audio format in the cache by video ID
+            let best_audio = video
+                .best_audio_format()
+                .ok_or(Error::MissingFormat("audio".to_string()))?;
+
+            if let Some((_, cached_path)) =
+                download_cache.get_by_video_and_format(&video.id, &best_audio.format_id)
+            {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Using cached audio: {} (format: {})",
+                    video.id,
+                    best_audio.format_id
+                );
+
+                // Copy the file from the cache to the output directory
+                tokio::fs::copy(&cached_path, &path).await?;
+                return Ok(path);
+            }
+        }
+
         let best_audio = video
             .best_audio_format()
             .ok_or(Error::MissingFormat("audio".to_string()))?;
 
-        let temp_output = format!("temp_{}", output.as_ref());
+        let temp_output = format!("temp_{}", output_str);
         let temp_path = self.download_format(best_audio, &temp_output).await?;
 
-        // Post-process the audio file with ffmpeg to ensure compatibility with VLC
-        let output_path = self.output_dir.join(output.as_ref());
+        // Post-process the audio file with ffmpeg to ensure compatibility with players
+        let output_path = self.output_dir.join(output_str);
 
         let temp = temp_path
             .to_str()
             .ok_or(Error::Path("Invalid temp path".to_string()))?;
-        let output_str = output_path
+        let output_str_path = output_path
             .to_str()
             .ok_or(Error::Path("Invalid output path".to_string()))?;
 
-        let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str];
+        let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path];
 
         let executor = Executor {
             executable_path: self.libraries.ffmpeg.clone(),
@@ -419,6 +475,25 @@ impl Youtube {
 
         // Clean up temporary file
         tokio::fs::remove_file(temp_path).await?;
+
+        // Cache the processed audio file
+        if let Some(download_cache) = &self.download_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching processed audio: {}", video.id);
+
+            if let Err(_e) = download_cache
+                .put_file(
+                    &output_path,
+                    output_str,
+                    Some(video.id.clone()),
+                    Some(best_audio),
+                )
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache processed audio: {}", _e);
+            }
+        }
 
         Ok(output_path)
     }
@@ -470,7 +545,25 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading format {}", format.format_id);
 
-        let path = self.output_dir.join(output.as_ref());
+        let output_str = output.as_ref();
+        let path = self.output_dir.join(output_str);
+
+        // Check if the format is in the cache
+        if let Some(download_cache) = &self.download_cache {
+            // Try to find the format in the cache by video ID and format ID
+            if let Some(video_id) = format.video_id.as_ref() {
+                if let Some((_, cached_path)) =
+                    download_cache.get_by_video_and_format(video_id, &format.format_id)
+                {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached format: {}", format.format_id);
+
+                    // Copy the file from the cache to the output directory
+                    tokio::fs::copy(&cached_path, &path).await?;
+                    return Ok(path);
+                }
+            }
+        }
 
         // Check if URL is available
         let url = format
@@ -486,6 +579,22 @@ impl Youtube {
             .with_retry_attempts(3); // 3 attempts in case of failure
 
         fetcher.fetch_asset(path.clone()).await?;
+
+        // Cache the downloaded file if caching is enabled
+        if let Some(download_cache) = &self.download_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching downloaded format: {}", format.format_id);
+
+            let video_id = format.video_id.clone();
+
+            if let Err(_e) = download_cache
+                .put_file(&path, output_str, video_id, Some(format))
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache downloaded file: {}", _e);
+            }
+        }
 
         Ok(path)
     }

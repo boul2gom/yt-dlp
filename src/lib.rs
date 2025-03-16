@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::fetcher::deps::{Libraries, LibraryInstaller};
 use crate::utils::file_system;
-use cache::VideoCache;
+use cache::{DownloadCache, VideoCache};
 use derive_more::Display;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -65,6 +65,8 @@ pub struct Youtube {
     pub timeout: Duration,
     /// The cache for video metadata.
     pub cache: Option<Arc<cache::VideoCache>>,
+    /// The cache for downloaded files.
+    pub download_cache: Option<Arc<cache::DownloadCache>>,
 }
 
 impl Youtube {
@@ -112,7 +114,8 @@ impl Youtube {
         // Initialize cache in the output directory
         let cache_dir = output_dir.as_ref().join("cache");
         file_system::create_parent_dir(&cache_dir)?;
-        let cache = VideoCache::new(cache_dir, None)?;
+        let cache = VideoCache::new(cache_dir.clone(), None)?;
+        let download_cache = DownloadCache::new(cache_dir, None)?;
 
         Ok(Self {
             libraries,
@@ -120,6 +123,7 @@ impl Youtube {
             args: Vec::new(),
             timeout: Duration::from_secs(30),
             cache: Some(Arc::new(cache)),
+            download_cache: Some(Arc::new(download_cache)),
         })
     }
 
@@ -430,12 +434,11 @@ impl Youtube {
     /// # let libraries = Libraries::new(youtube, ffmpeg);
     /// let mut fetcher = Youtube::new(libraries, output_dir)?;
     ///
-    /// // Enable caching with default TTL (24 hours)
+    /// // Enable video metadata caching
     /// fetcher.with_cache(PathBuf::from("cache"), None)?;
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn with_cache(
         &mut self,
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -444,8 +447,52 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Enabling video metadata cache");
 
-        let cache = VideoCache::new(cache_dir, ttl)?;
+        let cache = VideoCache::new(cache_dir.as_ref(), ttl)?;
         self.cache = Some(Arc::new(cache));
+        Ok(self)
+    }
+
+    /// Enables caching of downloaded files.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - The directory where to store the cache.
+    /// * `ttl` - The time-to-live for cache entries in seconds (default: 7 days).
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the cache directory could not be created.
+    ///
+    /// # Examples
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// let mut fetcher = Youtube::new(libraries, output_dir)?;
+    ///
+    /// // Enable downloaded files caching
+    /// fetcher.with_download_cache(PathBuf::from("cache"), None)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_download_cache(
+        &mut self,
+        cache_dir: impl AsRef<Path> + std::fmt::Debug,
+        ttl: Option<u64>,
+    ) -> Result<&mut Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Enabling downloaded files cache");
+
+        let download_cache = DownloadCache::new(cache_dir.as_ref(), ttl)?;
+        self.download_cache = Some(Arc::new(download_cache));
         Ok(self)
     }
 }

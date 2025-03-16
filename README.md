@@ -338,12 +338,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## 💡Features coming soon
 - [ ] Common traits on all structs
-- [ ] Cache system for fetched data (downloaded files with metadata, hash and format stored in a database)
 - [ ] Metadata and tags on downloaded files
 - [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for ```yt-dlp``` and ```reqwest```
 - [ ] Resuming downloads with HTTP Range requests
-- [ ] Downloading only a part of a video or audio
+- [ ] Downloading only a part of a video or audio (with time or chapter)
 - [ ] Audio and video format selection with enums
 - [ ] Post-processing options with ```ffmpeg```
 - [ ] Live streams serving, through a local server

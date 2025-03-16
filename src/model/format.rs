@@ -52,6 +52,12 @@ pub struct Format {
     /// All the rates-related information.
     #[serde(flatten)]
     pub rates_info: RatesInfo,
+
+    /// The ID of the video this format belongs to.
+    /// This field is not part of the yt-dlp output, but is added by the library
+    /// to associate formats with their videos for caching purposes.
+    #[serde(skip)]
+    pub video_id: Option<String>,
 }
 
 impl Format {

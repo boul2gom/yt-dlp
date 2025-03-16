@@ -56,6 +56,9 @@ pub enum Error {
     /// An error occurred due to incompatible format.
     #[error("Format {0} is not compatible: {1}")]
     IncompatibleFormat(String, String),
+    /// An error occurred due to missing thumbnail.
+    #[error("No thumbnail available for video")]
+    MissingThumbnail,
 
     /// An unknown error occurred.
     #[error("An unknown error occurred: {0}")]
