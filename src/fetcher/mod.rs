@@ -424,7 +424,7 @@ impl Fetcher {
         let segment_size = self.segment_size as u64;
 
         // Calculate the total number of segments needed
-        let total_segments = (file_size + segment_size - 1) / segment_size;
+        let total_segments = file_size.div_ceil(segment_size);
 
         // Limit the number of segments based on file size
         let file_size_mb = file_size / (1024 * 1024);
