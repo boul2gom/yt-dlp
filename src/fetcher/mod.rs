@@ -219,7 +219,7 @@ impl Fetcher {
                                 );
                                 // Consume the error
                                 let _ = error;
-                                
+
                                 // Wait a bit before retrying (exponential backoff)
                                 tokio::time::sleep(tokio::time::Duration::from_millis(
                                     250 * 2u64.pow(attempt as u32),
