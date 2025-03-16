@@ -80,8 +80,10 @@ jobs:
                 commit.author?.login === 'dependabot[bot]' &&
                 commit.commit.author.email.includes('dependabot[bot]')
               
-              const has_bump_message = 
-                commit.commit.message.includes('Bump ') && 
+              const has_bump_message = commit.commit.message.includes('Bump ');
+              
+              // Standard format or alternative format
+              const is_standard_format = 
                 commit.commit.message.includes(' from ') && 
                 commit.commit.message.includes(' to ');
 
@@ -95,8 +97,33 @@ jobs:
               merged_commits.forEach(commit => {
                 const message = commit.commit.message.split('\n')[0];
                 console.log(`- ${message}`);
-                const [package_name, versions] = message.match(/Bump (.*?) from (.*?) to (.*?)( |$)/).slice(1);
-                console.log(`  Package: ${package_name}`);
+                
+                // Check if the message matches the standard Dependabot format
+                const regex_match = message.match(/Bump (.*?) from (.*?) to (.*?)( |$)/);
+                
+                if (regex_match) {
+                  const [package_name, from_version, to_version] = regex_match.slice(1);
+                  console.log(`  Package: ${package_name}`);
+                  console.log(`  Version: ${from_version} → ${to_version}`);
+                } else {
+                  // Alternative or custom format
+                  let package_name = "Unknown package";
+                  
+                  // Format: 🔌 [Github Actions] Bump SonarSource/sonarcloud-github-action (#25)
+                  const github_actions_match = message.match(/\[Github Actions\] Bump ([^\s(]+)/);
+                  if (github_actions_match) {
+                    package_name = github_actions_match[1];
+                  } else {
+                    // Alternative standard format: Bump package-name
+                    const standard_match = message.match(/Bump ([^\s(]+)/);
+                    if (standard_match) {
+                      package_name = standard_match[1];
+                    }
+                  }
+                  
+                  console.log(`  Package: ${package_name}`);
+                }
+                
                 console.log(`  Date: ${new Date(commit.commit.author.date).toISOString()}`);
               });
             } else {
