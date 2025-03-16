@@ -3,9 +3,9 @@
 use crate::error::Error;
 use crate::executor::Executor;
 use crate::fetcher::Fetcher;
-use crate::model::format::Format;
 use crate::model::Video;
-use crate::{utils, Youtube};
+use crate::model::format::Format;
+use crate::{Youtube, utils};
 use derive_more::Display;
 use std::path::PathBuf;
 

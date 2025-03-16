@@ -1,8 +1,8 @@
 //! Fetch the latest release of 'yt-dlp' from a GitHub repository.
 
 use crate::error::{Error, Result};
-use crate::fetcher::deps::{Asset, Release, WantedRelease};
 use crate::fetcher::Fetcher;
+use crate::fetcher::deps::{Asset, Release, WantedRelease};
 use crate::utils::platform::Architecture;
 use crate::utils::platform::Platform;
 use derive_more::Display;

@@ -65,10 +65,6 @@ where
 #[macro_export]
 macro_rules! ternary {
     ($condition:expr, $true:expr, $false:expr) => {
-        if $condition {
-            $true
-        } else {
-            $false
-        }
+        if $condition { $true } else { $false }
     };
 }

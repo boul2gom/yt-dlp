@@ -1,10 +1,10 @@
 //! Tools for fetching thumbnails from YouTube.
 
+use crate::Youtube;
 use crate::error::Error;
 use crate::fetcher::Fetcher;
-use crate::model::thumbnail::Thumbnail;
 use crate::model::Video;
-use crate::Youtube;
+use crate::model::thumbnail::Thumbnail;
 use std::fmt::Display;
 use std::path::PathBuf;
 

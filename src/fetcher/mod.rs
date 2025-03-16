@@ -8,12 +8,12 @@
 use crate::error::{Error, Result};
 use crate::utils::file_system;
 use derive_more::Display;
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
 use std::cmp::min;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 

@@ -4,10 +4,10 @@
 //! to avoid making repeated requests for the same videos and re-downloading the same files.
 
 use crate::error::Result;
+use crate::model::Video;
 use crate::model::format::Format;
 use crate::model::thumbnail::Thumbnail;
-use crate::model::Video;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
