@@ -1,21 +1,117 @@
-name: Github CI - Automatic biweekly release
+name: Github CI - Automatic weekly release
 
 on:
   schedule:
-    - cron: '0 0 1,15 * *'
+    - cron: '0 0 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  check_updates:
+    name: ✅ Check Dependabot update commits
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      has_updates: ${{ steps.check_commits.outputs.has_updates }}
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 100
+
+      - name: 🔍 Check for unreleased Dependabot commits
+        id: check_commits
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 1
+            });
+
+            let last_tag_date = new Date(0);
+            try {
+              const tags = await github.rest.repos.listTags({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 1
+              });
+
+              if (tags.data.length > 0) {
+                const last_tag = tags.data[0];
+                const tag_commit = await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: last_tag.commit.sha
+                });
+                last_tag_date = new Date(tag_commit.data.commit.committer.date);
+                console.log(`🏷️ Last tag found: ${last_tag.name}`);
+                console.log(`🏷️ Last tag date: ${last_tag_date.toISOString()}`);
+              } else {
+                console.log('No tags found');
+              }
+            } catch (error) {
+              console.log('Error while fetching tags:', error.message);
+            }
+
+            const last_release = releases.data[0];
+            const last_release_date = last_release ? new Date(last_release.created_at) : new Date(0);
+            const reference_date = new Date(Math.max(last_release_date.getTime(), last_tag_date.getTime()));
+
+            console.log(`📅 Reference date: ${reference_date.toISOString()}`);
+            console.log(`  - Last release: ${last_release_date.toISOString()}`);
+            console.log(`  - Last tag: ${last_tag_date.toISOString()}`);
+
+            console.log('🔍 Fetching commits since last tag/release...');
+            const commits = await github.rest.repos.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              since: reference_date.toISOString()
+            });
+
+            const merged_commits = commits.data.filter(commit => {
+              const is_dependabot = 
+                commit.author?.login === 'dependabot[bot]' &&
+                commit.commit.author.email.includes('dependabot[bot]')
+              
+              const has_bump_message = 
+                commit.commit.message.includes('Bump ') && 
+                commit.commit.message.includes(' from ') && 
+                commit.commit.message.includes(' to ');
+
+              return is_dependabot && has_bump_message;
+            });
+
+            const has_unreleased_updates = merged_commits.length > 0;
+
+            if (has_unreleased_updates) {
+              console.log('📦 Found unreleased Dependabot updates:');
+              merged_commits.forEach(commit => {
+                const message = commit.commit.message.split('\n')[0];
+                console.log(`- ${message}`);
+                const [package_name, versions] = message.match(/Bump (.*?) from (.*?) to (.*?)( |$)/).slice(1);
+                console.log(`  Package: ${package_name}`);
+                console.log(`  Date: ${new Date(commit.commit.author.date).toISOString()}`);
+              });
+            } else {
+              console.log('✨ No unreleased Dependabot updates found');
+            }
+
+            core.setOutput("has_updates", has_unreleased_updates.toString());
+
   check_status:
     name: ✅ Check Github CI - Development status
     runs-on: ubuntu-latest
     permissions:
       actions: read
     outputs:
-      ci_success: ${{ steps.check_status.outputs.ci_success }}
+      ci_success: ${{ steps.check_ci.outputs.ci_success }}
     steps:
       - name: 🔍 Check if last CI run was successful
         id: check_ci
@@ -35,8 +131,8 @@ jobs:
 
   create_release:
     name: 🔖 Create a new release
-    needs: check_status
-    if: ${{ needs.check_status.outputs.ci_success == 'true' }}
+    needs: [check_updates, check_status]
+    if: ${{ needs.check_status.outputs.ci_success == 'true' && needs.check_updates.outputs.has_updates == 'true' }}
 
     runs-on: ubuntu-latest
     permissions:
