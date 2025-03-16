@@ -25,6 +25,9 @@ pub enum Error {
     /// An error occurred while parsing JSON.
     #[error("An error occurred while parsing JSON: {0}")]
     Serde(#[from] serde_json::Error),
+    /// An error occurred while interacting with the SQLite database.
+    #[error("An error occurred while interacting with the database: {0}")]
+    Database(#[from] rusqlite::Error),
 
     /// An error occurred while interacting with GitHub.
     #[error("No GitHub asset found for platform {0}/{1}")]

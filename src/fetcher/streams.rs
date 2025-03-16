@@ -46,6 +46,16 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching video information for {}", url);
 
+        // Check if the video is in the cache
+        if let Some(cache) = &self.cache {
+            if let Some(video) = cache.get(&url) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using cached video information for {}", url);
+                return Ok(video);
+            }
+        }
+
+        // If the video is not in the cache, retrieve it from YouTube
         let download_args = vec!["--no-progress", "--dump-json", &url];
 
         let mut final_args = self.args.clone();
@@ -59,6 +69,17 @@ impl Youtube {
 
         let output = executor.execute().await?;
         let video: Video = serde_json::from_str(&output.stdout).map_err(Error::Serde)?;
+
+        // Put the video in the cache if caching is enabled
+        if let Some(cache) = &self.cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching video information for {}", url);
+
+            if let Err(_e) = cache.put(url.clone(), video.clone()) {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache video information: {}", _e);
+            }
+        }
 
         Ok(video)
     }

@@ -49,15 +49,19 @@ impl GitHubFetcher {
         }
     }
 
-    /// Fetch the latest release of the GitHub repository, and select the correct asset for the current platform and architecture.
+    /// Fetch the latest release for the current platform.
     ///
     /// # Arguments
     ///
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the release could not be fetched or if no asset was found for the current platform.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_release(&self, auth_token: Option<String>) -> Result<WantedRelease> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching latest release for {}/{}", self.owner, self.repo);
+        tracing::debug!("Fetching latest release from {}/{}", self.owner, self.repo);
 
         let platform = Platform::detect();
         let architecture = Architecture::detect();
@@ -66,13 +70,17 @@ impl GitHubFetcher {
             .await
     }
 
-    /// Fetch the latest release of the GitHub repository, and select the correct asset for the given platform and architecture.
+    /// Fetch the latest release for the given platform.
     ///
     /// # Arguments
     ///
     /// * `platform` - The platform to fetch the release for.
     /// * `architecture` - The architecture to fetch the release for.
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the release could not be fetched or if no asset was found for the given platform.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_release_for_platform(
         &self,
@@ -90,13 +98,12 @@ impl GitHubFetcher {
         );
 
         let release = self.fetch_latest_release(auth_token).await?;
-
         let asset = Self::select_asset(&platform, &architecture, &release)
             .ok_or(Error::Github(platform, architecture))?;
 
         Ok(WantedRelease {
-            asset_name: asset.name.clone(),
-            asset_url: asset.download_url.clone(),
+            name: asset.name.clone(),
+            url: asset.download_url.clone(),
         })
     }
 

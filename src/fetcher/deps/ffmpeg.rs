@@ -108,8 +108,8 @@ impl BuildFetcher {
             .ok_or(Error::Binary(platform, architecture))?;
 
         Ok(WantedRelease {
-            asset_name: asset.name.clone(),
-            asset_url: asset.download_url.clone(),
+            url: asset.download_url.clone(),
+            name: asset.name.clone(),
         })
     }
 

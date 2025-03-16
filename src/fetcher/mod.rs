@@ -12,6 +12,7 @@ use futures_util::{stream, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
 use std::cmp::min;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
@@ -20,9 +21,17 @@ pub mod deps;
 pub mod streams;
 pub mod thumbnail;
 
+/// Context for segment download operations
+struct SegmentContext {
+    file: Arc<Mutex<tokio::fs::File>>,
+    downloaded_bytes: Arc<std::sync::atomic::AtomicU64>,
+    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    total_bytes: u64,
+}
+
 /// The fetcher is responsible for downloading data from a URL.
 /// This optimized implementation uses parallel downloads and download resumption.
-#[derive(Debug, Display)]
+#[derive(Display)]
 #[display("Fetcher: {}", url)]
 pub struct Fetcher {
     /// The URL from which to download the data.
@@ -34,6 +43,9 @@ pub struct Fetcher {
     segment_size: usize,
     /// The number of download attempts in case of failure.
     retry_attempts: usize,
+    /// Callback optionnal for tracking download progress
+    #[allow(clippy::type_complexity)]
+    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
 }
 
 impl Fetcher {
@@ -45,9 +57,10 @@ impl Fetcher {
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
             url: url.as_ref().to_string(),
-            parallel_segments: 1,          // By default, sequential download
+            parallel_segments: 4,          // 4 parallel segments by default
             segment_size: 1024 * 1024 * 5, // 5 MB per segment by default
             retry_attempts: 3,
+            progress_callback: None,
         }
     }
 
@@ -78,6 +91,19 @@ impl Fetcher {
     /// * `attempts` - The number of attempts.
     pub fn with_retry_attempts(mut self, attempts: usize) -> Self {
         self.retry_attempts = attempts;
+        self
+    }
+
+    /// Configure a callback for tracking download progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A function that will be called with the downloaded size and total size.
+    pub fn with_progress_callback<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        self.progress_callback = Some(Arc::new(callback));
         self
     }
 
@@ -142,10 +168,16 @@ impl Fetcher {
             }
         }
 
-        // If only one segment is requested, use the simple method
-        if self.parallel_segments <= 1 {
-            return self.fetch_asset_simple(destination).await;
-        }
+        // Check if the file exists and if we can resume the download
+        let file_exists = destination.as_ref().exists();
+        let file_size = if file_exists {
+            match tokio::fs::metadata(destination.as_ref()).await {
+                Ok(metadata) => Some(metadata.len()),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
 
         // Check if the server supports range requests
         let client = reqwest::Client::new();
@@ -175,6 +207,15 @@ impl Fetcher {
             }
         };
 
+        // If the file exists and has the same size, it is already downloaded
+        if let Some(size) = file_size {
+            if size == content_length {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("File already exists with correct size, skipping download");
+                return Ok(());
+            }
+        }
+
         // Create the destination file
         file_system::create_parent_dir(&destination)?;
         let file = file_system::create_file(&destination).await?;
@@ -183,6 +224,13 @@ impl Fetcher {
 
         // Create a mutex to share the file between tasks
         let file = Arc::new(Mutex::new(file));
+
+        // Calculate the optimal number of parallel segments based on file size
+        let optimal_segments = self.calculate_optimal_segments(content_length);
+        let parallel_segments = min(self.parallel_segments, optimal_segments);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Using {} parallel segments for download", parallel_segments);
 
         // Calculate ranges for each segment
         let segment_size = self.segment_size as u64;
@@ -195,18 +243,34 @@ impl Fetcher {
         }
 
         // Limit the number of parallel tasks
-        let parallel_count = min(self.parallel_segments, ranges.len());
+        let parallel_count = min(parallel_segments, ranges.len());
+
+        // Create an atomic counter to track progress
+        let downloaded_bytes = Arc::new(AtomicU64::new(0));
+        let total_bytes = content_length;
 
         // Create a stream of futures to download each segment
         let results = stream::iter(ranges)
             .map(|(start, end)| {
                 let url = self.url.clone();
                 let file_clone = Arc::clone(&file);
+                let downloaded_bytes_clone = Arc::clone(&downloaded_bytes);
+                let progress_callback = self.progress_callback.as_ref().map(Arc::clone);
 
                 async move {
                     for attempt in 0..self.retry_attempts {
                         match self
-                            .download_segment(&url, start, end, file_clone.clone())
+                            .download_segment(
+                                &url,
+                                start,
+                                end,
+                                &SegmentContext {
+                                    file: Arc::clone(&file_clone),
+                                    downloaded_bytes: Arc::clone(&downloaded_bytes_clone),
+                                    progress_callback: progress_callback.clone(),
+                                    total_bytes,
+                                },
+                            )
                             .await
                         {
                             Ok(_) => return Ok(()),
@@ -247,7 +311,24 @@ impl Fetcher {
             result?;
         }
 
+        // Call the callback one last time to indicate that the download is complete
+        if let Some(callback) = &self.progress_callback {
+            callback(total_bytes, total_bytes);
+        }
+
         Ok(())
+    }
+
+    /// Calculate the optimal number of parallel segments based on file size
+    fn calculate_optimal_segments(&self, file_size: u64) -> usize {
+        // For small files, use fewer segments
+        match file_size {
+            size if size < 1024 * 1024 * 10 => 1,  // Less than 10 MB
+            size if size < 1024 * 1024 * 50 => 2,  // Less than 50 MB
+            size if size < 1024 * 1024 * 100 => 4, // Less than 100 MB
+            size if size < 1024 * 1024 * 500 => 8, // Less than 500 MB
+            _ => 16,                               // More than 500 MB
+        }
     }
 
     /// Downloads a specific segment of the file.
@@ -256,7 +337,7 @@ impl Fetcher {
         url: &str,
         start: u64,
         end: u64,
-        file: Arc<Mutex<tokio::fs::File>>,
+        context: &SegmentContext,
     ) -> Result<()> {
         let client = reqwest::Client::new();
 
@@ -275,9 +356,21 @@ impl Fetcher {
         let data = response.bytes().await?;
 
         // Acquire the mutex and write the data at the correct position
-        let mut file_guard = file.lock().await;
+        let mut file_guard = context.file.lock().await;
         file_guard.seek(std::io::SeekFrom::Start(start)).await?;
         file_guard.write_all(&data).await?;
+
+        // Update the progress counter
+        let segment_size = data.len() as u64;
+        let new_total = context
+            .downloaded_bytes
+            .fetch_add(segment_size, Ordering::SeqCst)
+            + segment_size;
+
+        // Call the progress callback if available
+        if let Some(callback) = &context.progress_callback {
+            callback(new_total, context.total_bytes);
+        }
 
         Ok(())
     }

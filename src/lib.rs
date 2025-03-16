@@ -4,10 +4,13 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::fetcher::deps::{Libraries, LibraryInstaller};
 use crate::utils::file_system;
+use cache::VideoCache;
 use derive_more::Display;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+pub mod cache;
 pub mod error;
 pub mod executor;
 pub mod fetcher;
@@ -60,6 +63,8 @@ pub struct Youtube {
     pub args: Vec<String>,
     /// The timeout for command execution.
     pub timeout: Duration,
+    /// The cache for video metadata.
+    pub cache: Option<Arc<cache::VideoCache>>,
 }
 
 impl Youtube {
@@ -104,12 +109,17 @@ impl Youtube {
 
         file_system::create_parent_dir(&output_dir)?;
 
+        // Initialize cache in the output directory
+        let cache_dir = output_dir.as_ref().join("cache");
+        file_system::create_parent_dir(&cache_dir)?;
+        let cache = VideoCache::new(cache_dir, None)?;
+
         Ok(Self {
             libraries,
-
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
             timeout: Duration::from_secs(30),
+            cache: Some(Arc::new(cache)),
         })
     }
 
@@ -150,7 +160,7 @@ impl Youtube {
 
         let installer = LibraryInstaller::new(executables_dir.as_ref().to_path_buf());
 
-        // Vérifier si les binaires existent déjà
+        // Check if binaries already exist
         let youtube_path = executables_dir
             .as_ref()
             .join(utils::find_executable("yt-dlp"));
@@ -392,5 +402,50 @@ impl Youtube {
 
         executor.execute().await?;
         Ok(output_path)
+    }
+
+    /// Enables caching of video metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - The directory where to store the cache.
+    /// * `ttl` - The time-to-live for cache entries in seconds (default: 24 hours).
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the cache directory could not be created.
+    ///
+    /// # Examples
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// let mut fetcher = Youtube::new(libraries, output_dir)?;
+    ///
+    /// // Enable caching with default TTL (24 hours)
+    /// fetcher.with_cache(PathBuf::from("cache"), None)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    pub fn with_cache(
+        &mut self,
+        cache_dir: impl AsRef<Path> + std::fmt::Debug,
+        ttl: Option<u64>,
+    ) -> Result<&mut Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Enabling video metadata cache");
+
+        let cache = VideoCache::new(cache_dir, ttl)?;
+        self.cache = Some(Arc::new(cache));
+        Ok(self)
     }
 }

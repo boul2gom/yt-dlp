@@ -203,14 +203,14 @@ pub struct Asset {
     pub download_url: String,
 }
 
-/// A wanted release, for the current platform and architecture.
+/// A release that has been selected for the current platform.
 #[derive(Debug, Display)]
-#[display("WantedRelease: asset={}, url={};", asset_name, asset_url)]
+#[display("WantedRelease: asset={}, url={};", name, url)]
 pub struct WantedRelease {
-    /// The name of the asset.
-    pub asset_name: String,
-    /// The URL of the asset.
-    pub asset_url: String,
+    /// The URL of the release asset.
+    pub url: String,
+    /// The name of the release asset.
+    pub name: String,
 }
 
 impl WantedRelease {
@@ -245,11 +245,11 @@ impl WantedRelease {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading asset from {} to {}",
-            self.asset_url,
+            self.url,
             destination.as_ref().display()
         );
 
-        let fetcher = Fetcher::new(&self.asset_url);
+        let fetcher = Fetcher::new(&self.url);
         fetcher.fetch_asset(destination).await
     }
 }
