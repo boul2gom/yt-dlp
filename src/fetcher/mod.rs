@@ -210,20 +210,23 @@ impl Fetcher {
                             .await
                         {
                             Ok(_) => return Ok(()),
-                            Err(e) if attempt < self.retry_attempts - 1 => {
+                            Err(error) if attempt < self.retry_attempts - 1 => {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!(
                                     "Segment download failed (attempt {}): {}",
                                     attempt + 1,
-                                    e
+                                    error
                                 );
+                                // Consume the error
+                                let _ = error;
+                                
                                 // Wait a bit before retrying (exponential backoff)
                                 tokio::time::sleep(tokio::time::Duration::from_millis(
                                     250 * 2u64.pow(attempt as u32),
                                 ))
                                 .await;
                             }
-                            Err(e) => return Err(e),
+                            Err(error) => return Err(error),
                         }
                     }
 
