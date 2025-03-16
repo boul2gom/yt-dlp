@@ -14,10 +14,11 @@ use std::cmp::min;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 pub mod deps;
+pub mod download_manager;
 pub mod streams;
 pub mod thumbnail;
 
@@ -216,11 +217,32 @@ impl Fetcher {
             }
         }
 
-        // Create the destination file
-        file_system::create_parent_dir(&destination)?;
-        let file = file_system::create_file(&destination).await?;
-        // Resize the file to the total size
-        file.set_len(content_length).await?;
+        // Create or open the destination file
+        let file = if file_exists && file_size.is_some() {
+            // Open existing file for resuming download
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Resuming download of existing file");
+
+            let file = tokio::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(destination.as_ref())
+                .await?;
+
+            // Ensure the file is the correct size
+            file.set_len(content_length).await?;
+            file
+        } else {
+            // Create a new file
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Creating new file for download");
+
+            file_system::create_parent_dir(&destination)?;
+            let file = file_system::create_file(&destination).await?;
+            // Resize the file to the total size
+            file.set_len(content_length).await?;
+            file
+        };
 
         // Create a mutex to share the file between tasks
         let file = Arc::new(Mutex::new(file));
@@ -242,20 +264,74 @@ impl Fetcher {
             ranges.push((start, end));
         }
 
+        // Create a temporary file to track downloaded segments
+        let temp_file_path = format!("{}.parts", destination.as_ref().display());
+        let downloaded_segments = if file_exists && std::path::Path::new(&temp_file_path).exists() {
+            // Read the downloaded segments from the temporary file
+            match tokio::fs::read_to_string(&temp_file_path).await {
+                Ok(content) => {
+                    let mut downloaded = vec![false; ranges.len()];
+                    for line in content.lines() {
+                        if let Ok(index) = line.parse::<usize>() {
+                            if index < downloaded.len() {
+                                downloaded[index] = true;
+                            }
+                        }
+                    }
+                    downloaded
+                }
+                Err(_) => vec![false; ranges.len()],
+            }
+        } else {
+            vec![false; ranges.len()]
+        };
+
+        // Filter out already downloaded segments
+        let ranges_to_download: Vec<(usize, (u64, u64))> = ranges
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !downloaded_segments[*i])
+            .map(|(i, &range)| (i, range))
+            .collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Resuming download: {} of {} segments already downloaded",
+            downloaded_segments.iter().filter(|&&x| x).count(),
+            ranges.len()
+        );
+
         // Limit the number of parallel tasks
-        let parallel_count = min(parallel_segments, ranges.len());
+        let parallel_count = min(parallel_segments, ranges_to_download.len());
 
         // Create an atomic counter to track progress
-        let downloaded_bytes = Arc::new(AtomicU64::new(0));
+        let downloaded_bytes = Arc::new(AtomicU64::new(
+            // Start with the sum of already downloaded segments
+            downloaded_segments
+                .iter()
+                .enumerate()
+                .filter(|(_, &downloaded)| downloaded)
+                .map(|(i, _)| {
+                    let (start, end) = ranges[i];
+                    end - start + 1
+                })
+                .sum(),
+        ));
         let total_bytes = content_length;
 
+        // Create a temporary file to track downloaded segments
+        let temp_file_path_clone = temp_file_path.clone();
+        let downloaded_segments = Arc::new(Mutex::new(downloaded_segments));
+
         // Create a stream of futures to download each segment
-        let results = stream::iter(ranges)
-            .map(|(start, end)| {
+        let results = stream::iter(ranges_to_download)
+            .map(|(segment_index, (start, end))| {
                 let url = self.url.clone();
                 let file_clone = Arc::clone(&file);
                 let downloaded_bytes_clone = Arc::clone(&downloaded_bytes);
                 let progress_callback = self.progress_callback.as_ref().map(Arc::clone);
+                let downloaded_segments_clone = Arc::clone(&downloaded_segments);
+                let temp_file_path = temp_file_path_clone.clone();
 
                 async move {
                     for attempt in 0..self.retry_attempts {
@@ -273,7 +349,26 @@ impl Fetcher {
                             )
                             .await
                         {
-                            Ok(_) => return Ok(()),
+                            Ok(_) => {
+                                // Mark the segment as downloaded
+                                let mut segments = downloaded_segments_clone.lock().await;
+                                segments[segment_index] = true;
+
+                                // Update the temporary file
+                                if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                                    .create(true)
+                                    .write(true)
+                                    .append(true)
+                                    .open(&temp_file_path)
+                                    .await
+                                {
+                                    let _ = file
+                                        .write_all(format!("{}\n", segment_index).as_bytes())
+                                        .await;
+                                }
+
+                                return Ok(());
+                            }
                             Err(error) if attempt < self.retry_attempts - 1 => {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!(
@@ -316,19 +411,37 @@ impl Fetcher {
             callback(total_bytes, total_bytes);
         }
 
+        // Remove the temporary file
+        let _ = tokio::fs::remove_file(temp_file_path).await;
+
         Ok(())
     }
 
     /// Calculate the optimal number of parallel segments based on file size
     fn calculate_optimal_segments(&self, file_size: u64) -> usize {
-        // For small files, use fewer segments
-        match file_size {
-            size if size < 1024 * 1024 * 10 => 1,  // Less than 10 MB
-            size if size < 1024 * 1024 * 50 => 2,  // Less than 50 MB
-            size if size < 1024 * 1024 * 100 => 4, // Less than 100 MB
-            size if size < 1024 * 1024 * 500 => 8, // Less than 500 MB
-            _ => 16,                               // More than 500 MB
-        }
+        // Dynamic adjustment of the number of segments based on file size
+        // and segment size
+        let segment_size = self.segment_size as u64;
+
+        // Calculate the total number of segments needed
+        let total_segments = (file_size + segment_size - 1) / segment_size;
+
+        // Limit the number of segments based on file size
+        let file_size_mb = file_size / (1024 * 1024);
+
+        // Determine the maximum number of parallel segments based on file size
+        let max_parallel_segments = match file_size_mb {
+            size if size < 10 => 1,    // Less than 10 MB
+            size if size < 50 => 2,    // Less than 50 MB
+            size if size < 100 => 4,   // Less than 100 MB
+            size if size < 500 => 8,   // Less than 500 MB
+            size if size < 1000 => 12, // Less than 1 GB
+            size if size < 2000 => 16, // Less than 2 GB
+            _ => 24,                   // More than 2 GB
+        };
+
+        // Take the minimum between total segments and maximum parallel segments
+        std::cmp::min(total_segments as usize, max_parallel_segments)
     }
 
     /// Downloads a specific segment of the file.
@@ -340,6 +453,30 @@ impl Fetcher {
         context: &SegmentContext,
     ) -> Result<()> {
         let client = reqwest::Client::new();
+
+        // Check if the segment is already downloaded by reading the file
+        let mut file_guard = context.file.lock().await;
+        file_guard.seek(std::io::SeekFrom::Start(start)).await?;
+
+        // Read a small sample to check if the segment is already downloaded
+        // This is a heuristic and not 100% reliable, but it's fast
+        let mut buffer = vec![0; 1024.min((end - start + 1) as usize)];
+        let bytes_read = file_guard.read(&mut buffer).await?;
+
+        // If we read some data and it's not all zeros, assume the segment is already downloaded
+        let is_segment_empty = bytes_read == 0 || buffer.iter().all(|&b| b == 0);
+
+        // Release the file lock before making HTTP request
+        drop(file_guard);
+
+        if !is_segment_empty {
+            // We don't update the downloaded_bytes counter here because it was already
+            // initialized with the sum of already downloaded segments
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Segment {}-{} already downloaded, skipping", start, end);
+
+            return Ok(());
+        }
 
         // Create the Range header
         let range_header = format!("bytes={}-{}", start, end);
@@ -390,26 +527,109 @@ impl Fetcher {
             }
         }
 
+        // Check if the file exists and get its size
+        let file_exists = destination.as_ref().exists();
+        let file_size = if file_exists {
+            match tokio::fs::metadata(destination.as_ref()).await {
+                Ok(metadata) => Some(metadata.len()),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         // Create a client with a longer timeout
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()?;
 
-        let response = client.get(&self.url)
-            .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-            .send()
-            .await?
-            .error_for_status()?;
+        // If the file exists, try to resume the download
+        let mut request = client.get(&self.url);
 
-        let mut dest = file_system::create_file(&destination).await?;
+        // Add Range header if the file exists and has some content
+        if let Some(size) = file_size {
+            if size > 0 {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Resuming download from byte {}", size);
+
+                request = request.header(RANGE, format!("bytes={}-", size));
+            }
+        }
+
+        // Add User-Agent header
+        request = request.header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+
+        // Send the request
+        let response = request.send().await?;
+
+        // Check if the server accepted our range request
+        let status = response.status();
+        let is_partial_content = status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let is_ok = status == reqwest::StatusCode::OK;
+
+        // Ensure the response is valid
+        if !is_partial_content && !is_ok {
+            return Err(Error::Unknown(format!(
+                "Unexpected status code: {}",
+                status
+            )));
+        }
+
+        // Ensure the response is successful
+        let response = response.error_for_status()?;
+
+        // Get content length before checking if we need to resume
+        let content_length = response.content_length();
+
+        // If we got a 200 OK instead of 206 Partial Content, the server doesn't support range requests
+        // In this case, we need to start the download from the beginning
+        let append_mode = is_partial_content && file_size.is_some() && file_size.unwrap() > 0;
+
+        // Open the file in the appropriate mode
+        let mut dest = if append_mode {
+            tokio::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(&destination)
+                .await?
+        } else {
+            file_system::create_file(&destination).await?
+        };
+
         let mut stream = response.bytes_stream();
 
         // Use a larger buffer to improve performance
         let mut buffer = Vec::with_capacity(1024 * 1024); // 1 MB buffer
 
+        // Track progress for callback
+        let mut downloaded_bytes = if append_mode {
+            file_size.unwrap_or(0)
+        } else {
+            0
+        };
+
+        // Get total size if available
+        let total_bytes = if let Some(length) = content_length {
+            if append_mode {
+                length + file_size.unwrap_or(0)
+            } else {
+                length
+            }
+        } else {
+            0 // Unknown size
+        };
+
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             buffer.extend_from_slice(&chunk);
+
+            // Update progress
+            downloaded_bytes += chunk.len() as u64;
+
+            // Call progress callback if available
+            if let Some(callback) = &self.progress_callback {
+                callback(downloaded_bytes, total_bytes);
+            }
 
             // Write the buffer when it reaches a certain size
             if buffer.len() >= 1024 * 1024 {

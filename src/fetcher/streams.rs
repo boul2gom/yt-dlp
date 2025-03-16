@@ -200,7 +200,7 @@ impl Youtube {
             .best_audio_format()
             .ok_or(Error::MissingFormat("audio".to_string()))?;
 
-        // Créer des noms temporaires pour les fichiers audio et vidéo
+        // Create temporary names for audio and video files
         let audio_name = format!("temp_audio_{}.m4a", video.id);
         let video_name = format!("temp_video_{}.mp4", video.id);
 
@@ -214,7 +214,7 @@ impl Youtube {
         let _audio_path = audio_result?;
         let _video_path = video_result?;
 
-        // Combiner les flux audio et vidéo
+        // Combine audio and video streams
         let output_path = self
             .combine_audio_and_video(&audio_name, &video_name, output.as_ref())
             .await?;

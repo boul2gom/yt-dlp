@@ -330,6 +330,133 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+- 📥 Download with download manager and priority:
+```rust
+use yt_dlp::Youtube;
+use yt_dlp::fetcher::download_manager::{ManagerConfig, DownloadPriority};
+use std::path::PathBuf;
+use yt_dlp::fetcher::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Custom download manager configuration
+    let config = ManagerConfig {
+        max_concurrent_downloads: 5,        // Maximum 5 concurrent downloads
+        segment_size: 1024 * 1024 * 10,    // 10 MB per segment
+        parallel_segments: 8,               // 8 parallel segments per download
+        retry_attempts: 5,                  // 5 retry attempts on failure
+        max_buffer_size: 1024 * 1024 * 20, // 20 MB maximum buffer
+    };
+
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+    
+    let libraries = Libraries::new(youtube, ffmpeg);
+    
+    // Create a fetcher with custom configuration
+    let fetcher = Youtube::with_download_manager_config(libraries, output_dir, config)?;
+
+    // Download a video with high priority
+    let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    let video = fetcher.fetch_video_infos(url).await?;
+    
+    let download_id = fetcher.download_video_with_priority(
+        &video, 
+        "video-high-priority.mp4", 
+        Some(DownloadPriority::High)
+    ).await?;
+
+    // Wait for download completion
+    let status = fetcher.wait_for_download(download_id).await;
+    println!("Final download status: {:?}", status);
+    
+    Ok(())
+}
+```
+
+- 📊 Download with progress tracking:
+```rust
+use yt_dlp::Youtube;
+use std::path::PathBuf;
+use yt_dlp::fetcher::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+    
+    let libraries = Libraries::new(youtube, ffmpeg);
+    let fetcher = Youtube::new(libraries, output_dir)?;
+
+    let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    let video = fetcher.fetch_video_infos(url).await?;
+    
+    // Download with progress callback
+    let download_id = fetcher.download_video_with_progress(
+        &video, 
+        "video-with-progress.mp4", 
+        |downloaded, total| {
+            let percentage = if total > 0 {
+                (downloaded as f64 / total as f64 * 100.0) as u64
+            } else {
+                0
+            };
+            println!("Progress: {}/{} bytes ({}%)", downloaded, total, percentage);
+        }
+    ).await?;
+
+    // Wait for download completion
+    fetcher.wait_for_download(download_id).await;
+    
+    Ok(())
+}
+```
+
+- 🛑 Canceling a download:
+```rust
+use yt_dlp::Youtube;
+use std::path::PathBuf;
+use yt_dlp::fetcher::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+    
+    let libraries = Libraries::new(youtube, ffmpeg);
+    let fetcher = Youtube::new(libraries, output_dir)?;
+
+    let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    let video = fetcher.fetch_video_infos(url).await?;
+    
+    // Start a download
+    let download_id = fetcher.download_video_with_priority(
+        &video, 
+        "video-to-cancel.mp4", 
+        None
+    ).await?;
+
+    // Check status
+    let status = fetcher.get_download_status(download_id).await;
+    println!("Download status: {:?}", status);
+
+    // Cancel the download
+    let canceled = fetcher.cancel_download(download_id).await;
+    println!("Download canceled: {}", canceled);
+    
+    Ok(())
+}
+```
+
 ## 💡Support coming soon
 - [ ] Subtitles
 - [ ] Chapters
@@ -341,7 +468,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Metadata and tags on downloaded files
 - [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for ```yt-dlp``` and ```reqwest```
-- [ ] Resuming downloads with HTTP Range requests
 - [ ] Downloading only a part of a video or audio (with time or chapter)
 - [ ] Audio and video format selection with enums
 - [ ] Post-processing options with ```ffmpeg```
@@ -349,5 +475,4 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Live streams recording, with ```ffmpeg``` or ```reqwest```
 - [ ] Notifications and alerts on download events
 - [ ] Webhooks, Rust hooks and callbacks on download events, errors and progress
-- [ ] Scheduled downloads and downloads queue with priority and network limits
 - [ ] Statistics and analytics on downloads and fetches

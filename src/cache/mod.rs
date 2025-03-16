@@ -860,8 +860,8 @@ impl DownloadCache {
         #[cfg(feature = "tracing")]
         tracing::debug!("Removing file from cache: {}", file_hash);
 
-        // Récupérer le chemin relatif et supprimer l'entrée de la base de données dans un bloc
-        // pour libérer le MutexGuard avant d'appeler await
+        // Get the relative path and remove the database entry in a block
+        // to release the MutexGuard before calling await
         let relative_path = {
             let connection = self.connection.lock().unwrap();
 

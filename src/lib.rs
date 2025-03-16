@@ -3,6 +3,7 @@
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::fetcher::deps::{Libraries, LibraryInstaller};
+use crate::fetcher::download_manager::{DownloadManager, ManagerConfig};
 use crate::utils::file_system;
 use cache::{DownloadCache, VideoCache};
 use derive_more::Display;
@@ -67,6 +68,8 @@ pub struct Youtube {
     pub cache: Option<Arc<cache::VideoCache>>,
     /// The cache for downloaded files.
     pub download_cache: Option<Arc<cache::DownloadCache>>,
+    /// The download manager for managing parallel downloads.
+    pub download_manager: Arc<DownloadManager>,
 }
 
 impl Youtube {
@@ -117,6 +120,9 @@ impl Youtube {
         let cache = VideoCache::new(cache_dir.clone(), None)?;
         let download_cache = DownloadCache::new(cache_dir, None)?;
 
+        // Initialize download manager with default configuration
+        let download_manager = DownloadManager::new();
+
         Ok(Self {
             libraries,
             output_dir: output_dir.as_ref().to_path_buf(),
@@ -124,6 +130,49 @@ impl Youtube {
             timeout: Duration::from_secs(30),
             cache: Some(Arc::new(cache)),
             download_cache: Some(Arc::new(download_cache)),
+            download_manager: Arc::new(download_manager),
+        })
+    }
+
+    /// Creates a new YouTube fetcher with a custom download manager configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `libraries` - The required libraries.
+    /// * `output_dir` - The directory where the video will be downloaded.
+    /// * `download_manager_config` - The configuration for the download manager.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the parent directories of the executables and output directory could not be created.
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    pub fn with_download_manager_config(
+        libraries: Libraries,
+        output_dir: impl AsRef<Path> + std::fmt::Debug,
+        download_manager_config: ManagerConfig,
+    ) -> Result<Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating a new video fetcher with custom download manager config");
+
+        file_system::create_parent_dir(&output_dir)?;
+
+        // Initialize cache in the output directory
+        let cache_dir = output_dir.as_ref().join("cache");
+        file_system::create_parent_dir(&cache_dir)?;
+        let cache = VideoCache::new(cache_dir.clone(), None)?;
+        let download_cache = DownloadCache::new(cache_dir, None)?;
+
+        // Initialize download manager with custom configuration
+        let download_manager = DownloadManager::with_config(download_manager_config);
+
+        Ok(Self {
+            libraries,
+            output_dir: output_dir.as_ref().to_path_buf(),
+            args: Vec::new(),
+            timeout: Duration::from_secs(30),
+            cache: Some(Arc::new(cache)),
+            download_cache: Some(Arc::new(download_cache)),
+            download_manager: Arc::new(download_manager),
         })
     }
 
@@ -494,5 +543,171 @@ impl Youtube {
         let download_cache = DownloadCache::new(cache_dir.as_ref(), ttl)?;
         self.download_cache = Some(Arc::new(download_cache));
         Ok(self)
+    }
+
+    /// Download a video using the download manager with priority.
+    ///
+    /// This method adds the video download to the download queue with the specified priority.
+    /// The download will be processed according to its priority and the current load.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download.
+    /// * `output` - The name of the file to save the video to.
+    /// * `priority` - The download priority (optional).
+    ///
+    /// # Returns
+    ///
+    /// The download ID that can be used to track the download status.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the video information could not be retrieved.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "debug", skip(self, video))
+    )]
+    pub async fn download_video_with_priority(
+        &self,
+        video: &model::Video,
+        output: impl AsRef<str> + std::fmt::Debug,
+        priority: Option<fetcher::download_manager::DownloadPriority>,
+    ) -> Result<u64> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading video with priority: {}", video.id);
+
+        // Get the best format with video and audio
+        let format = video
+            .formats
+            .iter()
+            .find(|f| f.format_type().is_audio_and_video())
+            .ok_or_else(|| Error::MissingFormat("audio+video".to_string()))?;
+
+        // Get the URL
+        let url = format
+            .download_info
+            .url
+            .as_ref()
+            .ok_or_else(|| Error::MissingUrl(format.format_id.clone()))?;
+
+        // Create the output path
+        let output_path = self.output_dir.join(output.as_ref());
+
+        // Add to download queue
+        let download_id = self
+            .download_manager
+            .enqueue(url, output_path, priority)
+            .await;
+
+        Ok(download_id)
+    }
+
+    /// Download a video using the download manager with progress tracking.
+    ///
+    /// This method adds the video download to the download queue and provides progress updates.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download.
+    /// * `output` - The name of the file to save the video to.
+    /// * `progress_callback` - A function that will be called with progress updates.
+    ///
+    /// # Returns
+    ///
+    /// The download ID that can be used to track the download status.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the video information could not be retrieved.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "debug", skip(self, video, progress_callback))
+    )]
+    pub async fn download_video_with_progress<F>(
+        &self,
+        video: &model::Video,
+        output: impl AsRef<str> + std::fmt::Debug,
+        progress_callback: F,
+    ) -> Result<u64>
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading video with progress tracking: {}", video.id);
+
+        // Get the best format with video and audio
+        let format = video
+            .formats
+            .iter()
+            .find(|f| f.format_type().is_audio_and_video())
+            .ok_or_else(|| Error::MissingFormat("audio+video".to_string()))?;
+
+        // Get the URL
+        let url = format
+            .download_info
+            .url
+            .as_ref()
+            .ok_or_else(|| Error::MissingUrl(format.format_id.clone()))?;
+
+        // Create the output path
+        let output_path = self.output_dir.join(output.as_ref());
+
+        // Add to download queue with progress callback
+        let download_id = self
+            .download_manager
+            .enqueue_with_progress(
+                url,
+                output_path,
+                Some(fetcher::download_manager::DownloadPriority::Normal),
+                progress_callback,
+            )
+            .await;
+
+        Ok(download_id)
+    }
+
+    /// Get the status of a download.
+    ///
+    /// # Arguments
+    ///
+    /// * `download_id` - The ID of the download to check.
+    ///
+    /// # Returns
+    ///
+    /// The download status, or None if the download ID is not found.
+    pub async fn get_download_status(
+        &self,
+        download_id: u64,
+    ) -> Option<fetcher::download_manager::DownloadStatus> {
+        self.download_manager.get_status(download_id).await
+    }
+
+    /// Cancel a download.
+    ///
+    /// # Arguments
+    ///
+    /// * `download_id` - The ID of the download to cancel.
+    ///
+    /// # Returns
+    ///
+    /// true if the download was canceled, false if it was not found or already completed.
+    pub async fn cancel_download(&self, download_id: u64) -> bool {
+        self.download_manager.cancel(download_id).await
+    }
+
+    /// Wait for a download to complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `download_id` - The ID of the download to wait for.
+    ///
+    /// # Returns
+    ///
+    /// The final download status, or None if the download ID is not found.
+    pub async fn wait_for_download(
+        &self,
+        download_id: u64,
+    ) -> Option<fetcher::download_manager::DownloadStatus> {
+        self.download_manager.wait_for_completion(download_id).await
     }
 }
