@@ -188,7 +188,7 @@ impl Fetcher {
         let segment_size = self.segment_size as u64;
         let mut ranges = Vec::new();
 
-        for i in 0..((content_length + segment_size - 1) / segment_size) {
+        for i in 0..content_length.div_ceil(segment_size) {
             let start = i * segment_size;
             let end = min(start + segment_size - 1, content_length - 1);
             ranges.push((start, end));
