@@ -290,7 +290,7 @@ impl Fetcher {
         let ranges_to_download: Vec<(usize, (u64, u64))> = ranges
             .iter()
             .enumerate()
-            .filter(|(i, _)| !downloaded_segments[*i])
+            .filter(|&(i, _)| !downloaded_segments[i])
             .map(|(i, &range)| (i, range))
             .collect();
 
@@ -310,7 +310,7 @@ impl Fetcher {
             downloaded_segments
                 .iter()
                 .enumerate()
-                .filter(|(_, &downloaded)| downloaded)
+                .filter(|&(_, &downloaded)| downloaded)
                 .map(|(i, _)| {
                     let (start, end) = ranges[i];
                     end - start + 1
