@@ -50,7 +50,7 @@ tar = "0.4.43"
 zip = "2.2.0"
 xz2 = "0.1.7"
 sha2 = "0.10.8"
-rusqlite = { version = "0.30.0", features = ["bundled"] }
+rusqlite = { version = "0.34.0", features = ["bundled"] }
 rand = "0.8.5"
 
 # Logging dependencies
