@@ -561,11 +561,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## 💡Features coming soon
 - [ ] Metadata and tags on downloaded files
 - [ ] Thumbnails and cover arts on downloaded files
-- [ ] Proxy support for ```yt-dlp``` and ```reqwest```
+- [ ] Proxy support for `yt-dlp` and `reqwest`
 - [ ] Downloading only a part of a video or audio (with time or chapter)
-- [ ] Post-processing options with ```ffmpeg```
+- [ ] Post-processing options with `ffmpeg`
 - [ ] Live streams serving, through a local server
-- [ ] Live streams recording, with ```ffmpeg``` or ```reqwest```
+- [ ] Live streams recording, with `ffmpeg` or `reqwest`
 - [ ] Notifications and alerts on download events
 - [ ] Webhooks, Rust hooks and callbacks on download events, errors and progress
 - [ ] Statistics and analytics on downloads and fetches
+- [ ] Add release notes with commits list in release body

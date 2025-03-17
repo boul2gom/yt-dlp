@@ -1,0 +1,53 @@
+name: Github CI - Production
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  sonarcloud-analysis:
+    name: 🔍 SonarCloud analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: 🔍 Scan with SonarCloud
+        uses: SonarSource/sonarcloud-github-action@v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  scorecard-analysis:
+    name: 🔍 Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: 🔍 Scan with Scorecard
+        uses: ossf/scorecard-action@v2.4.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: 📦 Upload Scorecard scan results artifact
+        uses: actions/upload-artifact@v4.6.1
+        with:
+          name: sarif-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: 📦 Upload Scorecard scan results to GitHub dashboard
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
