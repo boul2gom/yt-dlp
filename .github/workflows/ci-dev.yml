@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CLICOLOR: 1
+
 jobs:
   setup-and-build:
     name: 🦀 Setup and build
@@ -49,3 +52,19 @@ jobs:
         with:
           command: build
           args: --all-features --all-targets
+
+  check-spell:
+    name: 📝 Check spelling
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: 🛠️ Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+
+      - name: 📝 Check spelling
+        uses: crate-ci/typos@v1.30.2
