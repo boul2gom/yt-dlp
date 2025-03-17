@@ -464,7 +464,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Playlist (and index)
 
 ## 💡Features coming soon
-- [ ] Common traits on all structs
 - [ ] Metadata and tags on downloaded files
 - [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for ```yt-dlp``` and ```reqwest```

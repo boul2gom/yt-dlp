@@ -10,7 +10,9 @@ use crate::model::thumbnail::Thumbnail;
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +20,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 /// Structure for storing video metadata in cache.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CachedVideo {
     /// The ID of the video.
     pub id: String,
@@ -48,7 +50,7 @@ impl From<(String, Video)> for CachedVideo {
 }
 
 /// Structure for storing downloaded file metadata in cache.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CachedFile {
     /// The ID of the file (SHA-256 hash of the content).
     pub id: String,
@@ -81,6 +83,75 @@ pub enum CachedType {
     Thumbnail,
     /// Any other type of file
     Other,
+}
+
+// Implementation of the Display trait for CachedVideo
+impl fmt::Display for CachedVideo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CachedVideo(id={}, title=\"{}\", cached_at={})",
+            self.id, self.title, self.cached_at
+        )
+    }
+}
+
+// Implementation of Eq for CachedVideo
+impl Eq for CachedVideo {}
+
+// Implementation of Hash for CachedVideo
+impl Hash for CachedVideo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.url.hash(state);
+        self.cached_at.hash(state);
+    }
+}
+
+// Implementation of the Display trait for CachedFile
+impl fmt::Display for CachedFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CachedFile(id={}, filename=\"{}\", type={:?}, size={})",
+            self.id, self.filename, self.file_type, self.filesize
+        )
+    }
+}
+
+// Implementation of Eq for CachedFile
+impl Eq for CachedFile {}
+
+// Implementation of Hash for CachedFile
+impl Hash for CachedFile {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.filename.hash(state);
+        self.relative_path.hash(state);
+        self.video_id.hash(state);
+        std::mem::discriminant(&self.file_type).hash(state);
+    }
+}
+
+// Implementation of the Display trait for CachedType
+impl fmt::Display for CachedType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CachedType::Format => write!(f, "Format"),
+            CachedType::Thumbnail => write!(f, "Thumbnail"),
+            CachedType::Other => write!(f, "Other"),
+        }
+    }
+}
+
+// Implementation of Eq for CachedType
+impl Eq for CachedType {}
+
+// Implementation of Hash for CachedType
+impl Hash for CachedType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+    }
 }
 
 /// Cache manager for video metadata using SQLite.

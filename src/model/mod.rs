@@ -8,11 +8,15 @@ use crate::model::thumbnail::Thumbnail;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 pub mod caption;
 pub mod format;
 pub mod thumbnail;
 pub mod utils;
+
+// Re-export traits for easier access
+pub use utils::{AllTraits, CommonTraits};
 
 /// Represents a YouTube video, the output of 'yt-dlp'.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -200,5 +204,62 @@ impl Video {
         let b_channels = b.codec_info.audio_channels.unwrap_or(0);
 
         a_channels.cmp(&b_channels)
+    }
+}
+
+// Implementation of the Display trait for Video
+impl fmt::Display for Video {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Video(id={}, title=\"{}\", channel=\"{}\", formats={})",
+            self.id,
+            self.title,
+            self.channel,
+            self.formats.len()
+        )
+    }
+}
+
+// Implementation of the Display trait for ExtractorInfo
+impl fmt::Display for ExtractorInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Extractor({}:{})", self.extractor, self.extractor_key)
+    }
+}
+
+// Implementation of the Display trait for Version
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Version({})", self.version)
+    }
+}
+
+// Implementation of Eq for structures that support it
+impl Eq for Video {}
+impl Eq for ExtractorInfo {}
+impl Eq for Version {}
+
+// Implementation of Hash for structures that support it
+impl std::hash::Hash for Video {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.title.hash(state);
+        self.channel.hash(state);
+        self.channel_id.hash(state);
+    }
+}
+
+impl std::hash::Hash for ExtractorInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.extractor.hash(state);
+        self.extractor_key.hash(state);
+    }
+}
+
+impl std::hash::Hash for Version {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.version.hash(state);
+        self.repository.hash(state);
     }
 }

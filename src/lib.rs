@@ -18,6 +18,9 @@ pub mod fetcher;
 pub mod model;
 pub mod utils;
 
+// Re-export of common traits to facilitate their use
+pub use model::utils::{AllTraits, CommonTraits};
+
 /// A YouTube video fetcher that uses yt-dlp to fetch video information and download it.
 ///
 /// The 'yt-dlp' executable and 'ffmpeg' build can be installed with this fetcher.
