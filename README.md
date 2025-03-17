@@ -80,7 +80,7 @@ Using an external program is not ideal, but it is the most reliable and maintain
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = "latest version of the crate"
+yt-dlp = "1.3.0"
 ```
 
 A new release is automatically published every two weeks, to keep up to date with dependencies and features.
@@ -569,4 +569,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Notifications and alerts on download events
 - [ ] Webhooks, Rust hooks and callbacks on download events, errors and progress
 - [ ] Statistics and analytics on downloads and fetches
-- [ ] Add release notes with commits list in release body

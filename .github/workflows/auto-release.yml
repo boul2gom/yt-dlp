@@ -168,6 +168,8 @@ jobs:
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 100
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2
@@ -198,6 +200,117 @@ jobs:
         id: get_version
         run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> $GITHUB_ENV
 
+      - name: 📝 Generate releases notes
+        id: generate_release_notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 1
+            });
+
+            let last_tag_date = new Date(0);
+            try {
+              const tags = await github.rest.repos.listTags({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 2  // Get the last 2 tags
+              });
+
+              if (tags.data.length > 1) {  // We need at least 2 tags
+                const previous_tag = tags.data[1];  // Get the previous tag (before the one we just created)
+                const tag_commit = await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: previous_tag.commit.sha
+                });
+                last_tag_date = new Date(tag_commit.data.commit.committer.date);
+                console.log(`🏷️ Previous tag found: ${previous_tag.name}`);
+                console.log(`🏷️ Previous tag date: ${last_tag_date.toISOString()}`);
+              } else {
+                console.log('No previous tag found');
+              }
+            } catch (error) {
+              console.log('Error while fetching tags:', error.message);
+            }
+
+            const last_release = releases.data[0];
+            const last_release_date = last_release ? new Date(last_release.created_at) : new Date(0);
+            const reference_date = new Date(Math.max(last_release_date.getTime(), last_tag_date.getTime()));
+
+            console.log(`📅 Reference date: ${reference_date.toISOString()}`);
+            console.log(`  - Last release: ${last_release_date.toISOString()}`);
+            console.log(`  - Previous tag: ${last_tag_date.toISOString()}`);
+
+            console.log('🔍 Fetching commits since previous tag/release...');
+            const commits = await github.rest.repos.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              since: reference_date.toISOString()
+            });
+
+            let release_notes = `## 🚀 Release v${{ env.version }}\n\n`;
+
+            // Categorize commits
+            const categories = {
+              features: [],
+              bug_fixes: [],
+              dependencies: []
+            };
+
+            commits.data.forEach(commit => {
+              const message = commit.commit.message.split('\n')[0];
+              const author = commit.author ? commit.author.login : commit.commit.author.name;
+              const sha = commit.sha.substring(0, 7);
+              const pr_match = message.match(/\(#(\d+)\)/);
+              const pr_number = pr_match ? pr_match[1] : null;
+              
+              const commit_entry = `${message} - by @${author}${pr_number ? ` in #${pr_number}` : ''} (${sha})`;
+
+              const deps_tags = ["bump", "update"]
+              const bug_tags = ["fix", "bug", "error"]
+              
+              // Categorize based on message content
+              const message_lower = message.toLowerCase();
+              if (deps_tags.some(tag => message_lower.includes(tag))) {
+                categories.dependencies.push(commit_entry);
+              } else if (bug_tags.some(tag => message_lower.includes(tag))) {
+                categories.bug_fixes.push(commit_entry);
+              } else {
+                categories.features.push(commit_entry);
+              }
+            });
+
+            // Add features section if there are any
+            if (categories.features.length > 0) {
+              release_notes += `🚀 Features\n`;
+              categories.features.forEach(entry => {
+                release_notes += `- ${entry}\n`;
+              });
+              release_notes += '\n';
+            }
+
+            // Add bug fixes section if there are any
+            if (categories.bug_fixes.length > 0) {
+              release_notes += `🐛 Bug Fixes\n`;
+              categories.bug_fixes.forEach(entry => {
+                release_notes += `- ${entry}\n`;
+              });
+              release_notes += '\n';
+            }
+
+            // Add dependencies section if there are any
+            if (categories.dependencies.length > 0) {
+              release_notes += `📦 Dependencies Updates\n`;
+              categories.dependencies.forEach(entry => {
+                release_notes += `- ${entry}\n`;
+              });
+            }
+            
+            core.setOutput('release_notes', release_notes);
+
       - name: 📝 Create GitHub Release
         uses: actions/create-release@v1
         env:
@@ -207,3 +320,4 @@ jobs:
           release_name: 🔖 v${{ env.version }}
           draft: false
           prerelease: false
+          body: ${{ steps.generate_release_notes.outputs.release_notes }}
