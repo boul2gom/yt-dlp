@@ -257,6 +257,7 @@ jobs:
             const categories = {
               features: [],
               bug_fixes: [],
+              refactors: [],
               dependencies: []
             };
 
@@ -271,6 +272,7 @@ jobs:
 
               const deps_tags = ["bump", "update"]
               const bug_tags = ["fix", "bug", "error"]
+              const refactor_tags = ["refactor", "format", "lint"]
               
               // Categorize based on message content
               const message_lower = message.toLowerCase();
@@ -278,6 +280,8 @@ jobs:
                 categories.dependencies.push(commit_entry);
               } else if (bug_tags.some(tag => message_lower.includes(tag))) {
                 categories.bug_fixes.push(commit_entry);
+              } else if (refactor_tags.some(tag => message_lower.includes(tag))) {
+                categories.refactors.push(commit_entry);
               } else {
                 categories.features.push(commit_entry);
               }
@@ -296,6 +300,15 @@ jobs:
             if (categories.bug_fixes.length > 0) {
               release_notes += `🐛 Bug Fixes\n`;
               categories.bug_fixes.forEach(entry => {
+                release_notes += `- ${entry}\n`;
+              });
+              release_notes += '\n';
+            }
+
+            // Add refactors section if there are any
+            if (categories.refactors.length > 0) {
+              release_notes += `💄 Refactors\n`;
+              categories.refactors.forEach(entry => {
                 release_notes += `- ${entry}\n`;
               });
               release_notes += '\n';

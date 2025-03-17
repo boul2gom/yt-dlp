@@ -46,14 +46,20 @@ serde_json = "1.0.132"
 derive_more = { version = "1.0.0", features = ["constructor"] }
 thiserror = "2.0.3"
 
+# Audio and video dependencies
+mp4ameta = "0.12.1"
+id3 = "1.13.1"
+
 # Misc and compression dependencies
+ordered-float = { version = "4.5.0", features = ["serde"] }
 uuid = { version = "1.16.0", features = ["v4"] }
-ordered-float = "4.5.0"
 flate2 = "1.0.34"
+regex = "1.10.4"
+sha2 = "0.10.8"
+chrono = "0.4"
 tar = "0.4.43"
 zip = "2.2.0"
 xz2 = "0.1.7"
-sha2 = "0.10.8"
 
 # Logging dependencies
 tracing = { version = "0.1.40", optional = true }

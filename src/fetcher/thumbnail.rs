@@ -41,7 +41,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_thumbnail_from_url(
         &self,
         url: String,
@@ -88,7 +87,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_thumbnail(
         &self,
         video: &Video,
@@ -145,7 +143,6 @@ impl Youtube {
         Ok(path)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_thumbnail_from_video(
         &self,
         video: &Video,

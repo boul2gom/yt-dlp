@@ -71,7 +71,6 @@ impl LibraryInstaller {
     }
 
     /// Install yt-dlp from a custom repository, assuming releases assets are named correctly.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_youtube_from_repo(
         &self,
         owner: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
@@ -101,7 +100,6 @@ impl LibraryInstaller {
     }
 
     /// Install ffmpeg from static builds.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_ffmpeg(&self, custom_name: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -131,7 +129,6 @@ impl LibraryInstaller {
 
 impl Libraries {
     /// Install the required dependencies.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_dependencies(&self) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing required dependencies");
@@ -143,7 +140,6 @@ impl Libraries {
     }
 
     /// Install yt-dlp.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_youtube(&self) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing yt-dlp");
@@ -163,7 +159,6 @@ impl Libraries {
     }
 
     /// Install ffmpeg.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_ffmpeg(&self) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing ffmpeg");
@@ -261,7 +256,6 @@ impl WantedRelease {
     /// release.download(destination).await?;
     /// # Ok(())
     /// # }
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn download(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!(

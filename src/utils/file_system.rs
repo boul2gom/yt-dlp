@@ -95,7 +95,6 @@ pub fn create_parent_dir(destination: impl AsRef<Path>) -> Result<()> {
 ///
 /// * `zip_path` - The path to the zip file.
 /// * `destination` - The path to extract the zip file to.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
 pub async fn extract_zip(
     zip_path: impl AsRef<Path> + std::fmt::Debug,
     destination: impl AsRef<Path> + std::fmt::Debug,
@@ -143,7 +142,6 @@ pub async fn extract_zip(
 ///
 /// * `tar_path` - The path to the tar.xz file.
 /// * `destination` - The path to extract the tar.xz file to.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
 pub async fn extract_tar_xz(
     tar_path: impl AsRef<Path> + std::fmt::Debug,
     destination: impl AsRef<Path> + std::fmt::Debug,
@@ -203,12 +201,65 @@ pub fn set_executable(_executable: impl AsRef<Path>) -> Result<()> {
 ///
 /// A random string of the specified length.
 pub fn random_filename(length: usize) -> String {
-    let uuid = Uuid::new_v4();
-    let mut result = uuid.to_string();
+    let uuid = Uuid::new_v4().to_string().replace('-', "");
 
-    if result.len() > length {
-        result.truncate(length);
+    uuid.chars().take(length).collect()
+}
+
+/// Extracts a potential video ID from a filename.
+pub fn extract_video_id(filename: &str) -> Option<String> {
+    // Pattern 1: filename contains "video-[ID]" or "audio-[ID]"
+    if let Some(captures) = regex::Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})")
+        .ok()?
+        .captures(filename)
+    {
+        if let Some(id) = captures.get(1) {
+            return Some(id.as_str().to_string());
+        }
     }
 
-    result
+    // Pattern 2: filename contains "[ID].mp4" or "[ID].mp3", etc.
+    if let Some(captures) = regex::Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$")
+        .ok()?
+        .captures(filename)
+    {
+        if let Some(id) = captures.get(1) {
+            return Some(id.as_str().to_string());
+        }
+    }
+
+    // Pattern 3: if the name directly contains a YouTube ID (11 characters)
+    if let Some(captures) = regex::Regex::new(r"[a-zA-Z0-9_-]{11}")
+        .ok()?
+        .captures(filename)
+    {
+        if let Some(id) = captures.get(0) {
+            let id_str = id.as_str();
+            if id_str.len() == 11 {
+                return Some(id_str.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Removes a temporary file and logs any errors.
+/// Does not propagate errors to avoid interrupting the execution flow.
+///
+/// # Arguments
+///
+/// * `file_path` - The path of the file to delete
+///
+/// # Returns
+///
+/// `true` if the file was successfully deleted, `false` otherwise
+pub async fn remove_temp_file(file_path: impl AsRef<Path> + std::fmt::Debug) -> bool {
+    if let Err(_e) = tokio::fs::remove_file(&file_path).await {
+        #[cfg(feature = "tracing")]
+        tracing::warn!("Failed to remove temporary file {:?}: {}", file_path, _e);
+        false
+    } else {
+        true
+    }
 }

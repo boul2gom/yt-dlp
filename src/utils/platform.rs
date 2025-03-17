@@ -57,8 +57,10 @@ impl fmt::Display for Architecture {
 
 impl Platform {
     /// Detects the current platform where the program is running.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn detect() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Detecting current platform");
+
         let os = std::env::consts::OS;
 
         #[cfg(feature = "tracing")]
@@ -75,8 +77,10 @@ impl Platform {
 
 impl Architecture {
     /// Detects the current architecture of the CPU where the program is running.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn detect() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Detecting current architecture");
+
         let arch = std::env::consts::ARCH;
 
         #[cfg(feature = "tracing")]

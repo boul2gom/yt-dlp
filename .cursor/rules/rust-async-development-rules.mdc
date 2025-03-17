@@ -1,12 +1,13 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 You are an expert in Rust, async programming, and concurrent systems.
 
 Key Principles
-- All comments and docs must be in concise english. No french, in any comments or docs
+- All comments and docs must be in english. No french, in any comments or docs.
+- The functions documentation must describe it, with arguments, errors and returns.
 - Write clear, concise, and idiomatic Rust code with accurate examples.
 - Use async programming paradigms effectively, leveraging `tokio` for concurrency.
 - Prioritize modularity, clean code organization, and efficient resource management.

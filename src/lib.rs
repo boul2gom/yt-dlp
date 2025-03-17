@@ -15,6 +15,7 @@ pub mod cache;
 pub mod error;
 pub mod executor;
 pub mod fetcher;
+pub mod metadata;
 pub mod model;
 pub mod utils;
 
@@ -116,7 +117,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn new(
         libraries: Libraries,
         output_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -157,7 +157,6 @@ impl Youtube {
     /// # Errors
     ///
     /// This function will return an error if the parent directories of the executables and output directory could not be created.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn with_download_manager_config(
         libraries: Libraries,
         output_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -215,7 +214,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn with_new_binaries(
         executables_dir: impl AsRef<Path> + std::fmt::Debug,
         output_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -368,7 +366,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn update_downloader(&self) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Updating the downloader");
@@ -426,7 +423,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn combine_audio_and_video(
         &self,
         audio_file: impl AsRef<str> + std::fmt::Debug + Display,
@@ -445,13 +441,34 @@ impl Youtube {
         let video_path = self.output_dir.join(video_file.as_ref());
         let output_path = self.output_dir.join(output_file.as_ref());
 
+        // Perform the combination with FFmpeg
+        self.execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
+            .await?;
+
+        // Add metadata to the combined file
+        self.add_metadata_to_combined_file(&audio_path, &video_path, &output_path)
+            .await?;
+
+        Ok(output_path)
+    }
+
+    /// Executes the FFmpeg command to combine audio and video files
+    async fn execute_ffmpeg_combine(
+        &self,
+        audio_path: impl AsRef<Path>,
+        video_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+    ) -> Result<()> {
         let audio = audio_path
+            .as_ref()
             .to_str()
             .ok_or(Error::Path("Invalid audio path".to_string()))?;
         let video = video_path
+            .as_ref()
             .to_str()
             .ok_or(Error::Path("Invalid video path".to_string()))?;
         let output = output_path
+            .as_ref()
             .to_str()
             .ok_or(Error::Path("Invalid output path".to_string()))?;
 
@@ -466,7 +483,80 @@ impl Youtube {
         };
 
         executor.execute().await?;
-        Ok(output_path)
+        Ok(())
+    }
+
+    /// Adds metadata to the combined file by extracting the video ID and
+    /// retrieving information from the original audio and video formats
+    async fn add_metadata_to_combined_file(
+        &self,
+        audio_path: impl AsRef<Path>,
+        video_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+    ) -> Result<()> {
+        let video_id =
+            self.extract_video_id_from_file_paths(video_path.as_ref(), audio_path.as_ref());
+
+        if let Some(video_id) = video_id {
+            if let Some(video) = self.get_video_by_id(&video_id).await {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Adding metadata to combined file");
+
+                let video_format = self.find_cached_format(video_path.as_ref()).await;
+                let audio_format = self.find_cached_format(audio_path.as_ref()).await;
+
+                if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                    output_path.as_ref(),
+                    &video,
+                    video_format.as_ref(),
+                    audio_format.as_ref(),
+                ) {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!("Failed to add metadata to combined file: {}", _e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Extracts the video ID from audio and video file paths
+    fn extract_video_id_from_file_paths(
+        &self,
+        video_path: impl AsRef<Path>,
+        audio_path: impl AsRef<Path>,
+    ) -> Option<String> {
+        let video_filename = video_path.as_ref().file_name()?.to_str()?;
+
+        if let Some(id) = utils::file_system::extract_video_id(video_filename) {
+            return Some(id);
+        }
+
+        let audio_filename = audio_path.as_ref().file_name()?.to_str()?;
+        utils::file_system::extract_video_id(audio_filename)
+    }
+
+    /// Finds the format of a file in the cache if it exists
+    async fn find_cached_format(
+        &self,
+        file_path: impl AsRef<Path>,
+    ) -> Option<model::format::Format> {
+        if let Some(download_cache) = &self.download_cache {
+            let file_hash = match DownloadCache::calculate_file_hash(file_path.as_ref()).await {
+                Ok(hash) => hash,
+                Err(_) => return None,
+            };
+
+            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash) {
+                if let Some(format_json) = cached_file.format_json {
+                    if let Ok(format) = serde_json::from_str(&format_json) {
+                        return Some(format);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Enables caching of video metadata.
@@ -575,10 +665,6 @@ impl Youtube {
     /// # Errors
     ///
     /// This function will return an error if the video information could not be retrieved.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "debug", skip(self, video))
-    )]
     pub async fn download_video_with_priority(
         &self,
         video: &model::Video,
@@ -631,10 +717,6 @@ impl Youtube {
     /// # Errors
     ///
     /// This function will return an error if the video information could not be retrieved.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "debug", skip(self, video, progress_callback))
-    )]
     pub async fn download_video_with_progress<F>(
         &self,
         video: &model::Video,

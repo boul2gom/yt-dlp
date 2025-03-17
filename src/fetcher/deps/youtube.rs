@@ -63,7 +63,6 @@ impl GitHubFetcher {
     /// # Errors
     ///
     /// This function will return an error if the release could not be fetched or if no asset was found for the current platform.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_release(&self, auth_token: Option<String>) -> Result<WantedRelease> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching latest release from {}/{}", self.owner, self.repo);
@@ -86,7 +85,6 @@ impl GitHubFetcher {
     /// # Errors
     ///
     /// This function will return an error if the release could not be fetched or if no asset was found for the given platform.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_release_for_platform(
         &self,
         platform: Platform,
@@ -117,7 +115,6 @@ impl GitHubFetcher {
     /// # Arguments
     ///
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_latest_release(&self, auth_token: Option<String>) -> Result<Release> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching latest release for {}/{}", self.owner, self.repo);
@@ -141,7 +138,6 @@ impl GitHubFetcher {
     /// * `platform` - The platform to select the asset for.
     /// * `architecture` - The architecture to select the asset for.
     /// * `release` - The release to select the asset from.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub fn select_asset<'a>(
         platform: &Platform,
         architecture: &Architecture,

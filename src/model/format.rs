@@ -1,9 +1,10 @@
 //! Formats-related models.
 
 use crate::model::utils::serde::json_none;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 /// Represents an available format of a video.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
@@ -12,7 +13,7 @@ use std::hash::{Hash, Hasher};
 /// A storyboard is a file that contains grid of images from the video, allowing users to preview the video.
 /// Usually, these formats are not meant to be downloaded, but to be used by the player.
 /// So, in most cases, you can ignore them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Format {
     /// The display name of the format, e.g. '303 - 1920x1080 (1080p60)'.
     pub format: String,
@@ -92,10 +93,10 @@ impl Format {
         let video = self.codec_info.video_codec.is_some();
 
         match (audio, video) {
-            (true, true) => FormatType::AudioAndVideo,
+            (true, true) => FormatType::AudioVideo,
             (true, false) => FormatType::Audio,
             (false, true) => FormatType::Video,
-            _ => FormatType::Unknown,
+            _ => FormatType::Manifest,
         }
     }
 }
@@ -104,25 +105,14 @@ impl fmt::Display for Format {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Format(id={}, note={})",
-            self.format_id,
-            self.format_note.as_deref().unwrap_or("none")
+            "Format(id = {}, format = {})",
+            self.format_id, self.format
         )
     }
 }
 
-impl Eq for Format {}
-
-impl Hash for Format {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.format_id.hash(state);
-        self.format.hash(state);
-        self.video_id.hash(state);
-    }
-}
-
 /// Represents the codec information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CodecInfo {
     /// The name of the audio codec, e.g. 'opus' or 'mp4a.xx' (where 'xx' is the codec version).
     #[serde(default)]
@@ -150,57 +140,39 @@ impl fmt::Display for CodecInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "CodecInfo(audio={}, video={})",
+            "CodecInfo(audio = {}, video = {})",
             self.audio_codec.as_deref().unwrap_or("none"),
             self.video_codec.as_deref().unwrap_or("none")
         )
     }
 }
 
-impl Eq for CodecInfo {}
-
-impl Hash for CodecInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.audio_codec.hash(state);
-        self.video_codec.hash(state);
-        self.audio_ext.hash(state);
-        self.video_ext.hash(state);
-    }
-}
-
 /// Represents the video resolution information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VideoResolution {
     /// The width of the video.
-    pub width: Option<i64>,
+    pub width: Option<u32>,
     /// The height of the video.
-    pub height: Option<i64>,
-    /// The frame rate of the video.
-    pub fps: Option<f64>,
-    /// The resolution of the video, e.g. '1920x1080' or 'audio only'.
-    pub resolution: String,
-    /// The aspect ratio of the video, usually '1.77' or '1.78' (corresponding to 16:9).
-    pub aspect_ratio: Option<f64>,
+    pub height: Option<u32>,
+    /// The combined resolution of the video, e.g. '1920x1080' or 'audio only'.
+    pub resolution: Option<String>,
+    /// The frames per second of the video, e.g. '24' or '25'.
+    pub fps: Option<OrderedFloat<f64>>,
+    /// The aspect ratio of the video, e.g. '1.77' or '1.78' (corresponding to 16:9).
+    pub aspect_ratio: Option<OrderedFloat<f64>>,
 }
 
 impl fmt::Display for VideoResolution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Resolution({})", self.resolution)
-    }
-}
-
-impl Eq for VideoResolution {}
-
-impl Hash for VideoResolution {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.width.hash(state);
-        self.height.hash(state);
-        self.resolution.hash(state);
+        match (self.width, self.height) {
+            (Some(w), Some(h)) => write!(f, "VideoResolution(width = {}, height = {})", w, h),
+            _ => write!(f, "VideoResolution(unknown)"),
+        }
     }
 }
 
 /// Represents the download information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DownloadInfo {
     /// The decrypted URL of the format.
     pub url: Option<String>,
@@ -217,26 +189,19 @@ pub struct DownloadInfo {
 
 impl fmt::Display for DownloadInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DownloadInfo(ext={:?})", self.ext)
-    }
-}
-
-impl Eq for DownloadInfo {}
-
-impl Hash for DownloadInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.ext.hash(state);
         if let Some(url) = &self.url {
-            url.hash(state);
+            write!(f, "DownloadInfo(url = {})", url)
+        } else {
+            write!(f, "DownloadInfo(no_url)")
         }
     }
 }
 
 /// Represents the quality information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QualityInfo {
     /// A relative quality score, e.g. '-1' (for example, if the format is a manifest) or '9.5'.
-    pub quality: Option<f64>,
+    pub quality: Option<OrderedFloat<f64>>,
     /// If the format is using a large dynamic range.
     #[serde(default)]
     pub dynamic_range: Option<DynamicRange>,
@@ -246,26 +211,16 @@ impl fmt::Display for QualityInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "QualityInfo(quality={})",
+            "QualityInfo(quality = {})",
             self.quality
-                .map_or("unknown".to_string(), |q| q.to_string())
+                .map(|q| q.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
         )
     }
 }
 
-impl Eq for QualityInfo {}
-
-impl Hash for QualityInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some(quality) = self.quality {
-            let rounded = (quality * 1000.0).round() as i64;
-            rounded.hash(state);
-        }
-    }
-}
-
 /// Represents the file information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileInfo {
     /// The approximate file size of the format.
     pub filesize_approx: Option<i64>,
@@ -276,74 +231,49 @@ pub struct FileInfo {
 impl fmt::Display for FileInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(size) = self.filesize {
-            write!(f, "FileInfo(size={})", size)
+            write!(f, "FileInfo(size = {})", size)
         } else if let Some(approx) = self.filesize_approx {
-            write!(f, "FileInfo(approx_size={})", approx)
+            write!(f, "FileInfo(approx_size = {})", approx)
         } else {
-            write!(f, "FileInfo(size=unknown)")
+            write!(f, "FileInfo(size = unknown)")
         }
     }
 }
 
-impl Eq for FileInfo {}
-
-impl Hash for FileInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.filesize.hash(state);
-        self.filesize_approx.hash(state);
-    }
-}
-
 /// Represents the rates information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RatesInfo {
     /// The video bitrate of the format.
     #[serde(rename = "vbr")]
-    pub video_rate: Option<f64>,
+    pub video_rate: Option<OrderedFloat<f64>>,
     /// The audio bitrate of the format.
     #[serde(rename = "abr")]
-    pub audio_rate: Option<f64>,
+    pub audio_rate: Option<OrderedFloat<f64>>,
     /// The total bitrate (video + audio) of the format.
     #[serde(rename = "tbr")]
-    pub total_rate: Option<f64>,
+    pub total_rate: Option<OrderedFloat<f64>>,
 }
 
 impl fmt::Display for RatesInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "RatesInfo(video={}, audio={}, total={})",
+            "RatesInfo(video = {}, audio = {}, total = {})",
             self.video_rate
-                .map_or("none".to_string(), |r| r.to_string()),
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "none".to_string()),
             self.audio_rate
-                .map_or("none".to_string(), |r| r.to_string()),
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "none".to_string()),
             self.total_rate
-                .map_or("none".to_string(), |r| r.to_string())
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "none".to_string())
         )
     }
 }
 
-impl Eq for RatesInfo {}
-
-impl Hash for RatesInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some(vr) = self.video_rate {
-            let rounded_vr = (vr * 1000.0).round() as i64;
-            rounded_vr.hash(state);
-        }
-        if let Some(ar) = self.audio_rate {
-            let rounded_ar = (ar * 1000.0).round() as i64;
-            rounded_ar.hash(state);
-        }
-        if let Some(tr) = self.total_rate {
-            let rounded_tr = (tr * 1000.0).round() as i64;
-            rounded_tr.hash(state);
-        }
-    }
-}
-
 /// Represents the storyboard information of a format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StoryboardInfo {
     /// The number of rows in the storyboard.
     pub rows: Option<i64>,
@@ -355,51 +285,34 @@ pub struct StoryboardInfo {
 
 impl fmt::Display for StoryboardInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "StoryboardInfo(rows={}, cols={})",
-            self.rows.map_or("none".to_string(), |r| r.to_string()),
-            self.columns.map_or("none".to_string(), |c| c.to_string())
-        )
-    }
-}
-
-impl Eq for StoryboardInfo {}
-
-impl Hash for StoryboardInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.rows.hash(state);
-        self.columns.hash(state);
+        match (self.rows, self.columns) {
+            (Some(r), Some(c)) => write!(f, "StoryboardInfo(rows = {}, columns = {})", r, c),
+            _ => write!(f, "StoryboardInfo(unknown)"),
+        }
     }
 }
 
 /// Represents a fragment of a storyboard.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Fragment {
     /// The URL of the fragment.
     pub url: String,
-    /// The duration of the fragment.
-    pub duration: f64,
+    /// The duration of the fragment, in seconds.
+    pub duration: OrderedFloat<f64>,
 }
 
 impl fmt::Display for Fragment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Fragment(duration={})", self.duration)
-    }
-}
-
-impl Eq for Fragment {}
-
-impl Hash for Fragment {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.url.hash(state);
-        let rounded = (self.duration * 1000.0).round() as i64;
-        rounded.hash(state);
+        write!(
+            f,
+            "Fragment(url = {}, duration = {})",
+            self.url, self.duration
+        )
     }
 }
 
 /// Represents the options used by the downloader.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DownloaderOptions {
     /// The size of the HTTP chunk.
     pub http_chunk_size: i64,
@@ -407,20 +320,16 @@ pub struct DownloaderOptions {
 
 impl fmt::Display for DownloaderOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DownloaderOptions(chunk_size={})", self.http_chunk_size)
-    }
-}
-
-impl Eq for DownloaderOptions {}
-
-impl Hash for DownloaderOptions {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.http_chunk_size.hash(state);
+        write!(
+            f,
+            "DownloaderOptions(chunk_size = {})",
+            self.http_chunk_size
+        )
     }
 }
 
 /// Represents the HTTP headers used by the downloader.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct HttpHeaders {
     /// The user agent used by the downloader.
@@ -438,23 +347,12 @@ pub struct HttpHeaders {
 
 impl fmt::Display for HttpHeaders {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HttpHeaders(user_agent={})", self.user_agent)
-    }
-}
-
-impl Eq for HttpHeaders {}
-
-impl Hash for HttpHeaders {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.user_agent.hash(state);
-        self.accept.hash(state);
-        self.accept_language.hash(state);
-        self.sec_fetch_mode.hash(state);
+        write!(f, "HttpHeaders(user_agent = {})", self.user_agent)
     }
 }
 
 /// The available extensions of a format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Extension {
     /// The M4A extension.
@@ -475,15 +373,25 @@ pub enum Extension {
     Unknown,
 }
 
-impl Hash for Extension {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+impl fmt::Display for Extension {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Extension({})",
+            match self {
+                Extension::M4A => "m4a",
+                Extension::Mp4 => "mp4",
+                Extension::Webm => "webm",
+                Extension::Mhtml => "mhtml",
+                Extension::None => "none",
+                Extension::Unknown => "unknown",
+            }
+        )
     }
 }
-impl Eq for Extension {}
 
 /// The available containers extensions of a format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Container {
     /// The Webm container.
@@ -502,15 +410,23 @@ pub enum Container {
     Unknown,
 }
 
-impl Hash for Container {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+impl fmt::Display for Container {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Container({})",
+            match self {
+                Container::Mp4 => "mp4",
+                Container::Webm => "webm",
+                Container::M4A => "m4a",
+                Container::Unknown => "unknown",
+            }
+        )
     }
 }
-impl Eq for Container {}
 
 /// The available protocols of a format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Protocol {
     /// The HTTP protocol, used for audio and video formats.
@@ -527,15 +443,23 @@ pub enum Protocol {
     Unknown,
 }
 
-impl Hash for Protocol {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+impl fmt::Display for Protocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Protocol({})",
+            match self {
+                Protocol::Https => "https",
+                Protocol::M3U8Native => "hls",
+                Protocol::Mhtml => "mhtml",
+                Protocol::Unknown => "unknown",
+            }
+        )
     }
 }
-impl Eq for Protocol {}
 
 /// The available dynamic ranges of a format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DynamicRange {
     /// The SDR dynamic range.
     SDR,
@@ -548,24 +472,30 @@ pub enum DynamicRange {
     Unknown,
 }
 
-impl Hash for DynamicRange {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+impl fmt::Display for DynamicRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "DynamicRange({})",
+            match self {
+                DynamicRange::SDR => "SDR",
+                DynamicRange::HDR => "HDR",
+                DynamicRange::Unknown => "Unknown",
+            }
+        )
     }
 }
-impl Eq for DynamicRange {}
 
 /// The available format types.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FormatType {
     /// The format contains only audio.
     Audio,
     /// The format contains only video.
     Video,
     /// The format contains both audio and video.
-    AudioAndVideo,
-
+    AudioVideo,
     /// The format is a manifest.
     Manifest,
     /// The format is a storyboard.
@@ -579,28 +509,25 @@ pub enum FormatType {
 
 impl fmt::Display for FormatType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FormatType::Audio => write!(f, "Audio"),
-            FormatType::Video => write!(f, "Video"),
-            FormatType::AudioAndVideo => write!(f, "AudioAndVideo"),
-            FormatType::Manifest => write!(f, "Manifest"),
-            FormatType::Storyboard => write!(f, "Storyboard"),
-            FormatType::Unknown => write!(f, "Unknown"),
-        }
+        write!(
+            f,
+            "FormatType({})",
+            match self {
+                FormatType::Audio => "Audio",
+                FormatType::Video => "Video",
+                FormatType::AudioVideo => "AudioVideo",
+                FormatType::Manifest => "Manifest",
+                FormatType::Storyboard => "Storyboard",
+                FormatType::Unknown => "Unknown",
+            }
+        )
     }
 }
-
-impl Hash for FormatType {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-    }
-}
-impl Eq for FormatType {}
 
 impl FormatType {
     /// Checks if the format is an audio and video format.
     pub fn is_audio_and_video(&self) -> bool {
-        matches!(self, FormatType::AudioAndVideo)
+        matches!(self, FormatType::AudioVideo)
     }
 
     /// Checks if the format is a video format.

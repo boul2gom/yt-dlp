@@ -461,7 +461,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The library provides a powerful format selection system that allows you to download videos and audio with specific quality and codec preferences.
 
-### Video Quality Options
+### 🎬 Video Quality Options
 
 - `VideoQuality::Best` - Selects the highest quality video format available
 - `VideoQuality::High` - Targets 1080p resolution
@@ -471,7 +471,7 @@ The library provides a powerful format selection system that allows you to downl
 - `VideoQuality::CustomHeight(u32)` - Targets a specific height (e.g., `CustomHeight(1440)` for 1440p)
 - `VideoQuality::CustomWidth(u32)` - Targets a specific width (e.g., `CustomWidth(1920)` for 1920px width)
 
-### Audio Quality Options
+### 🎵 Audio Quality Options
 
 - `AudioQuality::Best` - Selects the highest quality audio format available
 - `AudioQuality::High` - Targets 192kbps bitrate
@@ -480,23 +480,23 @@ The library provides a powerful format selection system that allows you to downl
 - `AudioQuality::Worst` - Selects the lowest quality audio format available
 - `AudioQuality::CustomBitrate(u32)` - Targets a specific bitrate in kbps (e.g., `CustomBitrate(256)` for 256kbps)
 
-### Codec Preferences
+### 🎞️ Codec Preferences
 
-#### Video Codecs
+#### 📹 Video Codecs
 - `VideoCodecPreference::VP9` - Prefer VP9 codec
 - `VideoCodecPreference::AVC1` - Prefer AVC1/H.264 codec
 - `VideoCodecPreference::AV1` - Prefer AV01/AV1 codec
 - `VideoCodecPreference::Custom(String)` - Prefer a custom codec
 - `VideoCodecPreference::Any` - No codec preference
 
-#### Audio Codecs
+#### 🔊 Audio Codecs
 - `AudioCodecPreference::Opus` - Prefer Opus codec
 - `AudioCodecPreference::AAC` - Prefer AAC codec
 - `AudioCodecPreference::MP3` - Prefer MP3 codec
 - `AudioCodecPreference::Custom(String)` - Prefer a custom codec
 - `AudioCodecPreference::Any` - No codec preference
 
-### Example: Downloading with Quality and Codec Preferences
+### 🧪 Example: Downloading with Quality and Codec Preferences
 
 ```rust
 use yt_dlp::Youtube;
@@ -552,6 +552,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 📋 Metadata
+The project supports automatic addition of metadata to downloaded files in several formats:
+
+- **MP3**: Title, artist, comment, genre (from tags), release year
+- **M4A**: Title, artist, comment, genre (from tags), release year  
+- **MP4**: All basic metadata, plus technical information (resolution, FPS, video codec, video bitrate, audio codec, audio bitrate, audio channels, sample rate)
+- **WebM**: All basic metadata (via Matroska format), plus technical information as with MP4
+
+Metadata is added automatically during download, without requiring any additional action from the user.
+
+### 🧠 Intelligent Metadata Management
+The system intelligently manages the application of metadata based on the file type and intended use:
+
+- For standalone files (audio or audio+video), metadata is applied immediately during download.
+- For separate audio and video streams that will be combined later, metadata is not applied to individual files to avoid redundant work.
+- When combining audio and video streams with `combine_audio_and_video()`, complete metadata is applied to the final file, including information from both streams.
+
+This optimized approach ensures that metadata is always present in the final file, while avoiding unnecessary processing of temporary files.
+
 ## 💡Support coming soon
 - [ ] Subtitles
 - [ ] Chapters
@@ -559,7 +578,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Playlist (and index)
 
 ## 💡Features coming soon
-- [ ] Metadata and tags on downloaded files
+- [x] Metadata and tags on downloaded files
 - [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for `yt-dlp` and `reqwest`
 - [ ] Downloading only a part of a video or audio (with time or chapter)

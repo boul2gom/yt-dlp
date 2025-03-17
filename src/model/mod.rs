@@ -113,45 +113,68 @@ impl Video {
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     /// If the video has no formats video formats, it returns None.
     pub fn best_video_format(&self) -> Option<&Format> {
-        let video_formats = self.formats.iter().filter(|format| format.is_video());
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Selecting best video format for video: {}", self.id);
 
-        video_formats.max_by(|a, b| self.compare_video_formats(a, b))
+        self.formats
+            .iter()
+            .filter(|f| f.is_video())
+            .max_by(|a, b| self.compare_video_formats(a, b))
     }
 
     /// Returns the best audio format available.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     /// If the video has no formats audio formats, it returns None.
     pub fn best_audio_format(&self) -> Option<&Format> {
-        let audio_formats = self.formats.iter().filter(|format| format.is_audio());
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Selecting best audio format for video: {}", self.id);
 
-        audio_formats.max_by(|a, b| self.compare_audio_formats(a, b))
+        self.formats
+            .iter()
+            .filter(|f| f.is_audio())
+            .max_by(|a, b| self.compare_audio_formats(a, b))
     }
 
     /// Returns the worst video format available.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     /// If the video has no formats video formats, it returns None.
     pub fn worst_video_format(&self) -> Option<&Format> {
-        let video_formats = self.formats.iter().filter(|format| format.is_video());
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Selecting worst video format for video: {}", self.id);
 
-        video_formats.min_by(|a, b| self.compare_video_formats(a, b))
+        self.formats
+            .iter()
+            .filter(|f| f.is_video())
+            .min_by(|a, b| self.compare_video_formats(a, b))
     }
 
     /// Returns the worst audio format available.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     /// If the video has no formats audio formats, it returns None.
     pub fn worst_audio_format(&self) -> Option<&Format> {
-        let audio_formats = self.formats.iter().filter(|format| format.is_audio());
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Selecting worst audio format for video: {}", self.id);
 
-        audio_formats.min_by(|a, b| self.compare_audio_formats(a, b))
+        self.formats
+            .iter()
+            .filter(|f| f.is_audio())
+            .min_by(|a, b| self.compare_audio_formats(a, b))
     }
 
     /// Compares two video formats.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     pub fn compare_video_formats(&self, a: &Format, b: &Format) -> std::cmp::Ordering {
-        let a_quality = a.quality_info.quality.unwrap_or(0.0);
-        let b_quality = b.quality_info.quality.unwrap_or(0.0);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            "Comparing video formats: {} and {}",
+            a.format_id,
+            b.format_id
+        );
 
-        let cmp_quality = OrderedFloat(a_quality).cmp(&OrderedFloat(b_quality));
+        let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
+        let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
+
+        let cmp_quality = a_quality.cmp(&b_quality);
         if cmp_quality != std::cmp::Ordering::Equal {
             return cmp_quality;
         }
@@ -164,16 +187,16 @@ impl Video {
             return cmp_height;
         }
 
-        let a_fps = a.video_resolution.fps.unwrap_or(0.0);
-        let b_fps = b.video_resolution.fps.unwrap_or(0.0);
+        let a_fps = a.video_resolution.fps.map(|f| *f).unwrap_or(0.0);
+        let b_fps = b.video_resolution.fps.map(|f| *f).unwrap_or(0.0);
 
         let cmp_fps = OrderedFloat(a_fps).cmp(&OrderedFloat(b_fps));
         if cmp_fps != std::cmp::Ordering::Equal {
             return cmp_fps;
         }
 
-        let a_vbr = a.rates_info.video_rate.unwrap_or(0.0);
-        let b_vbr = b.rates_info.video_rate.unwrap_or(0.0);
+        let a_vbr = a.rates_info.video_rate.map(|vr| *vr).unwrap_or(0.0);
+        let b_vbr = b.rates_info.video_rate.map(|vr| *vr).unwrap_or(0.0);
 
         OrderedFloat(a_vbr).cmp(&OrderedFloat(b_vbr))
     }
@@ -181,16 +204,23 @@ impl Video {
     /// Compares two audio formats.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     pub fn compare_audio_formats(&self, a: &Format, b: &Format) -> std::cmp::Ordering {
-        let a_quality = a.quality_info.quality.unwrap_or(0.0);
-        let b_quality = b.quality_info.quality.unwrap_or(0.0);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            "Comparing audio formats: {} and {}",
+            a.format_id,
+            b.format_id
+        );
 
-        let cmp_quality = OrderedFloat(a_quality).cmp(&OrderedFloat(b_quality));
+        let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
+        let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
+
+        let cmp_quality = a_quality.cmp(&b_quality);
         if cmp_quality != std::cmp::Ordering::Equal {
             return cmp_quality;
         }
 
-        let a_abr = a.rates_info.audio_rate.unwrap_or(0.0);
-        let b_abr = b.rates_info.audio_rate.unwrap_or(0.0);
+        let a_abr = a.rates_info.audio_rate.map(|ar| *ar).unwrap_or(0.0);
+        let b_abr = b.rates_info.audio_rate.map(|ar| *ar).unwrap_or(0.0);
 
         let cmp_abr = OrderedFloat(a_abr).cmp(&OrderedFloat(b_abr));
         if cmp_abr != std::cmp::Ordering::Equal {
@@ -226,6 +256,13 @@ impl Video {
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Option<&Format> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            "Selecting video format with quality: {:?}, codec: {:?}",
+            quality,
+            codec
+        );
+
         let video_formats: Vec<&Format> = self
             .formats
             .iter()
@@ -301,6 +338,13 @@ impl Video {
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Option<&Format> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            "Selecting audio format with quality: {:?}, codec: {:?}",
+            quality,
+            codec
+        );
+
         let audio_formats: Vec<&Format> = self
             .formats
             .iter()
@@ -358,37 +402,52 @@ impl Video {
     }
 }
 
-/// Helper function to select the format with the closest height to the target
+/// Selects the video format with the closest height to the target
 fn select_closest_video_height<'a>(
     formats: Vec<&'a Format>,
     target_height: u32,
     video: &Video,
 ) -> Option<&'a Format> {
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        "Selecting video format closest to height: {}",
+        target_height
+    );
+
     if formats.is_empty() {
         return None;
     }
 
     // First try to find formats with height >= target
-    let higher_formats: Vec<&Format> = formats
+    let formats_above_target: Vec<&Format> = formats
         .iter()
         .filter(|format| {
             format
                 .video_resolution
                 .height
-                .is_some_and(|h| h >= target_height as i64)
+                .is_some_and(|h| h >= target_height)
         })
         .copied()
         .collect();
 
-    if !higher_formats.is_empty() {
-        // Find the one with closest height to target
-        return higher_formats.into_iter().min_by(|a, b| {
-            let a_diff = a.video_resolution.height.unwrap_or(0) - target_height as i64;
-            let b_diff = b.video_resolution.height.unwrap_or(0) - target_height as i64;
-            a_diff.abs().cmp(&b_diff.abs()).then_with(|| {
-                // If same distance, prefer the one with better quality
-                video.compare_video_formats(a, b)
-            })
+    if !formats_above_target.is_empty() {
+        // Find the one with the closest height to target
+        return formats_above_target.into_iter().min_by(|a, b| {
+            let a_diff = a
+                .video_resolution
+                .height
+                .unwrap_or(0)
+                .saturating_sub(target_height);
+            let b_diff = b
+                .video_resolution
+                .height
+                .unwrap_or(0)
+                .saturating_sub(target_height);
+
+            // Compare difference then quality
+            a_diff
+                .cmp(&b_diff)
+                .then_with(|| video.compare_video_formats(a, b))
         });
     }
 
@@ -396,44 +455,57 @@ fn select_closest_video_height<'a>(
     formats.into_iter().max_by(|a, b| {
         let a_height = a.video_resolution.height.unwrap_or(0);
         let b_height = b.video_resolution.height.unwrap_or(0);
-        a_height.cmp(&b_height).then_with(|| {
-            // If same height, prefer the one with better quality
-            video.compare_video_formats(a, b)
-        })
+
+        // Compare height then quality
+        a_height
+            .cmp(&b_height)
+            .then_with(|| video.compare_video_formats(a, b))
     })
 }
 
-/// Helper function to select the format with the closest width to the target
+/// Selects the video format with the closest width to the target
 fn select_closest_video_width<'a>(
     formats: Vec<&'a Format>,
     target_width: u32,
     video: &Video,
 ) -> Option<&'a Format> {
+    #[cfg(feature = "tracing")]
+    tracing::trace!("Selecting video format closest to width: {}", target_width);
+
     if formats.is_empty() {
         return None;
     }
 
     // First try to find formats with width >= target
-    let higher_formats: Vec<&Format> = formats
+    let formats_above_target: Vec<&Format> = formats
         .iter()
         .filter(|format| {
             format
                 .video_resolution
                 .width
-                .is_some_and(|w| w >= target_width as i64)
+                .is_some_and(|w| w >= target_width)
         })
         .copied()
         .collect();
 
-    if !higher_formats.is_empty() {
-        // Find the one with closest width to target
-        return higher_formats.into_iter().min_by(|a, b| {
-            let a_diff = a.video_resolution.width.unwrap_or(0) - target_width as i64;
-            let b_diff = b.video_resolution.width.unwrap_or(0) - target_width as i64;
-            a_diff.abs().cmp(&b_diff.abs()).then_with(|| {
-                // If same distance, prefer the one with better quality
-                video.compare_video_formats(a, b)
-            })
+    if !formats_above_target.is_empty() {
+        // Find the one with the closest width to target
+        return formats_above_target.into_iter().min_by(|a, b| {
+            let a_diff = a
+                .video_resolution
+                .width
+                .unwrap_or(0)
+                .saturating_sub(target_width);
+            let b_diff = b
+                .video_resolution
+                .width
+                .unwrap_or(0)
+                .saturating_sub(target_width);
+
+            // Compare difference then quality
+            a_diff
+                .cmp(&b_diff)
+                .then_with(|| video.compare_video_formats(a, b))
         });
     }
 
@@ -441,62 +513,71 @@ fn select_closest_video_width<'a>(
     formats.into_iter().max_by(|a, b| {
         let a_width = a.video_resolution.width.unwrap_or(0);
         let b_width = b.video_resolution.width.unwrap_or(0);
-        a_width.cmp(&b_width).then_with(|| {
-            // If same width, prefer the one with better quality
-            video.compare_video_formats(a, b)
-        })
+
+        // Compare width then quality
+        a_width
+            .cmp(&b_width)
+            .then_with(|| video.compare_video_formats(a, b))
     })
 }
 
-/// Helper function to select the format with the closest audio bitrate to the target
+/// Selects the audio format with the closest bitrate to the target
 fn select_closest_audio_bitrate<'a>(
     formats: Vec<&'a Format>,
     target_bitrate: u32,
     video: &Video,
 ) -> Option<&'a Format> {
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        "Selecting audio format closest to bitrate: {}",
+        target_bitrate
+    );
+
     if formats.is_empty() {
         return None;
     }
 
+    let target_float = OrderedFloat(target_bitrate as f64);
+
     // First try to find formats with bitrate >= target
-    let higher_formats: Vec<&Format> = formats
+    let formats_above_target: Vec<&Format> = formats
         .iter()
         .filter(|format| {
             format
                 .rates_info
                 .audio_rate
-                .is_some_and(|r| r >= target_bitrate as f64)
+                .is_some_and(|r| r >= target_float)
         })
         .copied()
         .collect();
 
-    if !higher_formats.is_empty() {
-        // Find the one with closest bitrate to target
-        return higher_formats.into_iter().min_by(|a, b| {
-            let a_diff = a.rates_info.audio_rate.unwrap_or(0.0) - target_bitrate as f64;
-            let b_diff = b.rates_info.audio_rate.unwrap_or(0.0) - target_bitrate as f64;
-            a_diff
-                .abs()
-                .partial_cmp(&b_diff.abs())
+    if !formats_above_target.is_empty() {
+        // Find the one with the closest bitrate to target
+        return formats_above_target.into_iter().min_by(|a, b| {
+            let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
+            let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
+
+            let a_diff = (a_rate.0 - target_bitrate as f64).abs();
+            let b_diff = (b_rate.0 - target_bitrate as f64).abs();
+
+            // Compare bitrate difference then quality
+            OrderedFloat(a_diff)
+                .partial_cmp(&OrderedFloat(b_diff))
                 .unwrap_or(Ordering::Equal)
-                .then_with(|| {
-                    // If same distance, prefer the one with better quality
-                    video.compare_audio_formats(a, b)
-                })
+                .then_with(|| video.compare_audio_formats(a, b))
         });
     }
 
     // If no format with bitrate >= target, get the highest available
     formats.into_iter().max_by(|a, b| {
-        let a_rate = a.rates_info.audio_rate.unwrap_or(0.0);
-        let b_rate = b.rates_info.audio_rate.unwrap_or(0.0);
+        let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
+        let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
+
+        // Compare bitrate then quality
         a_rate
             .partial_cmp(&b_rate)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| {
-                // If same bitrate, prefer the one with better quality
-                video.compare_audio_formats(a, b)
-            })
+            .then_with(|| video.compare_audio_formats(a, b))
     })
 }
 
@@ -505,7 +586,7 @@ impl fmt::Display for Video {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Video(id={}, title=\"{}\", channel=\"{}\", formats={})",
+            "Video(id = {}, title = \"{}\", channel = \"{}\", formats = {})",
             self.id,
             self.title,
             self.channel,
@@ -517,21 +598,29 @@ impl fmt::Display for Video {
 // Implementation of the Display trait for ExtractorInfo
 impl fmt::Display for ExtractorInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Extractor({}:{})", self.extractor, self.extractor_key)
+        write!(
+            f,
+            "ExtractorInfo(extractor = {}, key = {})",
+            self.extractor, self.extractor_key
+        )
     }
 }
 
 // Implementation of the Display trait for Version
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Version({})", self.version)
+        write!(
+            f,
+            "Version(version = {}, repository = {})",
+            self.version, self.repository
+        )
     }
 }
 
 // Implementation of Eq for structures that support it
 impl Eq for Video {}
-impl Eq for ExtractorInfo {}
 impl Eq for Version {}
+impl Eq for ExtractorInfo {}
 
 // Implementation of Hash for structures that support it
 impl std::hash::Hash for Video {
@@ -543,16 +632,16 @@ impl std::hash::Hash for Video {
     }
 }
 
-impl std::hash::Hash for ExtractorInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.extractor.hash(state);
-        self.extractor_key.hash(state);
-    }
-}
-
 impl std::hash::Hash for Version {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.version.hash(state);
         self.repository.hash(state);
+    }
+}
+
+impl std::hash::Hash for ExtractorInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.extractor.hash(state);
+        self.extractor_key.hash(state);
     }
 }

@@ -60,6 +60,10 @@ pub enum Error {
     #[error("No thumbnail available for video")]
     MissingThumbnail,
 
+    /// An error occurred due to missing format.
+    #[error("Not found: {0}")]
+    FormatNotFound(String),
+
     /// An unknown error occurred.
     #[error("An unknown error occurred: {0}")]
     Unknown(String),

@@ -79,7 +79,6 @@ impl BuildFetcher {
     }
 
     /// Fetch the ffmpeg binary for the current platform and architecture.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_binary(&self) -> Result<WantedRelease> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching ffmpeg binary");
@@ -96,7 +95,6 @@ impl BuildFetcher {
     ///
     /// * `platform` - The platform to fetch the binary for.
     /// * `architecture` - The architecture to fetch the binary for.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_binary_for_platform(
         &self,
         platform: Platform,
@@ -125,7 +123,6 @@ impl BuildFetcher {
     ///
     /// * `platform` - The platform to select the asset for.
     /// * `architecture` - The architecture to select the asset for.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub fn select_asset(&self, platform: &Platform, architecture: &Architecture) -> Option<Asset> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -245,7 +242,6 @@ impl BuildFetcher {
     /// Extract the ffmpeg binary from the downloaded archive, for the current platform and architecture.
     /// The resulting binary will be placed in the same directory as the archive.
     /// The archive will be deleted after the binary has been extracted.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn extract_binary(
         &self,
         archive: impl AsRef<Path> + std::fmt::Debug,
@@ -272,7 +268,6 @@ impl BuildFetcher {
     /// * `archive` - The path to the downloaded archive.
     /// * `platform` - The platform to extract the binary for.
     /// * `architecture` - The architecture to extract the binary for.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn extract_binary_for_platform(
         &self,
         archive: impl AsRef<Path> + std::fmt::Debug,

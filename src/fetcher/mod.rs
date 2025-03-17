@@ -125,7 +125,6 @@ impl Fetcher {
     /// # Errors
     ///
     /// This function will return an error if the data could not be fetched or parsed.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_json(&self, auth_token: Option<String>) -> Result<serde_json::Value> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching JSON from {}", self.url);
@@ -162,7 +161,6 @@ impl Fetcher {
     /// # Errors
     ///
     /// This function will return an error if the asset cannot be downloaded or written to the destination.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn fetch_asset(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching asset from {} to {:?}", self.url, destination);

@@ -10,6 +10,7 @@ use crate::model::format_selector::{
 };
 use crate::{Youtube, utils};
 use std::fmt::Display;
+use std::path::Path;
 use std::path::PathBuf;
 
 impl Youtube {
@@ -43,7 +44,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn fetch_video_infos(&self, url: String) -> crate::error::Result<Video> {
         // Check if the video is in the cache
         if let Some(cache) = &self.cache {
@@ -120,7 +120,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_video_from_url(
         &self,
         url: String,
@@ -167,7 +166,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_video(
         &self,
         video: &Video,
@@ -268,7 +266,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_video_stream_from_url(
         &self,
         url: String,
@@ -316,7 +313,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_video_stream(
         &self,
         video: &Video,
@@ -364,7 +360,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_audio_stream_from_url(
         &self,
         url: String,
@@ -411,7 +406,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_audio_stream(
         &self,
         video: &Video,
@@ -474,7 +468,7 @@ impl Youtube {
         executor.execute().await?;
 
         // Clean up temporary file
-        tokio::fs::remove_file(temp_path).await?;
+        let _ = utils::file_system::remove_temp_file(temp_path).await;
 
         // Cache the processed audio file
         if let Some(download_cache) = &self.download_cache {
@@ -498,7 +492,7 @@ impl Youtube {
         Ok(output_path)
     }
 
-    /// Downloads a specific format, and returns its path.
+    /// Downloads a format.
     /// Be careful, this function may take a while to execute.
     ///
     /// # Arguments
@@ -536,7 +530,6 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn download_format(
         &self,
         format: &Format,
@@ -545,71 +538,34 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading format {}", format.format_id);
 
-        let output_str = output.as_ref();
-        let path = self.output_dir.join(output_str);
+        let output_path = self.output_dir.join(output.as_ref());
 
-        // Check if the format is in the cache
-        if let Some(download_cache) = &self.download_cache {
-            // Try to find the format in the cache by video ID and format ID
-            if let Some(video_id) = format.video_id.as_ref() {
-                if let Some((_, cached_path)) =
-                    download_cache.get_by_video_and_format(video_id, &format.format_id)
-                {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Using cached format: {}", format.format_id);
-
-                    // Copy the file from the cache to the output directory
-                    tokio::fs::copy(&cached_path, &path).await?;
-                    return Ok(path);
-                }
-            }
-        }
-
-        // Check if URL is available
-        let url = format
-            .download_info
-            .url
-            .clone()
-            .ok_or(Error::MissingUrl(format.format_id.clone()))?;
-
-        // Create an optimized fetcher with parallel downloading
-        let fetcher = Fetcher::new(&url)
-            .with_parallel_segments(8) // Use 8 parallel segments
-            .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
-            .with_retry_attempts(3); // 3 attempts in case of failure
-
-        fetcher.fetch_asset(path.clone()).await?;
-
-        // Cache the downloaded file if caching is enabled
-        if let Some(download_cache) = &self.download_cache {
-            if let Some(video_id) = format.video_id.as_ref() {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Caching format with ID: {}", format.format_id);
-
-                let _ = download_cache
-                    .put_file(&path, output_str, Some(video_id.clone()), Some(format))
-                    .await;
-            }
-        }
-
-        Ok(path)
+        // Use the internal function to download the format without preferences
+        self.download_format_internal(format, &output_path, None, None, None, None)
+            .await
     }
 
-    /// Downloads a format with the specified quality and codec preferences.
+    /// Downloads a format with specific quality and codec preferences.
+    ///
+    /// This method allows fine-grained control over the download process by specifying
+    /// quality and codec preferences for both video and audio components of the format.
     ///
     /// # Arguments
     ///
     /// * `format` - The format to download
     /// * `output` - The name of the output file
-    /// * `video_quality` - The video quality preference (if applicable)
-    /// * `audio_quality` - The audio quality preference (if applicable)
-    /// * `video_codec` - The video codec preference (if applicable)
-    /// * `audio_codec` - The audio codec preference (if applicable)
+    /// * `video_quality` - Optional video quality preference
+    /// * `audio_quality` - Optional audio quality preference
+    /// * `video_codec` - Optional video codec preference
+    /// * `audio_codec` - Optional audio codec preference
     ///
     /// # Returns
     ///
-    /// The path to the downloaded file
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    /// * `PathBuf` - The path to the downloaded format
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the video could not be downloaded.
     pub async fn download_format_with_preferences(
         &self,
         format: &Format,
@@ -619,13 +575,39 @@ impl Youtube {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading format {} with preferences", format.format_id);
+        let output_path = self.output_dir.join(output.as_ref());
 
-        let output_str = output.as_ref();
-        let path = self.output_dir.join(output_str);
+        // Use the internal function to download the format with preferences
+        self.download_format_internal(
+            format,
+            &output_path,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
+        )
+        .await
+    }
 
-        // Check if the format is in the cache using preferences
+    /// Internal function that handles downloading a format with or without preferences
+    ///
+    /// This function avoids code duplication between download_format and download_format_with_preferences
+    async fn download_format_internal(
+        &self,
+        format: &Format,
+        path: &PathBuf,
+        video_quality: Option<VideoQuality>,
+        audio_quality: Option<AudioQuality>,
+        video_codec: Option<VideoCodecPreference>,
+        audio_codec: Option<AudioCodecPreference>,
+    ) -> crate::error::Result<PathBuf> {
+        // Check if we have specific preferences
+        let has_preferences = video_quality.is_some()
+            || audio_quality.is_some()
+            || video_codec.is_some()
+            || audio_codec.is_some();
+
+        // Check if the format is in the cache
         if let Some(download_cache) = &self.download_cache {
             if let Some(video_id) = format.video_id.as_ref() {
                 // First try to find by exact format ID
@@ -636,24 +618,26 @@ impl Youtube {
                     tracing::debug!("Using cached format by ID: {}", format.format_id);
 
                     // Copy the file from the cache to the output directory
-                    tokio::fs::copy(&cached_path, &path).await?;
-                    return Ok(path);
+                    tokio::fs::copy(&cached_path, path).await?;
+                    return Ok(path.clone());
                 }
 
-                // Then try to find by preferences
-                if let Some((_, cached_path)) = download_cache.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec.clone(),
-                    audio_codec.clone(),
-                ) {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Using cached format by preferences");
+                // Then try to find by preferences if they exist
+                if has_preferences {
+                    if let Some((_, cached_path)) = download_cache.get_by_video_and_preferences(
+                        video_id,
+                        video_quality,
+                        audio_quality,
+                        video_codec.clone(),
+                        audio_codec.clone(),
+                    ) {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!("Using cached format by preferences");
 
-                    // Copy the file from the cache to the output directory
-                    tokio::fs::copy(&cached_path, &path).await?;
-                    return Ok(path);
+                        // Copy the file from the cache to the output directory
+                        tokio::fs::copy(&cached_path, path).await?;
+                        return Ok(path.clone());
+                    }
                 }
             }
         }
@@ -673,27 +657,137 @@ impl Youtube {
 
         fetcher.fetch_asset(path.clone()).await?;
 
+        // Don't add metadata for video or audio streams that will be combined later
+        // Only add metadata for standalone formats that contain both
+        // audio and video, or for audio-only formats intended for direct use
+        self.add_metadata_if_needed(path, format).await?;
+
         // Cache the downloaded file if caching is enabled
         if let Some(download_cache) = &self.download_cache {
-            if let Some(video_id) = format.video_id.as_ref() {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Caching format with preferences: {}", format.format_id);
+            let output_str = path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or_default()
+                .to_string();
 
-                let _ = download_cache
-                    .put_file_with_preferences(
-                        &path,
-                        output_str,
-                        Some(video_id.clone()),
-                        Some(format),
-                        video_quality,
-                        audio_quality,
-                        video_codec,
-                        audio_codec,
-                    )
-                    .await;
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching format with ID: {}", format.format_id);
+
+            // Use the appropriate function depending on whether we have preferences or not
+            if has_preferences {
+                if let Some(video_id) = format.video_id.as_ref() {
+                    if let Err(_e) = download_cache
+                        .put_file_with_preferences(
+                            path,
+                            output_str,
+                            Some(video_id.clone()),
+                            Some(format),
+                            video_quality,
+                            audio_quality,
+                            video_codec,
+                            audio_codec,
+                        )
+                        .await
+                    {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("Failed to cache format with preferences: {}", _e);
+                    }
+                }
+            } else if let Err(_e) = download_cache
+                .put_file(path, output_str, format.video_id.clone(), Some(format))
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache format: {}", _e);
             }
         }
 
-        Ok(path)
+        Ok(path.clone())
+    }
+
+    /// Adds format metadata based on the format type (audio-only, video-only, or both)
+    /// This function is extracted to avoid code duplication
+    async fn add_metadata_if_needed(
+        &self,
+        path: impl AsRef<Path>,
+        format: &Format,
+    ) -> crate::error::Result<()> {
+        let format_type = format.format_type();
+        let is_standalone_format = format_type.is_audio_and_video() || format_type.is_audio();
+
+        if is_standalone_format {
+            if let Some(video_id) = format.video_id.as_ref() {
+                // Get the video metadata from the cache
+                if let Some(video) = self.get_video_by_id(video_id).await {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Adding metadata to standalone file with format preferences");
+
+                    // Use the method with format information for richer metadata
+                    if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                        path,
+                        &video,
+                        Some(format),
+                        None,
+                    ) {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("Failed to add metadata to file: {}", _e);
+                    }
+                } else {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!("Failed to get video metadata for ID: {}", video_id);
+                }
+            }
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Skipping metadata for non-standalone format: will be added after combining"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve a video by its ID, checking the cache first if available
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The ID of the video to find
+    ///
+    /// # Returns
+    ///
+    /// * `Option<Video>` - The video if found, None otherwise
+    pub async fn get_video_by_id(&self, video_id: &str) -> Option<Video> {
+        // First check if the video is in the cache
+        if let Some(cache) = &self.cache {
+            // Try to find the video by its ID using the get_by_id method
+            match cache.get_by_id(video_id) {
+                Ok(cached_video) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached video data for ID: {}", video_id);
+                    return Some(cached_video.video);
+                }
+                Err(_) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Video not found in cache by ID: {}", video_id);
+                }
+            }
+        }
+
+        // If not in cache, try to fetch it using the ID-based URL
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Video not found in cache, trying to fetch it using ID: {}",
+            video_id
+        );
+
+        let url = format!("https://www.youtube.com/watch?v={}", video_id);
+        match self.fetch_video_infos(url).await {
+            Ok(video) => Some(video),
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to fetch video by ID {}: {}", video_id, _e);
+                None
+            }
+        }
     }
 }
