@@ -5,8 +5,11 @@ use crate::executor::Executor;
 use crate::fetcher::Fetcher;
 use crate::model::Video;
 use crate::model::format::Format;
+use crate::model::format_selector::{
+    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
+};
 use crate::{Youtube, utils};
-use derive_more::Display;
+use std::fmt::Display;
 use std::path::PathBuf;
 
 impl Youtube {
@@ -42,9 +45,6 @@ impl Youtube {
     /// ```
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn fetch_video_infos(&self, url: String) -> crate::error::Result<Video> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching video information for {}", url);
-
         // Check if the video is in the cache
         if let Some(cache) = &self.cache {
             if let Some(video) = cache.get(&url) {
@@ -127,7 +127,7 @@ impl Youtube {
         output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading video from URL {}", url);
+        tracing::debug!("Downloading video from URL: {}", url);
 
         let video = self.fetch_video_infos(url).await?;
         self.download_video(&video, output).await
@@ -184,7 +184,7 @@ impl Youtube {
             // Try to find the video in the cache by its ID
             if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id) {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Using cached video: {}", video.id);
+                tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
                 // Copy the file from the cache to the output directory
                 tokio::fs::copy(&cached_path, &path).await?;
@@ -222,7 +222,7 @@ impl Youtube {
         // Cache the downloaded file if caching is enabled
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Caching downloaded video: {}", video.id);
+            tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
             if let Err(_e) = download_cache
                 .put_file(&path, output_str, Some(video.id.clone()), None)
@@ -275,7 +275,7 @@ impl Youtube {
         output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading video stream from {}", url);
+        tracing::debug!("Downloading audio stream from URL: {}", url);
 
         let video = self.fetch_video_infos(url).await?;
 
@@ -371,7 +371,7 @@ impl Youtube {
         output: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Downloading audio stream from URL {}", url);
+        tracing::debug!("Downloading audio stream from URL: {}", url);
 
         let video = self.fetch_video_infos(url).await?;
         self.download_audio_stream(&video, output).await
@@ -479,7 +479,7 @@ impl Youtube {
         // Cache the processed audio file
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Caching processed audio: {}", video.id);
+            tracing::debug!("Caching format with ID: {}", best_audio.format_id);
 
             if let Err(_e) = download_cache
                 .put_file(
@@ -491,7 +491,7 @@ impl Youtube {
                 .await
             {
                 #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to cache processed audio: {}", _e);
+                tracing::warn!("Failed to cache format: {}", _e);
             }
         }
 
@@ -582,17 +582,115 @@ impl Youtube {
 
         // Cache the downloaded file if caching is enabled
         if let Some(download_cache) = &self.download_cache {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Caching downloaded format: {}", format.format_id);
-
-            let video_id = format.video_id.clone();
-
-            if let Err(_e) = download_cache
-                .put_file(&path, output_str, video_id, Some(format))
-                .await
-            {
+            if let Some(video_id) = format.video_id.as_ref() {
                 #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to cache downloaded file: {}", _e);
+                tracing::debug!("Caching format with ID: {}", format.format_id);
+
+                let _ = download_cache
+                    .put_file(&path, output_str, Some(video_id.clone()), Some(format))
+                    .await;
+            }
+        }
+
+        Ok(path)
+    }
+
+    /// Downloads a format with the specified quality and codec preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to download
+    /// * `output` - The name of the output file
+    /// * `video_quality` - The video quality preference (if applicable)
+    /// * `audio_quality` - The audio quality preference (if applicable)
+    /// * `video_codec` - The video codec preference (if applicable)
+    /// * `audio_codec` - The audio codec preference (if applicable)
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    pub async fn download_format_with_preferences(
+        &self,
+        format: &Format,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+        video_quality: Option<VideoQuality>,
+        audio_quality: Option<AudioQuality>,
+        video_codec: Option<VideoCodecPreference>,
+        audio_codec: Option<AudioCodecPreference>,
+    ) -> crate::error::Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading format {} with preferences", format.format_id);
+
+        let output_str = output.as_ref();
+        let path = self.output_dir.join(output_str);
+
+        // Check if the format is in the cache using preferences
+        if let Some(download_cache) = &self.download_cache {
+            if let Some(video_id) = format.video_id.as_ref() {
+                // First try to find by exact format ID
+                if let Some((_, cached_path)) =
+                    download_cache.get_by_video_and_format(video_id, &format.format_id)
+                {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached format by ID: {}", format.format_id);
+
+                    // Copy the file from the cache to the output directory
+                    tokio::fs::copy(&cached_path, &path).await?;
+                    return Ok(path);
+                }
+
+                // Then try to find by preferences
+                if let Some((_, cached_path)) = download_cache.get_by_video_and_preferences(
+                    video_id,
+                    video_quality,
+                    audio_quality,
+                    video_codec.clone(),
+                    audio_codec.clone(),
+                ) {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached format by preferences");
+
+                    // Copy the file from the cache to the output directory
+                    tokio::fs::copy(&cached_path, &path).await?;
+                    return Ok(path);
+                }
+            }
+        }
+
+        // Check if URL is available
+        let url = format
+            .download_info
+            .url
+            .clone()
+            .ok_or(Error::MissingUrl(format.format_id.clone()))?;
+
+        // Create an optimized fetcher with parallel downloading
+        let fetcher = Fetcher::new(&url)
+            .with_parallel_segments(8) // Use 8 parallel segments
+            .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
+            .with_retry_attempts(3); // 3 attempts in case of failure
+
+        fetcher.fetch_asset(path.clone()).await?;
+
+        // Cache the downloaded file if caching is enabled
+        if let Some(download_cache) = &self.download_cache {
+            if let Some(video_id) = format.video_id.as_ref() {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Caching format with preferences: {}", format.format_id);
+
+                let _ = download_cache
+                    .put_file_with_preferences(
+                        &path,
+                        output_str,
+                        Some(video_id.clone()),
+                        Some(format),
+                        video_quality,
+                        audio_quality,
+                        video_codec,
+                        audio_codec,
+                    )
+                    .await;
             }
         }
 

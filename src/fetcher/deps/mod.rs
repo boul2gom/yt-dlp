@@ -6,8 +6,9 @@ use crate::fetcher::deps::ffmpeg::BuildFetcher;
 use crate::fetcher::deps::youtube::GitHubFetcher;
 use crate::utils::file_system;
 use crate::{ternary, utils};
-use derive_more::{Constructor, Display};
+use derive_more::Constructor;
 use serde::Deserialize;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub mod ffmpeg;
@@ -73,8 +74,8 @@ impl LibraryInstaller {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip(self)))]
     pub async fn install_youtube_from_repo(
         &self,
-        owner: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
-        repo: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        owner: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
+        repo: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
         auth_token: Option<String>,
         custom_name: Option<String>,
     ) -> Result<PathBuf> {
@@ -183,8 +184,7 @@ impl Libraries {
 }
 
 /// A GitHub release.
-#[derive(Debug, Deserialize, Display)]
-#[display("Release: tag={}, assets={};", tag_name, assets.len())]
+#[derive(Debug, Deserialize)]
 pub struct Release {
     /// The tag name of the release.
     pub tag_name: String,
@@ -192,9 +192,19 @@ pub struct Release {
     pub assets: Vec<Asset>,
 }
 
+impl fmt::Display for Release {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Release: tag={}, assets={};",
+            self.tag_name,
+            self.assets.len()
+        )
+    }
+}
+
 /// A release asset.
-#[derive(Debug, Deserialize, Display)]
-#[display("Asset: name={}, url={};", name, download_url)]
+#[derive(Debug, Deserialize)]
 pub struct Asset {
     /// The name of the asset.
     pub name: String,
@@ -203,14 +213,25 @@ pub struct Asset {
     pub download_url: String,
 }
 
+impl fmt::Display for Asset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Asset: name={}, url={};", self.name, self.download_url)
+    }
+}
+
 /// A release that has been selected for the current platform.
-#[derive(Debug, Display)]
-#[display("WantedRelease: asset={}, url={};", name, url)]
+#[derive(Debug)]
 pub struct WantedRelease {
     /// The URL of the release asset.
     pub url: String,
     /// The name of the release asset.
     pub name: String,
+}
+
+impl fmt::Display for WantedRelease {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WantedRelease: asset={}, url={};", self.name, self.url)
+    }
 }
 
 impl WantedRelease {

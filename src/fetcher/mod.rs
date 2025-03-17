@@ -7,10 +7,10 @@
 
 use crate::error::{Error, Result};
 use crate::utils::file_system;
-use derive_more::Display;
 use futures_util::{StreamExt, stream};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
 use std::cmp::min;
+use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,8 +32,6 @@ struct SegmentContext {
 
 /// The fetcher is responsible for downloading data from a URL.
 /// This optimized implementation uses parallel downloads and download resumption.
-#[derive(Display)]
-#[display("Fetcher: {}", url)]
 pub struct Fetcher {
     /// The URL from which to download the data.
     url: String,
@@ -47,6 +45,16 @@ pub struct Fetcher {
     /// Callback optionnal for tracking download progress
     #[allow(clippy::type_complexity)]
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+}
+
+impl fmt::Display for Fetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Fetcher(url={}, segments={})",
+            self.url, self.parallel_segments
+        )
+    }
 }
 
 impl Fetcher {

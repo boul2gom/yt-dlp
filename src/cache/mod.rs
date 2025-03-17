@@ -6,6 +6,9 @@
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::format::Format;
+use crate::model::format_selector::{
+    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
+};
 use crate::model::thumbnail::Thumbnail;
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
@@ -66,10 +69,41 @@ pub struct CachedFile {
     pub format_id: Option<String>,
     /// The format information serialized as JSON (if available).
     pub format_json: Option<String>,
+    /// The video quality preference used to select this format (if any).
+    pub video_quality: Option<VideoQuality>,
+    /// The audio quality preference used to select this format (if any).
+    pub audio_quality: Option<AudioQuality>,
+    /// The video codec preference used to select this format (if any).
+    pub video_codec: Option<VideoCodecPreference>,
+    /// The audio codec preference used to select this format (if any).
+    pub audio_codec: Option<AudioCodecPreference>,
     /// The file size in bytes.
     pub filesize: u64,
     /// The MIME type of the file.
     pub mime_type: String,
+    /// The cache timestamp (Unix timestamp).
+    pub cached_at: u64,
+}
+
+/// Structure for storing thumbnail metadata in cache.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CachedThumbnail {
+    /// The ID of the thumbnail (SHA-256 hash of the content).
+    pub id: String,
+    /// The original filename.
+    pub filename: String,
+    /// The path to the file relative to the cache directory.
+    pub relative_path: String,
+    /// The video ID this thumbnail is associated with.
+    pub video_id: String,
+    /// The file size in bytes.
+    pub filesize: u64,
+    /// The MIME type of the file.
+    pub mime_type: String,
+    /// The width of the thumbnail in pixels (if available).
+    pub width: Option<u32>,
+    /// The height of the thumbnail in pixels (if available).
+    pub height: Option<u32>,
     /// The cache timestamp (Unix timestamp).
     pub cached_at: u64,
 }
@@ -151,6 +185,36 @@ impl Eq for CachedType {}
 impl Hash for CachedType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
+    }
+}
+
+impl fmt::Display for CachedThumbnail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CachedThumbnail(id={}, video_id={}, filename={})",
+            self.id, self.video_id, self.filename
+        )
+    }
+}
+
+impl PartialOrd for CachedThumbnail {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for CachedThumbnail {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl Eq for CachedThumbnail {}
+
+impl Hash for CachedThumbnail {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
@@ -358,40 +422,34 @@ pub struct DownloadCache {
 }
 
 impl DownloadCache {
-    /// Creates a new download cache manager.
+    /// Creates a new download cache with the specified cache directory and TTL.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - The directory where to store the cache database and files.
-    /// * `ttl` - The time-to-live for cache entries in seconds (default: 7 days).
+    /// * `cache_path` - The path to the cache directory.
+    /// * `ttl` - The time-to-live for cache entries in seconds (optional, defaults to 7 days).
+    ///
+    /// # Returns
+    ///
+    /// Returns a new download cache instance if successful.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the cache directory cannot be created or the database cannot be initialized.
+    /// This function will return an error if the cache directory cannot be created or the database connection cannot be established.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
-    pub fn new(cache_dir: impl AsRef<Path> + std::fmt::Debug, ttl: Option<u64>) -> Result<Self> {
+    pub fn new(cache_path: impl AsRef<Path> + std::fmt::Debug, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Creating new download cache in {:?}", cache_dir);
+        tracing::debug!("Creating download cache at {:?}", cache_path);
 
         // Create the cache directory if it doesn't exist
-        let cache_path = cache_dir.as_ref().to_path_buf();
-        if !cache_path.exists() {
-            std::fs::create_dir_all(&cache_path)?;
-        }
+        let cache_dir = cache_path.as_ref().to_path_buf();
+        std::fs::create_dir_all(&cache_dir)?;
 
-        // Create the files directory
-        let files_dir = cache_path.join("files");
-        if !files_dir.exists() {
-            std::fs::create_dir_all(&files_dir)?;
-        }
+        // Create the database file
+        let db_path = cache_dir.join("downloads.db");
+        let connection = Connection::open(&db_path)?;
 
-        let db_path = cache_path.join("download_cache.db");
-        let connection = Connection::open_with_flags(
-            &db_path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-        )?;
-
-        // Initialize the database schema
+        // Create the files table if it doesn't exist
         connection.execute(
             "CREATE TABLE IF NOT EXISTS files (
                 id TEXT PRIMARY KEY,
@@ -401,6 +459,10 @@ impl DownloadCache {
                 file_type TEXT NOT NULL,
                 format_id TEXT,
                 format_json TEXT,
+                video_quality TEXT,
+                audio_quality TEXT,
+                video_codec TEXT,
+                audio_codec TEXT,
                 filesize INTEGER NOT NULL,
                 mime_type TEXT NOT NULL,
                 cached_at INTEGER NOT NULL
@@ -408,24 +470,40 @@ impl DownloadCache {
             [],
         )?;
 
+        // Create the thumbnails table if it doesn't exist
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS thumbnails (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                video_id TEXT NOT NULL,
+                filesize INTEGER NOT NULL,
+                mime_type TEXT NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                cached_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
         // Create indexes for faster lookups
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_files_video_id ON files(video_id)",
+            "CREATE INDEX IF NOT EXISTS idx_files_video_id ON files (video_id)",
             [],
         )?;
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_files_format_id ON files(format_id)",
+            "CREATE INDEX IF NOT EXISTS idx_files_format_id ON files (format_id)",
             [],
         )?;
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_files_file_type ON files(file_type)",
+            "CREATE INDEX IF NOT EXISTS idx_thumbnails_video_id ON thumbnails (video_id)",
             [],
         )?;
 
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             ttl: ttl.unwrap_or(7 * 24 * 60 * 60), // 7 days by default
-            cache_dir: cache_path,
+            cache_dir,
         })
     }
 
@@ -491,6 +569,42 @@ impl DownloadCache {
     /// # Returns
     ///
     /// Returns the cached file information if successful.
+    pub async fn put_file(
+        &self,
+        source_path: impl AsRef<Path> + std::fmt::Debug,
+        filename: impl AsRef<str> + std::fmt::Debug,
+        video_id: Option<String>,
+        format: Option<&Format>,
+    ) -> Result<CachedFile> {
+        self.put_file_with_preferences(
+            source_path,
+            filename,
+            video_id,
+            format,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Puts a file in the cache, with preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - The path to the file to cache.
+    /// * `filename` - The original filename.
+    /// * `video_id` - The ID of the video this file is associated with (if any).
+    /// * `format` - The format information (if available).
+    /// * `video_quality` - The video quality preference used to select this format (if any).
+    /// * `audio_quality` - The audio quality preference used to select this format (if any).
+    /// * `video_codec` - The video codec preference used to select this format (if any).
+    /// * `audio_codec` - The audio codec preference used to select this format (if any).
+    ///
+    /// # Returns
+    ///
+    /// Returns the cached file information if successful.
     ///
     /// # Errors
     ///
@@ -499,12 +613,17 @@ impl DownloadCache {
         feature = "tracing",
         tracing::instrument(level = "debug", skip(format))
     )]
-    pub async fn put_file(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn put_file_with_preferences(
         &self,
         source_path: impl AsRef<Path> + std::fmt::Debug,
         filename: impl AsRef<str> + std::fmt::Debug,
         video_id: Option<String>,
         format: Option<&Format>,
+        video_quality: Option<VideoQuality>,
+        audio_quality: Option<AudioQuality>,
+        video_codec: Option<VideoCodecPreference>,
+        audio_codec: Option<AudioCodecPreference>,
     ) -> Result<CachedFile> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Caching file {:?}", source_path);
@@ -559,6 +678,10 @@ impl DownloadCache {
             file_type,
             format_id,
             format_json,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
             filesize,
             mime_type,
             cached_at,
@@ -568,16 +691,20 @@ impl DownloadCache {
         let connection = self.connection.lock().unwrap();
 
         connection.execute(
-            "INSERT OR REPLACE INTO files (id, filename, relative_path, video_id, file_type, format_id, format_json, filesize, mime_type, cached_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO files (id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 cached_file.id,
                 cached_file.filename,
                 cached_file.relative_path,
-                cached_file.video_id,
+                cached_file.video_id.clone(),
                 serde_json::to_string(&cached_file.file_type).unwrap_or_default(),
-                cached_file.format_id,
-                cached_file.format_json,
+                cached_file.format_id.clone(),
+                cached_file.format_json.clone(),
+                cached_file.video_quality.map(|vq| serde_json::to_string(&vq).unwrap_or_default()),
+                cached_file.audio_quality.map(|aq| serde_json::to_string(&aq).unwrap_or_default()),
+                cached_file.video_codec.clone().map(|vc| serde_json::to_string(&vc).unwrap_or_default()),
+                cached_file.audio_codec.clone().map(|ac| serde_json::to_string(&ac).unwrap_or_default()),
                 cached_file.filesize,
                 cached_file.mime_type,
                 cached_file.cached_at
@@ -613,9 +740,9 @@ impl DownloadCache {
         filename: impl AsRef<str> + std::fmt::Debug,
         video_id: String,
         thumbnail: &Thumbnail,
-    ) -> Result<CachedFile> {
+    ) -> Result<CachedThumbnail> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching thumbnail {:?} for video {}", source_path, video_id);
+        tracing::debug!("Caching thumbnail {:?}", source_path);
 
         // Calculate the file hash
         let file_hash = Self::calculate_file_hash(&source_path).await?;
@@ -634,60 +761,63 @@ impl DownloadCache {
             .and_then(|ext| ext.to_str())
             .unwrap_or("");
 
-        let relative_path = format!("files/{}.{}", file_hash, extension);
+        let relative_path = format!("thumbnails/{}.{}", file_hash, extension);
         let dest_path = self.cache_dir.join(&relative_path);
 
-        // Copy the file to the cache directory
-        if !dest_path.exists() {
-            tokio::fs::copy(&source_path, &dest_path).await?;
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = dest_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Serialize thumbnail information
-        let thumbnail_json = serde_json::to_string(thumbnail).unwrap_or_default();
+        // Copy the file to the cache directory
+        tokio::fs::copy(&source_path, &dest_path).await?;
 
-        // Create the cache entry
-        let cached_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
+        // Get current timestamp
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
             .as_secs();
 
-        let cached_file = CachedFile {
+        // Create the cached thumbnail
+        let cached_thumbnail = CachedThumbnail {
             id: file_hash.clone(),
             filename: filename_str.to_string(),
             relative_path,
-            video_id: Some(video_id),
-            file_type: CachedType::Thumbnail,
-            format_id: Some("thumbnail".to_string()),
-            format_json: Some(thumbnail_json),
+            video_id: video_id.clone(),
             filesize,
             mime_type,
-            cached_at,
+            width: thumbnail.width.map(|w| w as u32),
+            height: thumbnail.height.map(|h| h as u32),
+            cached_at: now,
         };
 
-        // Store in the database
+        // Insert into database
         let connection = self.connection.lock().unwrap();
 
+        // Convert Option<u32> to Option<i32> for SQLite compatibility
+        let width_i32 = cached_thumbnail.width.map(|w| w as i32);
+        let height_i32 = cached_thumbnail.height.map(|h| h as i32);
+
         connection.execute(
-            "INSERT OR REPLACE INTO files (id, filename, relative_path, video_id, file_type, format_id, format_json, filesize, mime_type, cached_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO thumbnails (id, filename, relative_path, video_id, filesize, mime_type, width, height, cached_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                cached_file.id,
-                cached_file.filename,
-                cached_file.relative_path,
-                cached_file.video_id,
-                serde_json::to_string(&cached_file.file_type).unwrap_or_default(),
-                cached_file.format_id,
-                cached_file.format_json,
-                cached_file.filesize,
-                cached_file.mime_type,
-                cached_file.cached_at
+                cached_thumbnail.id,
+                cached_thumbnail.filename,
+                cached_thumbnail.relative_path,
+                cached_thumbnail.video_id,
+                cached_thumbnail.filesize as i64,
+                cached_thumbnail.mime_type,
+                width_i32,
+                height_i32,
+                cached_thumbnail.cached_at as i64
             ],
         )?;
 
-        Ok(cached_file)
+        Ok(cached_thumbnail)
     }
 
-    /// Gets a file from the cache by its hash.
+    /// Gets a file from the cache by hash.
     ///
     /// # Arguments
     ///
@@ -704,14 +834,14 @@ impl DownloadCache {
         let connection = self.connection.lock().unwrap();
 
         let mut stmt = connection
-            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, filesize, mime_type, cached_at FROM files WHERE id = ?")
+            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at FROM files WHERE id = ?")
             .ok()?;
 
         let mut rows = stmt.query(params![file_hash]).ok()?;
 
         if let Some(row) = rows.next().ok()? {
             // Check if the cache has expired
-            let cached_at: u64 = row.get(9).ok()?;
+            let cached_at: u64 = row.get(13).ok()?;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -722,6 +852,27 @@ impl DownloadCache {
                 let file_type: CachedType =
                     serde_json::from_str(&file_type_str).unwrap_or(CachedType::Other);
 
+                // Parse quality and codec preferences
+                let video_quality: Option<VideoQuality> = row
+                    .get::<_, Option<String>>(7)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_quality: Option<AudioQuality> = row
+                    .get::<_, Option<String>>(8)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let video_codec: Option<VideoCodecPreference> = row
+                    .get::<_, Option<String>>(9)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_codec: Option<AudioCodecPreference> = row
+                    .get::<_, Option<String>>(10)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
                 let cached_file = CachedFile {
                     id: row.get(0).ok()?,
                     filename: row.get(1).ok()?,
@@ -730,8 +881,12 @@ impl DownloadCache {
                     file_type,
                     format_id: row.get(5).ok()?,
                     format_json: row.get(6).ok()?,
-                    filesize: row.get(7).ok()?,
-                    mime_type: row.get(8).ok()?,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                    filesize: row.get(11).ok()?,
+                    mime_type: row.get(12).ok()?,
                     cached_at,
                 };
 
@@ -740,17 +895,27 @@ impl DownloadCache {
                 // Verify the file exists
                 if file_path.exists() {
                     #[cfg(feature = "tracing")]
-                    tracing::debug!("Cache hit for file hash: {}", file_hash);
+                    tracing::debug!(
+                        "Cache hit for video ID: {} and format ID: {}",
+                        cached_file
+                            .video_id
+                            .as_ref()
+                            .unwrap_or(&String::from("unknown")),
+                        cached_file
+                            .format_id
+                            .as_ref()
+                            .unwrap_or(&String::from("unknown"))
+                    );
 
                     return Some((cached_file, file_path));
                 }
             } else {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Cache expired for file hash: {}", file_hash);
+                tracing::debug!("Cache expired for file with hash: {}", file_hash);
             }
         } else {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Cache miss for file hash: {}", file_hash);
+            tracing::debug!("File not found in cache with hash: {}", file_hash);
         }
 
         None
@@ -782,14 +947,14 @@ impl DownloadCache {
         let connection = self.connection.lock().unwrap();
 
         let mut stmt = connection
-            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, filesize, mime_type, cached_at FROM files WHERE video_id = ? AND format_id = ?")
+            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at FROM files WHERE video_id = ? AND format_id = ?")
             .ok()?;
 
         let mut rows = stmt.query(params![video_id, format_id]).ok()?;
 
         if let Some(row) = rows.next().ok()? {
             // Check if the cache has expired
-            let cached_at: u64 = row.get(9).ok()?;
+            let cached_at: u64 = row.get(13).ok()?;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -800,6 +965,27 @@ impl DownloadCache {
                 let file_type: CachedType =
                     serde_json::from_str(&file_type_str).unwrap_or(CachedType::Other);
 
+                // Parse quality and codec preferences
+                let video_quality: Option<VideoQuality> = row
+                    .get::<_, Option<String>>(7)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_quality: Option<AudioQuality> = row
+                    .get::<_, Option<String>>(8)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let video_codec: Option<VideoCodecPreference> = row
+                    .get::<_, Option<String>>(9)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_codec: Option<AudioCodecPreference> = row
+                    .get::<_, Option<String>>(10)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
                 let cached_file = CachedFile {
                     id: row.get(0).ok()?,
                     filename: row.get(1).ok()?,
@@ -808,8 +994,12 @@ impl DownloadCache {
                     file_type,
                     format_id: row.get(5).ok()?,
                     format_json: row.get(6).ok()?,
-                    filesize: row.get(7).ok()?,
-                    mime_type: row.get(8).ok()?,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                    filesize: row.get(11).ok()?,
+                    mime_type: row.get(12).ok()?,
                     cached_at,
                 };
 
@@ -820,8 +1010,14 @@ impl DownloadCache {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(
                         "Cache hit for video ID: {} and format ID: {}",
-                        video_id,
-                        format_id
+                        cached_file
+                            .video_id
+                            .as_ref()
+                            .unwrap_or(&String::from("unknown")),
+                        cached_file
+                            .format_id
+                            .as_ref()
+                            .unwrap_or(&String::from("unknown"))
                     );
 
                     return Some((cached_file, file_path));
@@ -894,6 +1090,10 @@ impl DownloadCache {
                     filesize: row.get(7).ok()?,
                     mime_type: row.get(8).ok()?,
                     cached_at,
+                    video_quality: None,
+                    audio_quality: None,
+                    video_codec: None,
+                    audio_codec: None,
                 };
 
                 let file_path = self.cache_dir.join(&cached_file.relative_path);
@@ -1011,5 +1211,146 @@ impl DownloadCache {
         )?;
 
         Ok(())
+    }
+
+    /// Gets a file from the cache by video ID and format preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The ID of the video.
+    /// * `video_quality` - The video quality preference.
+    /// * `audio_quality` - The audio quality preference.
+    /// * `video_codec` - The video codec preference.
+    /// * `audio_codec` - The audio codec preference.
+    ///
+    /// # Returns
+    ///
+    /// Returns the cached file information and path if the file is in the cache and has not expired, otherwise `None`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+    pub fn get_by_video_and_preferences(
+        &self,
+        video_id: &str,
+        video_quality: Option<VideoQuality>,
+        audio_quality: Option<AudioQuality>,
+        video_codec: Option<VideoCodecPreference>,
+        audio_codec: Option<AudioCodecPreference>,
+    ) -> Option<(CachedFile, PathBuf)> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Looking for file in cache by video ID: {} and format preferences",
+            video_id
+        );
+
+        let connection = self.connection.lock().unwrap();
+
+        // Build the query based on which preferences are provided
+        let mut query = "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at FROM files WHERE video_id = ?".to_string();
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(video_id.to_string())];
+
+        if let Some(vq) = &video_quality {
+            query.push_str(" AND video_quality = ?");
+            params_vec.push(Box::new(serde_json::to_string(vq).unwrap_or_default()));
+        }
+
+        if let Some(aq) = &audio_quality {
+            query.push_str(" AND audio_quality = ?");
+            params_vec.push(Box::new(serde_json::to_string(aq).unwrap_or_default()));
+        }
+
+        if let Some(vc) = &video_codec {
+            query.push_str(" AND video_codec = ?");
+            params_vec.push(Box::new(serde_json::to_string(vc).unwrap_or_default()));
+        }
+
+        if let Some(ac) = &audio_codec {
+            query.push_str(" AND audio_codec = ?");
+            params_vec.push(Box::new(serde_json::to_string(ac).unwrap_or_default()));
+        }
+
+        let mut stmt = connection.prepare(&query).ok()?;
+
+        let params_slice: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut rows = stmt.query(params_slice.as_slice()).ok()?;
+
+        if let Some(row) = rows.next().ok()? {
+            // Check if the cache has expired
+            let cached_at: u64 = row.get(13).ok()?;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            if now - cached_at <= self.ttl {
+                let file_type_str: String = row.get(4).ok()?;
+                let file_type: CachedType =
+                    serde_json::from_str(&file_type_str).unwrap_or(CachedType::Other);
+
+                // Parse quality and codec preferences
+                let video_quality: Option<VideoQuality> = row
+                    .get::<_, Option<String>>(7)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_quality: Option<AudioQuality> = row
+                    .get::<_, Option<String>>(8)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let video_codec: Option<VideoCodecPreference> = row
+                    .get::<_, Option<String>>(9)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let audio_codec: Option<AudioCodecPreference> = row
+                    .get::<_, Option<String>>(10)
+                    .ok()?
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let cached_file = CachedFile {
+                    id: row.get(0).ok()?,
+                    filename: row.get(1).ok()?,
+                    relative_path: row.get(2).ok()?,
+                    video_id: row.get(3).ok()?,
+                    file_type,
+                    format_id: row.get(5).ok()?,
+                    format_json: row.get(6).ok()?,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                    filesize: row.get(11).ok()?,
+                    mime_type: row.get(12).ok()?,
+                    cached_at,
+                };
+
+                let file_path = self.cache_dir.join(&cached_file.relative_path);
+
+                // Verify the file exists
+                if file_path.exists() {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(
+                        "Cache hit for video ID: {} and format preferences",
+                        video_id
+                    );
+
+                    return Some((cached_file, file_path));
+                }
+            } else {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Cache expired for video ID: {} and format preferences",
+                    video_id
+                );
+            }
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Cache miss for video ID: {} and format preferences",
+                video_id
+            );
+        }
+
+        None
     }
 }

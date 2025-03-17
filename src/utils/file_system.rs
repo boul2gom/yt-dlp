@@ -1,6 +1,7 @@
 //! Tools for working with the file system.
 
 use crate::error::{Error, Result};
+use rand::{Rng, distributions::Alphanumeric};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use tokio::fs::{File, OpenOptions};
@@ -190,4 +191,21 @@ pub fn set_executable(executable: impl AsRef<Path>) -> Result<()> {
 pub fn set_executable(_executable: impl AsRef<Path>) -> Result<()> {
     // Windows doesn't use executable bits, so this is a no-op
     Ok(())
+}
+
+/// Generates a random filename with the specified length.
+///
+/// # Arguments
+///
+/// * `length` - The length of the random string to generate.
+///
+/// # Returns
+///
+/// A random string of the specified length.
+pub fn random_filename(length: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect()
 }

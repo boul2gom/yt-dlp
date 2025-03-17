@@ -6,7 +6,7 @@ use crate::fetcher::deps::{Libraries, LibraryInstaller};
 use crate::fetcher::download_manager::{DownloadManager, ManagerConfig};
 use crate::utils::file_system;
 use cache::{DownloadCache, VideoCache};
-use derive_more::Display;
+use std::fmt::{self, Display};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,8 +55,7 @@ pub use model::utils::{AllTraits, CommonTraits};
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug, Display)]
-#[display("Youtube: output_dir={:?}, args={:?}", output_dir, args)]
+#[derive(Clone, Debug)]
 pub struct Youtube {
     /// The required libraries.
     pub libraries: Libraries,
@@ -73,6 +72,16 @@ pub struct Youtube {
     pub download_cache: Option<Arc<cache::DownloadCache>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
+}
+
+impl fmt::Display for Youtube {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Youtube: output_dir={:?}, args={:?}",
+            self.output_dir, self.args
+        )
+    }
 }
 
 impl Youtube {
@@ -420,9 +429,9 @@ impl Youtube {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
     pub async fn combine_audio_and_video(
         &self,
-        audio_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
-        video_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
-        output_file: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        audio_file: impl AsRef<str> + std::fmt::Debug + Display,
+        video_file: impl AsRef<str> + std::fmt::Debug + Display,
+        output_file: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -712,5 +721,257 @@ impl Youtube {
         download_id: u64,
     ) -> Option<fetcher::download_manager::DownloadStatus> {
         self.download_manager.wait_for_completion(download_id).await
+    }
+
+    /// Downloads a video with the specified video and audio quality preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The name of the output file
+    /// * `video_quality` - The desired video quality
+    /// * `video_codec` - The preferred video codec
+    /// * `audio_quality` - The desired audio quality
+    /// * `audio_codec` - The preferred audio codec
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded video file
+    ///
+    /// # Example
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// # let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    ///
+    /// // Download a high quality video with VP9 codec and high quality audio with Opus codec
+    /// let video_path = fetcher.download_video_with_quality(
+    ///     url,
+    ///     "my-video.mp4",
+    ///     VideoQuality::High,
+    ///     VideoCodecPreference::VP9,
+    ///     AudioQuality::High,
+    ///     AudioCodecPreference::Opus
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_video_with_quality(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+        video_quality: model::format_selector::VideoQuality,
+        video_codec: model::format_selector::VideoCodecPreference,
+        audio_quality: model::format_selector::AudioQuality,
+        audio_codec: model::format_selector::AudioCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select video format based on quality and codec preferences
+        let video_format = video
+            .select_video_format(video_quality, video_codec.clone())
+            .ok_or_else(|| Error::MissingFormat("video".to_string()))?;
+
+        // Select audio format based on quality and codec preferences
+        let audio_format = video
+            .select_audio_format(audio_quality, audio_codec.clone())
+            .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
+
+        // Download video format with preferences
+        let video_ext = format!("{:?}", video_format.download_info.ext);
+        let video_filename = format!(
+            "temp_video_{}.{}",
+            utils::file_system::random_filename(8),
+            video_ext
+        );
+        let video_path = self
+            .download_format_with_preferences(
+                video_format,
+                &video_filename,
+                Some(video_quality),
+                None,
+                Some(video_codec),
+                None,
+            )
+            .await?;
+
+        // Download audio format with preferences
+        let audio_ext = format!("{:?}", audio_format.download_info.ext);
+        let audio_filename = format!(
+            "temp_audio_{}.{}",
+            utils::file_system::random_filename(8),
+            audio_ext
+        );
+        let audio_path = self
+            .download_format_with_preferences(
+                audio_format,
+                &audio_filename,
+                None,
+                Some(audio_quality),
+                None,
+                Some(audio_codec),
+            )
+            .await?;
+
+        // Combine audio and video
+        let output_path = self
+            .combine_audio_and_video(&audio_filename, &video_filename, output)
+            .await?;
+
+        // Clean up temporary files
+        if let Err(_e) = tokio::fs::remove_file(&video_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary video file: {}", _e);
+        }
+
+        if let Err(_e) = tokio::fs::remove_file(&audio_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary audio file: {}", _e);
+        }
+
+        Ok(output_path)
+    }
+
+    /// Downloads a video stream with the specified quality preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The name of the output file
+    /// * `quality` - The desired video quality
+    /// * `codec` - The preferred video codec
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded video file
+    ///
+    /// # Example
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// # let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    ///
+    /// // Download a medium quality video with AVC1 codec
+    /// let video_path = fetcher.download_video_stream_with_quality(
+    ///     url,
+    ///     "video-only.mp4",
+    ///     VideoQuality::Medium,
+    ///     VideoCodecPreference::AVC1
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_video_stream_with_quality(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+        quality: model::format_selector::VideoQuality,
+        codec: model::format_selector::VideoCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select video format based on quality and codec preferences
+        let video_format = video
+            .select_video_format(quality, codec.clone())
+            .ok_or_else(|| Error::MissingFormat("video".to_string()))?;
+
+        // Download video format with preferences
+        self.download_format_with_preferences(
+            video_format,
+            output,
+            Some(quality),
+            None,
+            Some(codec),
+            None,
+        )
+        .await
+    }
+
+    /// Downloads an audio stream with the specified quality preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The name of the output file
+    /// * `quality` - The desired audio quality
+    /// * `codec` - The preferred audio codec
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded audio file
+    ///
+    /// # Example
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::model::{AudioQuality, AudioCodecPreference};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// # let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    ///
+    /// // Download a high quality audio with Opus codec
+    /// let audio_path = fetcher.download_audio_stream_with_quality(
+    ///     url,
+    ///     "audio-only.mp3",
+    ///     AudioQuality::High,
+    ///     AudioCodecPreference::Opus
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_audio_stream_with_quality(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+        quality: model::format_selector::AudioQuality,
+        codec: model::format_selector::AudioCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select audio format based on quality and codec preferences
+        let audio_format = video
+            .select_audio_format(quality, codec.clone())
+            .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
+
+        // Download audio format with preferences
+        self.download_format_with_preferences(
+            audio_format,
+            output,
+            None,
+            Some(quality),
+            None,
+            Some(codec),
+        )
+        .await
     }
 }

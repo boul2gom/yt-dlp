@@ -149,7 +149,7 @@ impl Youtube {
     pub async fn download_thumbnail_from_video(
         &self,
         video: &Video,
-        file_name: impl AsRef<str> + std::fmt::Debug + derive_more::Display,
+        file_name: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail {}", video.title);

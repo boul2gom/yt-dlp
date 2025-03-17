@@ -457,6 +457,101 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 🎛️ Format Selection
+
+The library provides a powerful format selection system that allows you to download videos and audio with specific quality and codec preferences.
+
+### Video Quality Options
+
+- `VideoQuality::Best` - Selects the highest quality video format available
+- `VideoQuality::High` - Targets 1080p resolution
+- `VideoQuality::Medium` - Targets 720p resolution
+- `VideoQuality::Low` - Targets 480p resolution
+- `VideoQuality::Worst` - Selects the lowest quality video format available
+- `VideoQuality::CustomHeight(u32)` - Targets a specific height (e.g., `CustomHeight(1440)` for 1440p)
+- `VideoQuality::CustomWidth(u32)` - Targets a specific width (e.g., `CustomWidth(1920)` for 1920px width)
+
+### Audio Quality Options
+
+- `AudioQuality::Best` - Selects the highest quality audio format available
+- `AudioQuality::High` - Targets 192kbps bitrate
+- `AudioQuality::Medium` - Targets 128kbps bitrate
+- `AudioQuality::Low` - Targets 96kbps bitrate
+- `AudioQuality::Worst` - Selects the lowest quality audio format available
+- `AudioQuality::CustomBitrate(u32)` - Targets a specific bitrate in kbps (e.g., `CustomBitrate(256)` for 256kbps)
+
+### Codec Preferences
+
+#### Video Codecs
+- `VideoCodecPreference::VP9` - Prefer VP9 codec
+- `VideoCodecPreference::AVC1` - Prefer AVC1/H.264 codec
+- `VideoCodecPreference::AV1` - Prefer AV01/AV1 codec
+- `VideoCodecPreference::Custom(String)` - Prefer a custom codec
+- `VideoCodecPreference::Any` - No codec preference
+
+#### Audio Codecs
+- `AudioCodecPreference::Opus` - Prefer Opus codec
+- `AudioCodecPreference::AAC` - Prefer AAC codec
+- `AudioCodecPreference::MP3` - Prefer MP3 codec
+- `AudioCodecPreference::Custom(String)` - Prefer a custom codec
+- `AudioCodecPreference::Any` - No codec preference
+
+### Example: Downloading with Quality and Codec Preferences
+
+```rust
+use yt_dlp::Youtube;
+use yt_dlp::model::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
+use std::path::PathBuf;
+use yt_dlp::fetcher::deps::Libraries;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+    
+    let libraries = Libraries::new(youtube, ffmpeg);
+    let fetcher = Youtube::new(libraries, output_dir)?;
+
+    let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    
+    // Download a high quality video with VP9 codec and high quality audio with Opus codec
+    let video_path = fetcher.download_video_with_quality(
+        url.clone(),
+        "complete-video.mp4",
+        VideoQuality::High,
+        VideoCodecPreference::VP9,
+        AudioQuality::High,
+        AudioCodecPreference::Opus
+    ).await?;
+    
+    // Download just the video stream with medium quality and AVC1 codec
+    let video_stream_path = fetcher.download_video_stream_with_quality(
+        url.clone(),
+        "video-only.mp4",
+        VideoQuality::Medium,
+        VideoCodecPreference::AVC1
+    ).await?;
+    
+    // Download just the audio stream with high quality and AAC codec
+    let audio_stream_path = fetcher.download_audio_stream_with_quality(
+        url,
+        "audio-only.m4a",
+        AudioQuality::High,
+        AudioCodecPreference::AAC
+    ).await?;
+    
+    println!("Downloaded files:");
+    println!("Complete video: {}", video_path.display());
+    println!("Video stream: {}", video_stream_path.display());
+    println!("Audio stream: {}", audio_stream_path.display());
+    
+    Ok(())
+}
+```
+
 ## 💡Support coming soon
 - [ ] Subtitles
 - [ ] Chapters
@@ -468,7 +563,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for ```yt-dlp``` and ```reqwest```
 - [ ] Downloading only a part of a video or audio (with time or chapter)
-- [ ] Audio and video format selection with enums
 - [ ] Post-processing options with ```ffmpeg```
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with ```ffmpeg``` or ```reqwest```

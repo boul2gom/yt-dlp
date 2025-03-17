@@ -39,10 +39,11 @@ serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 
 # Error handling dependencies
-derive_more = { version = "1.0.0", features = ["display", "constructor"] }
+derive_more = { version = "1.0.0", features = ["constructor"] }
 thiserror = "2.0.3"
 
 # Misc and compression dependencies
+uuid = { version = "1.16.0", features = ["v4"] }
 ordered-float = "4.5.0"
 flate2 = "1.0.34"
 tar = "0.4.43"
@@ -50,6 +51,7 @@ zip = "2.2.0"
 xz2 = "0.1.7"
 sha2 = "0.10.8"
 rusqlite = { version = "0.30.0", features = ["bundled"] }
+rand = "0.8.5"
 
 # Logging dependencies
 tracing = { version = "0.1.40", optional = true }

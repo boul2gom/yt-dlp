@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use crate::fetcher::deps::{Asset, WantedRelease};
 use crate::utils::file_system;
 use crate::utils::platform::{Architecture, Platform};
-use derive_more::Display;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// URL templates for FFmpeg builds based on platform and architecture
@@ -63,8 +63,14 @@ struct Extraction {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug, Default, Display)]
+#[derive(Clone, Debug, Default)]
 pub struct BuildFetcher;
+
+impl fmt::Display for BuildFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BuildFetcher")
+    }
+}
 
 impl BuildFetcher {
     /// Create a new fetcher for ffmpeg.

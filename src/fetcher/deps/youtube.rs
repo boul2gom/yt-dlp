@@ -5,7 +5,7 @@ use crate::fetcher::Fetcher;
 use crate::fetcher::deps::{Asset, Release, WantedRelease};
 use crate::utils::platform::Architecture;
 use crate::utils::platform::Platform;
-use derive_more::Display;
+use std::fmt;
 
 const BASE_ASSET_NAME: &str = "yt-dlp";
 
@@ -26,13 +26,18 @@ const BASE_ASSET_NAME: &str = "yt-dlp";
 /// release.download(destination).await?;
 /// # Ok(())
 /// # }
-#[derive(Debug, Display)]
-#[display("Github Fetcher: {}/{}", owner, repo)]
+#[derive(Debug)]
 pub struct GitHubFetcher {
     /// The owner or organization of the GitHub repository.
     owner: String,
     /// The name of the GitHub repository.
     repo: String,
+}
+
+impl fmt::Display for GitHubFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GitHubFetcher(owner={}, repo={})", self.owner, self.repo)
+    }
 }
 
 impl GitHubFetcher {
