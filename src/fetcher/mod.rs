@@ -42,7 +42,7 @@ pub struct Fetcher {
     segment_size: usize,
     /// The number of download attempts in case of failure.
     retry_attempts: usize,
-    /// Callback optionnal for tracking download progress
+    /// Callback optional for tracking download progress
     #[allow(clippy::type_complexity)]
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
 }
