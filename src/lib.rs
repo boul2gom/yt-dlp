@@ -510,7 +510,9 @@ impl Youtube {
                     &video,
                     video_format.as_ref(),
                     audio_format.as_ref(),
-                ) {
+                )
+                .await
+                {
                     #[cfg(feature = "tracing")]
                     tracing::warn!("Failed to add metadata to combined file: {}", _e);
                 }

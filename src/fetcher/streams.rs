@@ -728,7 +728,9 @@ impl Youtube {
                         &video,
                         Some(format),
                         None,
-                    ) {
+                    )
+                    .await
+                    {
                         #[cfg(feature = "tracing")]
                         tracing::warn!("Failed to add metadata to file: {}", _e);
                     }

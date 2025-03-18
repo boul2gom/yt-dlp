@@ -578,8 +578,6 @@ This optimized approach ensures that metadata is always present in the final fil
 - [ ] Playlist (and index)
 
 ## 💡Features coming soon
-- [x] Metadata and tags on downloaded files
-- [ ] Thumbnails and cover arts on downloaded files
 - [ ] Proxy support for `yt-dlp` and `reqwest`
 - [ ] Downloading only a part of a video or audio (with time or chapter)
 - [ ] Post-processing options with `ffmpeg`
