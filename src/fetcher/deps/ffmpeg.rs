@@ -134,7 +134,7 @@ impl BuildFetcher {
         match (platform, architecture) {
             (Platform::Windows, _) => {
                 let url = Url::windows().to_string();
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -143,7 +143,7 @@ impl BuildFetcher {
 
             (Platform::Mac, Architecture::X64) => {
                 let url = Url::macos_intel().to_string();
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -151,7 +151,7 @@ impl BuildFetcher {
             }
             (Platform::Mac, Architecture::Aarch64) => {
                 let url = Url::macos_arm().to_string();
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -160,7 +160,7 @@ impl BuildFetcher {
 
             (Platform::Linux, Architecture::X64) => {
                 let url = Url::linux("amd64");
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -168,7 +168,7 @@ impl BuildFetcher {
             }
             (Platform::Linux, Architecture::X86) => {
                 let url = Url::linux("i686");
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -176,7 +176,7 @@ impl BuildFetcher {
             }
             (Platform::Linux, Architecture::Armv7l) => {
                 let url = Url::linux("armhf");
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
@@ -184,7 +184,7 @@ impl BuildFetcher {
             }
             (Platform::Linux, Architecture::Aarch64) => {
                 let url = Url::linux("arm64");
-                let name = url.split('/').last()?.to_string();
+                let name = url.split('/').next_back()?.to_string();
                 Some(Asset {
                     name,
                     download_url: url,
