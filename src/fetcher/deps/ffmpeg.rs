@@ -203,7 +203,7 @@ impl BuildFetcher {
     ) -> Option<Extraction> {
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg-7.1-essentials_build/bin/ffmpeg.exe"),
+                executable_path: PathBuf::from("ffmpeg-7.1.1-essentials_build/bin/ffmpeg.exe"),
                 extracted_dir: None,
                 binary_extension: "exe".to_string(),
             }),

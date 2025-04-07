@@ -118,18 +118,13 @@ pub async fn extract_zip(
                 .ok_or(Error::Unknown("Failed to get file name".to_string()))?,
         );
 
-        match file.is_file() {
-            true => {
-                create_parent_dir(&destination)?;
+        if file.is_file() {
+            create_parent_dir(&destination)?;
 
-                let dest_file = create_file(&destination).await?;
-                let mut dest_file = dest_file.into_std().await;
+            let dest_file = create_file(&destination).await?;
+            let mut dest_file = dest_file.into_std().await;
 
-                std::io::copy(&mut file, &mut dest_file)?;
-            }
-            false => {
-                create_file(&destination).await?;
-            }
+            std::io::copy(&mut file, &mut dest_file)?;
         }
     }
 
