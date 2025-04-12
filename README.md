@@ -27,8 +27,8 @@
   <a href="https://crates.io/crates/yt-dlp">
     <img src="https://img.shields.io/github/v/release/boul2gom/yt-dlp?label=Release&logo=Rust" alt="Release"/>
   </a>
-  <a href="https://github.com/boul2gom/yt-dlp/blob/develop/LICENSE.md">
-    <img src="https://img.shields.io/github/license/boul2gom/yt-dlp?label=License&logo=Github" alt="License">
+  <a href="https://crates.io/crates/yt-dlp">
+    <img src="https://img.shields.io/crates/d/yt-dlp?label=Downloads&logo=Rust" alt="Downloads"/>
   </a>
 </p>
 <p align="center">
@@ -41,26 +41,21 @@
   <a href="https://github.com/boul2gom/yt-dlp/pulls">
     <img src="https://img.shields.io/github/issues-pr-raw/boul2gom/yt-dlp?label=Pull requests&logo=Github" alt="Pull requests">
   </a>
+</p>
+<p align="center">
+  <a href="https://github.com/boul2gom/yt-dlp/blob/develop/LICENSE.md">
+    <img src="https://img.shields.io/github/license/boul2gom/yt-dlp?label=License&logo=Github" alt="License">
+  </a>
   <a href="https://github.com/boul2gom/yt-dlp/stargazers">
     <img src="https://img.shields.io/github/stars/boul2gom/yt-dlp?label=Stars&logo=Github" alt="Stars">
   </a>
   <a href="https://github.com/boul2gom/yt-dlp/fork">
     <img src="https://img.shields.io/github/forks/boul2gom/yt-dlp?label=Forks&logo=Github" alt="Forks">
   </a>
-</p>
+</p>  
 
 <p align="center">
-    🚧 Few stats and tools scores about the project: 
-</p>
-<p align="center">
-  <a href="https://scorecard.dev/viewer/?uri=github.com/boul2gom/yt-dlp">
-    <img src="https://img.shields.io/ossf-scorecard/github.com/boul2gom/yt-dlp?label=Scorecard&logo=SecurityScorecard" alt="OpenSSF Scorecard"/>
-  </a>
-  <a href="https://crates.io/crates/yt-dlp">
-    <img src="https://img.shields.io/crates/d/yt-dlp?label=Downloads&logo=Rust" alt="Downloads"/>
-  </a>
-  <img src="https://img.shields.io/sonar/tech_debt/boul2gom_yt-dlp?server=https%3A%2F%2Fsonarcloud.io&label=Tech%20Debt&logo=SonarCloud" alt="Tech Debt"/>
-  <img src="https://img.shields.io/codefactor/grade/github/boul2gom/yt-dlp/develop?label=Quality&logo=Codefactor" alt="Codefactor">
+  <img src="https://repobeats.axiom.co/api/embed/81fed25250909bb618c0180c8092c143feae0616.svg" alt="Statistics" title="Repobeats analytics image" />
 </p>
 
 ---
