@@ -10,6 +10,7 @@ pub struct Thumbnail {
     /// The URL of the thumbnail.
     pub url: String,
     /// The preference index of the thumbnail, e.g. '-35' or '0'.
+    #[serde(default)]
     pub preference: i64,
 
     /// The ID of the thumbnail.

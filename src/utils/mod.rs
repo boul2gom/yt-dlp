@@ -4,6 +4,7 @@
 
 use crate::error::Result;
 use platform::Platform;
+use serde::{Deserialize, Deserializer};
 use tokio::task::JoinHandle;
 
 pub mod file_system;
@@ -71,4 +72,15 @@ macro_rules! ternary {
     ($condition:expr, $true:expr, $false:expr) => {
         if $condition { $true } else { $false }
     };
+}
+
+/// Null handling in serde
+pub fn null_to_default<'de, D, T>(d: D) -> ::std::result::Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    let opt = Option::deserialize(d)?;
+    let val = opt.unwrap_or_else(T::default);
+    Ok(val)
 }

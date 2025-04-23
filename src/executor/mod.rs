@@ -99,20 +99,24 @@ impl Executor {
         });
 
         // Wait for the process to finish with timeout
-        let exit_status = match tokio::time::timeout(self.timeout, child.wait()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                // In case of timeout, kill the process and all its children
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Process timed out after {:?}, killing it", self.timeout);
-
-                // Try to kill the process
-                if let Err(_e) = child.kill().await {
+        let exit_status = if self.timeout == Duration::default() {
+            child.wait().await?
+        } else {
+            match tokio::time::timeout(self.timeout, child.wait()).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    // In case of timeout, kill the process and all its children
                     #[cfg(feature = "tracing")]
-                    tracing::error!("Failed to kill process after timeout: {}", _e);
-                }
+                    tracing::warn!("Process timed out after {:?}, killing it", self.timeout);
 
-                return Err(Error::Timeout(self.timeout));
+                    // Try to kill the process
+                    if let Err(_e) = child.kill().await {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("Failed to kill process after timeout: {}", _e);
+                    }
+
+                    return Err(Error::Timeout(self.timeout));
+                }
             }
         };
 

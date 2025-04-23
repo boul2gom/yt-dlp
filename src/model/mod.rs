@@ -6,6 +6,7 @@ use crate::model::caption::AutomaticCaption;
 use crate::model::format::Format;
 use crate::model::format_selector::{matches_audio_codec, matches_video_codec};
 use crate::model::thumbnail::Thumbnail;
+use crate::utils::null_to_default;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -33,8 +34,10 @@ pub struct Video {
     /// The thumbnail URL of the video, usually the highest quality.
     pub thumbnail: String,
     /// The description of the video.
+    #[serde(deserialize_with = "null_to_default")]
     pub description: String,
     /// If the video is public, unlisted, or private.
+    #[serde(default)]
     pub availability: String,
     /// The upload date of the video.
     #[serde(rename = "timestamp")]
@@ -48,11 +51,12 @@ pub struct Video {
     pub comment_count: Option<i64>,
 
     /// The channel display name.
-    pub channel: String,
+    pub uploader: String,
     /// The channel ID, not the @username.
-    pub channel_id: String,
+    pub uploader_id: String,
     /// The URL of the channel.
-    pub channel_url: String,
+    #[serde(default)]
+    pub uploader_url: String,
     /// The number of subscribers the channel has.
     pub channel_follower_count: Option<i64>,
 
@@ -61,14 +65,18 @@ pub struct Video {
     /// The thumbnails of the video.
     pub thumbnails: Vec<Thumbnail>,
     /// The automatic captions of the video.
+    #[serde(default = "HashMap::new")]
     pub automatic_captions: HashMap<String, Vec<AutomaticCaption>>,
 
     /// The tags of the video.
+    #[serde(default)]
     pub tags: Vec<String>,
     /// The categories of the video.
+    #[serde(default)]
     pub categories: Vec<String>,
 
     /// If the video is age restricted, the age limit is different from 0.
+    #[serde(default)]
     pub age_limit: i64,
     /// If the video is available in the country.
     #[serde(rename = "_has_drm")]
@@ -76,7 +84,7 @@ pub struct Video {
     /// If the video was a live stream.
     pub live_status: String,
     /// If the video is playable in an embed.
-    pub playable_in_embed: bool,
+    pub playable_in_embed: Option<bool>,
 
     /// The extractor information.
     #[serde(flatten)]
@@ -84,6 +92,7 @@ pub struct Video {
     /// The version of 'yt-dlp' used to fetch the video.
     #[serde(rename = "_version")]
     pub version: Version,
+    pub filename: String,
 }
 
 /// Represents the extractor information.
@@ -198,7 +207,17 @@ impl Video {
         let a_vbr = a.rates_info.video_rate.map(|vr| *vr).unwrap_or(0.0);
         let b_vbr = b.rates_info.video_rate.map(|vr| *vr).unwrap_or(0.0);
 
-        OrderedFloat(a_vbr).cmp(&OrderedFloat(b_vbr))
+        let cmp_vbr = OrderedFloat(a_vbr).cmp(&OrderedFloat(b_vbr));
+        if cmp_vbr != std::cmp::Ordering::Equal {
+            return cmp_vbr;
+        }
+
+        match (a.is_manifest(),b.is_manifest()) {
+            (true, true)|(false, false) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            
+        }
     }
 
     /// Compares two audio formats.
@@ -586,10 +605,10 @@ impl fmt::Display for Video {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Video(id = {}, title = \"{}\", channel = \"{}\", formats = {})",
+            "Video(id = {}, title = \"{}\", uploader = \"{}\", formats = {})",
             self.id,
             self.title,
-            self.channel,
+            self.uploader,
             self.formats.len()
         )
     }
@@ -627,8 +646,8 @@ impl std::hash::Hash for Video {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         self.title.hash(state);
-        self.channel.hash(state);
-        self.channel_id.hash(state);
+        self.uploader.hash(state);
+        self.uploader_id.hash(state);
     }
 }
 

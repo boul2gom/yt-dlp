@@ -78,13 +78,16 @@ impl Format {
         format_type.is_audio()
     }
 
+    /// Checks if the format is a manifest.
+    pub fn is_manifest(&self) -> bool {
+        let format_type = self.format_type();
+
+        format_type.is_manifest()
+    }
+
     /// Gets the type of the format.
     /// It can be audio, video, both of them, a manifest, or a storyboard.
     pub fn format_type(&self) -> FormatType {
-        if self.download_info.manifest_url.is_some() {
-            return FormatType::Manifest;
-        }
-
         if self.storyboard_info.fragments.is_some() {
             return FormatType::Storyboard;
         }
@@ -92,11 +95,15 @@ impl Format {
         let audio = self.codec_info.audio_codec.is_some();
         let video = self.codec_info.video_codec.is_some();
 
+        if self.download_info.manifest_url.is_some() {
+            return FormatType::Manifest { audio, video };
+        }
+
         match (audio, video) {
             (true, true) => FormatType::AudioVideo,
             (true, false) => FormatType::Audio,
             (false, true) => FormatType::Video,
-            _ => FormatType::Manifest,
+            _ => FormatType::Manifest { audio, video },
         }
     }
 }
@@ -497,7 +504,7 @@ pub enum FormatType {
     /// The format contains both audio and video.
     AudioVideo,
     /// The format is a manifest.
-    Manifest,
+    Manifest { audio: bool, video: bool },
     /// The format is a storyboard.
     Storyboard,
 
@@ -516,7 +523,7 @@ impl fmt::Display for FormatType {
                 FormatType::Audio => "Audio",
                 FormatType::Video => "Video",
                 FormatType::AudioVideo => "AudioVideo",
-                FormatType::Manifest => "Manifest",
+                FormatType::Manifest { .. } => "Manifest",
                 FormatType::Storyboard => "Storyboard",
                 FormatType::Unknown => "Unknown",
             }
@@ -527,17 +534,30 @@ impl fmt::Display for FormatType {
 impl FormatType {
     /// Checks if the format is an audio and video format.
     pub fn is_audio_and_video(&self) -> bool {
-        matches!(self, FormatType::AudioVideo)
+        matches!(
+            self,
+            FormatType::AudioVideo
+                | FormatType::Manifest {
+                    audio: true,
+                    video: true
+                }
+        )
     }
 
     /// Checks if the format is a video format.
     pub fn is_video(&self) -> bool {
-        matches!(self, FormatType::Video)
+        matches!(
+            self,
+            FormatType::Video | FormatType::AudioVideo | FormatType::Manifest { video: true, .. }
+        )
     }
 
     /// Checks if the format is an audio format.
     pub fn is_audio(&self) -> bool {
-        matches!(self, FormatType::Audio)
+        matches!(
+            self,
+            FormatType::Audio | FormatType::AudioVideo | FormatType::Manifest { audio: true, .. }
+        )
     }
 
     /// Checks if the format is a storyboard format.
@@ -547,6 +567,6 @@ impl FormatType {
 
     /// Checks if the format is a manifest format.
     pub fn is_manifest(&self) -> bool {
-        matches!(self, FormatType::Manifest)
+        matches!(self, FormatType::Manifest { .. })
     }
 }

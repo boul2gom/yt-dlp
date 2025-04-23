@@ -52,9 +52,9 @@ pub trait BaseMetadata {
 
         let mut metadata = vec![
             ("title".to_string(), video.title.clone()),
-            ("artist".to_string(), video.channel.clone()),
-            ("album_artist".to_string(), video.channel.clone()),
-            ("album".to_string(), video.channel.clone()),
+            ("artist".to_string(), video.uploader.clone()),
+            ("album_artist".to_string(), video.uploader.clone()),
+            ("album".to_string(), video.uploader.clone()),
         ];
 
         // Add tags as genre
