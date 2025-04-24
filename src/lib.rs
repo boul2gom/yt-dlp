@@ -5,12 +5,14 @@ use crate::executor::Executor;
 use crate::fetcher::deps::{Libraries, LibraryInstaller};
 use crate::fetcher::download_manager::{DownloadManager, ManagerConfig};
 use crate::utils::file_system;
+#[cfg(feature = "cache")]
 use cache::{DownloadCache, VideoCache};
 use std::fmt::{self, Display};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "cache")]
 pub mod cache;
 pub mod error;
 pub mod executor;
@@ -68,8 +70,10 @@ pub struct Youtube {
     /// The timeout for command execution.
     pub timeout: Duration,
     /// The cache for video metadata.
+    #[cfg(feature = "cache")]
     pub cache: Option<Arc<cache::VideoCache>>,
     /// The cache for downloaded files.
+    #[cfg(feature = "cache")]
     pub download_cache: Option<Arc<cache::DownloadCache>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
@@ -129,7 +133,9 @@ impl Youtube {
         // Initialize cache in the output directory
         let cache_dir = output_dir.as_ref().join("cache");
         file_system::create_parent_dir(&cache_dir)?;
+        #[cfg(feature = "cache")]
         let cache = VideoCache::new(cache_dir.clone(), None)?;
+        #[cfg(feature = "cache")]
         let download_cache = DownloadCache::new(cache_dir, None)?;
 
         // Initialize download manager with default configuration
@@ -140,7 +146,9 @@ impl Youtube {
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
             timeout: Duration::from_secs(30),
+            #[cfg(feature = "cache")]
             cache: Some(Arc::new(cache)),
+            #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
             download_manager: Arc::new(download_manager),
         })
@@ -170,7 +178,9 @@ impl Youtube {
         // Initialize cache in the output directory
         let cache_dir = output_dir.as_ref().join("cache");
         file_system::create_parent_dir(&cache_dir)?;
+        #[cfg(feature = "cache")]
         let cache = VideoCache::new(cache_dir.clone(), None)?;
+        #[cfg(feature = "cache")]
         let download_cache = DownloadCache::new(cache_dir, None)?;
 
         // Initialize download manager with custom configuration
@@ -181,7 +191,9 @@ impl Youtube {
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
             timeout: Duration::from_secs(30),
+            #[cfg(feature = "cache")]
             cache: Some(Arc::new(cache)),
+            #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
             download_manager: Arc::new(download_manager),
         })
@@ -502,8 +514,15 @@ impl Youtube {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Adding metadata to combined file");
 
-                let video_format = self.find_cached_format(video_path.as_ref()).await;
-                let audio_format = self.find_cached_format(audio_path.as_ref()).await;
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "cache")] {
+                        let video_format = self.find_cached_format(video_path.as_ref()).await;
+                        let audio_format = self.find_cached_format(audio_path.as_ref()).await;
+                    } else {
+                        let video_format: Option<model::format::Format> = None;
+                        let audio_format: Option<model::format::Format> = None;
+                    }
+                }
 
                 if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
                     output_path.as_ref(),
@@ -539,6 +558,7 @@ impl Youtube {
     }
 
     /// Finds the format of a file in the cache if it exists
+    #[cfg(feature = "cache")]
     async fn find_cached_format(
         &self,
         file_path: impl AsRef<Path>,
@@ -592,6 +612,7 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(feature = "cache")]
     pub fn with_cache(
         &mut self,
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -636,6 +657,7 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(feature = "cache")]
     pub fn with_download_cache(
         &mut self,
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
@@ -879,16 +901,24 @@ impl Youtube {
             utils::file_system::random_filename(8),
             video_ext
         );
-        let video_path = self
-            .download_format_with_preferences(
-                video_format,
-                &video_filename,
-                Some(video_quality),
-                None,
-                Some(video_codec),
-                None,
-            )
-            .await?;
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                let video_path = self
+                    .download_format_with_preferences(
+                        video_format,
+                        &video_filename,
+                        Some(video_quality),
+                        None,
+                        Some(video_codec),
+                        None,
+                    )
+                    .await?;
+            } else {
+                let video_path = self
+                    .download_format(video_format, &video_filename)
+                    .await?;
+            }
+        }
 
         // Download audio format with preferences
         let audio_ext = format!("{:?}", audio_format.download_info.ext);
@@ -897,16 +927,24 @@ impl Youtube {
             utils::file_system::random_filename(8),
             audio_ext
         );
-        let audio_path = self
-            .download_format_with_preferences(
-                audio_format,
-                &audio_filename,
-                None,
-                Some(audio_quality),
-                None,
-                Some(audio_codec),
-            )
-            .await?;
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                let audio_path = self
+                    .download_format_with_preferences(
+                        audio_format,
+                        &audio_filename,
+                        None,
+                        Some(audio_quality),
+                        None,
+                        Some(audio_codec),
+                    )
+                    .await?;
+            } else {
+                let audio_path = self
+                    .download_format(audio_format, &audio_filename)
+                    .await?;
+            }
+        }
 
         // Combine audio and video
         let output_path = self
@@ -982,15 +1020,22 @@ impl Youtube {
             .ok_or_else(|| Error::MissingFormat("video".to_string()))?;
 
         // Download video format with preferences
-        self.download_format_with_preferences(
-            video_format,
-            output,
-            Some(quality),
-            None,
-            Some(codec),
-            None,
-        )
-        .await
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                self.download_format_with_preferences(
+                    video_format,
+                    output,
+                    Some(quality),
+                    None,
+                    Some(codec),
+                    None,
+                )
+                .await
+            } else {
+                self.download_format(video_format, output)
+                    .await
+            }
+        }
     }
 
     /// Downloads an audio stream with the specified quality preferences.
@@ -1048,14 +1093,21 @@ impl Youtube {
             .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
 
         // Download audio format with preferences
-        self.download_format_with_preferences(
-            audio_format,
-            output,
-            None,
-            Some(quality),
-            None,
-            Some(codec),
-        )
-        .await
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                self.download_format_with_preferences(
+                    audio_format,
+                    output,
+                    None,
+                    Some(quality),
+                    None,
+                    Some(codec),
+                )
+                .await
+            } else {
+                self.download_format(audio_format, output)
+                    .await
+            }
+        }
     }
 }

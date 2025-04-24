@@ -29,7 +29,8 @@ pre-release-replacements = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["reqwest/default"]
+default = ["reqwest/default", "cache"]
+cache = ["dep:rusqlite"]
 tracing = ["dep:tracing"]
 rustls = ["reqwest/rustls-tls"]
 
@@ -37,7 +38,7 @@ rustls = ["reqwest/rustls-tls"]
 # Runtime and async dependencies
 tokio = { version = "1.41.1", features = ["rt-multi-thread", "macros", "fs", "time", "process"], default-features = false }
 reqwest = { version = "0.12.9", features = ["json", "stream"], default-features = false }
-rusqlite = { version = "0.34.0", features = ["bundled"] }
+rusqlite = { version = "0.34.0", optional = true, features = ["bundled"] }
 futures-util = "0.3.31"
 
 # Serialization dependencies
@@ -65,3 +66,4 @@ xz2 = "0.1.7"
 
 # Logging dependencies
 tracing = { version = "0.1.40", optional = true }
+cfg-if = "1.0.0"
