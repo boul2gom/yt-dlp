@@ -457,7 +457,7 @@ impl Youtube {
         self.execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
             .await?;
 
-        // Add metadata to the combined file
+        // Add metadata to the combined file, propagating potential errors
         self.add_metadata_to_combined_file(&audio_path, &video_path, &output_path)
             .await?;
 
@@ -524,17 +524,18 @@ impl Youtube {
                     }
                 }
 
-                if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                // Add metadata, log error on failure, then propagate
+                crate::metadata::MetadataManager::add_metadata_with_format(
                     output_path.as_ref(),
                     &video,
                     video_format.as_ref(),
                     audio_format.as_ref(),
                 )
                 .await
-                {
+                .inspect_err(|_e| {
                     #[cfg(feature = "tracing")]
                     tracing::warn!("Failed to add metadata to combined file: {}", _e);
-                }
+                })?;
             }
         }
 
@@ -570,7 +571,7 @@ impl Youtube {
             };
 
             if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash) {
-                if let Some(format_json) = cached_file.format_json {
+                if let Ok(format_json) = cached_file.format_json {
                     if let Ok(format) = serde_json::from_str(&format_json) {
                         return Some(format);
                     }
@@ -894,9 +895,6 @@ impl Youtube {
             .select_audio_format(audio_quality, audio_codec.clone())
             .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
 
-        let video_path: PathBuf;
-        let audio_path: PathBuf;
-
         // Download video format with preferences
         let video_ext = format!("{:?}", video_format.download_info.ext);
         let video_filename = format!(
@@ -904,9 +902,9 @@ impl Youtube {
             utils::file_system::random_filename(8),
             video_ext
         );
-        cfg_if::cfg_if! {
+        let video_path = cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                video_path = self
+                self
                     .download_format_with_preferences(
                         video_format,
                         &video_filename,
@@ -915,13 +913,13 @@ impl Youtube {
                         Some(video_codec),
                         None,
                     )
-                    .await?;
+                    .await?
             } else {
-                video_path = self
+                self
                     .download_format(video_format, &video_filename)
-                    .await?;
+                    .await?
             }
-        }
+        };
 
         // Download audio format with preferences
         let audio_ext = format!("{:?}", audio_format.download_info.ext);
@@ -930,9 +928,9 @@ impl Youtube {
             utils::file_system::random_filename(8),
             audio_ext
         );
-        cfg_if::cfg_if! {
+        let audio_path = cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                audio_path = self
+                self
                     .download_format_with_preferences(
                         audio_format,
                         &audio_filename,
@@ -941,13 +939,13 @@ impl Youtube {
                         None,
                         Some(audio_codec),
                     )
-                    .await?;
+                    .await?
             } else {
-                audio_path = self
+                self
                     .download_format(audio_format, &audio_filename)
-                    .await?;
+                    .await?
             }
-        }
+        };
 
         // Combine audio and video
         let output_path = self

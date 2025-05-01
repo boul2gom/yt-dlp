@@ -225,6 +225,16 @@ impl Youtube {
             .combine_audio_and_video(&audio_name, &video_name, output.as_ref())
             .await?;
 
+        // Clean up temporary files
+        if let Err(_e) = tokio::fs::remove_file(&_video_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary video file: {}", _e);
+        }
+        if let Err(_e) = tokio::fs::remove_file(&_audio_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary audio file: {}", _e);
+        }
+
         // Cache the downloaded file if caching is enabled
         #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
@@ -478,7 +488,7 @@ impl Youtube {
 
         executor.execute().await?;
 
-        // Clean up temporary file
+        // Clean up temporary file (logs error internally if tracing is enabled)
         let _ = utils::file_system::remove_temp_file(temp_path).await;
 
         // Cache the processed audio file
@@ -749,17 +759,18 @@ impl Youtube {
                     tracing::debug!("Adding metadata to standalone file with format preferences");
 
                     // Use the method with format information for richer metadata
-                    if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                    // Add metadata, log error on failure, then propagate
+                    crate::metadata::MetadataManager::add_metadata_with_format(
                         path,
                         &video,
                         Some(format),
                         None,
                     )
                     .await
-                    {
+                    .inspect_err(|_e| {
                         #[cfg(feature = "tracing")]
                         tracing::warn!("Failed to add metadata to file: {}", _e);
-                    }
+                    })?;
                 } else {
                     #[cfg(feature = "tracing")]
                     tracing::warn!("Failed to get video metadata for ID: {}", video_id);
