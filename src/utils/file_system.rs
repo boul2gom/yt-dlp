@@ -250,11 +250,12 @@ pub fn extract_video_id(filename: &str) -> Option<String> {
 ///
 /// `true` if the file was successfully deleted, `false` otherwise
 pub async fn remove_temp_file(file_path: impl AsRef<Path> + std::fmt::Debug) -> bool {
-    if let Err(_e) = tokio::fs::remove_file(&file_path).await {
-        #[cfg(feature = "tracing")]
-        tracing::warn!("Failed to remove temporary file {:?}: {}", file_path, _e);
-        false
-    } else {
-        true
+    let result = tokio::fs::remove_file(&file_path).await;
+
+    #[cfg(feature = "tracing")]
+    if let Err(ref e) = result {
+        tracing::warn!("Failed to remove temporary file {:?}: {}", file_path, e);
     }
+
+    result.is_ok()
 }

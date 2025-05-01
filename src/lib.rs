@@ -571,7 +571,7 @@ impl Youtube {
             };
 
             if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash) {
-                if let Ok(format_json) = cached_file.format_json {
+                if let Some(format_json) = cached_file.format_json {
                     if let Ok(format) = serde_json::from_str(&format_json) {
                         return Some(format);
                     }
@@ -902,9 +902,10 @@ impl Youtube {
             utils::file_system::random_filename(8),
             video_ext
         );
-        let video_path = cfg_if::cfg_if! {
+
+        cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                self
+                let video_path = self
                     .download_format_with_preferences(
                         video_format,
                         &video_filename,
@@ -913,13 +914,13 @@ impl Youtube {
                         Some(video_codec),
                         None,
                     )
-                    .await?
+                    .await?;
             } else {
-                self
+                let video_path = self
                     .download_format(video_format, &video_filename)
-                    .await?
+                    .await?;
             }
-        };
+        }
 
         // Download audio format with preferences
         let audio_ext = format!("{:?}", audio_format.download_info.ext);
@@ -928,9 +929,9 @@ impl Youtube {
             utils::file_system::random_filename(8),
             audio_ext
         );
-        let audio_path = cfg_if::cfg_if! {
+        cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                self
+                let audio_path = self
                     .download_format_with_preferences(
                         audio_format,
                         &audio_filename,
@@ -939,13 +940,13 @@ impl Youtube {
                         None,
                         Some(audio_codec),
                     )
-                    .await?
+                    .await?;
             } else {
-                self
+                let audio_path = self
                     .download_format(audio_format, &audio_filename)
-                    .await?
+                    .await?;
             }
-        };
+        }
 
         // Combine audio and video
         let output_path = self

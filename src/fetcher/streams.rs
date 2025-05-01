@@ -799,17 +799,10 @@ impl Youtube {
         // First check if the video is in the cache
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
-            // Try to find the video by its ID using the get_by_id method
-            match cache.get_by_id(video_id) {
-                Ok(cached_video) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Using cached video data for ID: {}", video_id);
-                    return Some(cached_video.video);
-                }
-                Err(_) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Video not found in cache by ID: {}", video_id);
-                }
+            if let Ok(cached_video) = cache.get_by_id(video_id) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using cached video data for ID: {}", video_id);
+                return Some(cached_video.video);
             }
         }
 
@@ -821,13 +814,11 @@ impl Youtube {
         );
 
         let url = format!("https://www.youtube.com/watch?v={}", video_id);
-        match self.fetch_video_infos(url).await {
-            Ok(video) => Some(video),
-            Err(_e) => {
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to fetch video by ID {}: {}", video_id, _e);
-                None
-            }
-        }
+
+        self.fetch_video_infos(url).await.ok().or({
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to fetch video by ID: {}", video_id);
+            None
+        })
     }
 }
