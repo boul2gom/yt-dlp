@@ -894,6 +894,9 @@ impl Youtube {
             .select_audio_format(audio_quality, audio_codec.clone())
             .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
 
+        let video_path: PathBuf;
+        let audio_path: PathBuf;
+
         // Download video format with preferences
         let video_ext = format!("{:?}", video_format.download_info.ext);
         let video_filename = format!(
@@ -903,7 +906,7 @@ impl Youtube {
         );
         cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                let video_path = self
+                video_path = self
                     .download_format_with_preferences(
                         video_format,
                         &video_filename,
@@ -914,7 +917,7 @@ impl Youtube {
                     )
                     .await?;
             } else {
-                let video_path = self
+                video_path = self
                     .download_format(video_format, &video_filename)
                     .await?;
             }
@@ -929,7 +932,7 @@ impl Youtube {
         );
         cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
-                let audio_path = self
+                audio_path = self
                     .download_format_with_preferences(
                         audio_format,
                         &audio_filename,
@@ -940,7 +943,7 @@ impl Youtube {
                     )
                     .await?;
             } else {
-                let audio_path = self
+                audio_path = self
                     .download_format(audio_format, &audio_filename)
                     .await?;
             }
