@@ -263,6 +263,12 @@ jobs:
 
             commits.data.forEach(commit => {
               const message = commit.commit.message.split('\n')[0];
+              
+              if (message.startsWith('🚧') || message.match(/v\d+\.\d+\.\d+(-[a-z0-9.]+)?$/)) {
+                console.log(`Skipping pre-release commit: ${message}`);
+                return;
+              }
+              
               const author = commit.author ? commit.author.login : commit.commit.author.name;
               const sha = commit.sha.substring(0, 7);
               const pr_match = message.match(/\(#(\d+)\)/);
