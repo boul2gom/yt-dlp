@@ -27,6 +27,7 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
     /// An error occurred while interacting with the SQLite database.
     #[error("An error occurred while interacting with the database: {0}")]
+    #[cfg(feature = "cache")]
     Database(#[from] rusqlite::Error),
 
     /// An error occurred while interacting with GitHub.

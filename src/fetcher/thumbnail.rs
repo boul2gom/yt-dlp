@@ -4,6 +4,7 @@ use crate::Youtube;
 use crate::error::Error;
 use crate::fetcher::Fetcher;
 use crate::model::Video;
+#[cfg(feature = "cache")]
 use crate::model::thumbnail::Thumbnail;
 use std::fmt::Display;
 use std::path::PathBuf;
@@ -99,6 +100,7 @@ impl Youtube {
         let path = self.output_dir.join(output_str);
 
         // Check if the thumbnail is in the cache
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find the thumbnail in the cache by video ID
             if let Some((_, cached_path)) = download_cache.get_thumbnail_by_video_id(&video.id) {
@@ -127,6 +129,7 @@ impl Youtube {
         fetcher.fetch_asset(path.clone()).await?;
 
         // Cache the downloaded thumbnail if caching is enabled
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching thumbnail for video: {}", video.id);
@@ -155,6 +158,7 @@ impl Youtube {
         let path = self.output_dir.join(file_name_str);
 
         // Check if the thumbnail is in the cache
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find the thumbnail in the cache by video ID
             if let Some((_, cached_path)) = download_cache.get_thumbnail_by_video_id(&video.id) {
@@ -171,6 +175,7 @@ impl Youtube {
         fetcher.fetch_asset(path.clone()).await?;
 
         // Cache the downloaded thumbnail if caching is enabled
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching thumbnail for video: {}", video.id);

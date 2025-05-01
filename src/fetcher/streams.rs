@@ -5,6 +5,7 @@ use crate::executor::Executor;
 use crate::fetcher::Fetcher;
 use crate::model::Video;
 use crate::model::format::Format;
+#[cfg(feature = "cache")]
 use crate::model::format_selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
@@ -46,6 +47,7 @@ impl Youtube {
     /// ```
     pub async fn fetch_video_infos(&self, url: String) -> crate::error::Result<Video> {
         // Check if the video is in the cache
+        #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
             if let Some(video) = cache.get(&url) {
                 #[cfg(feature = "tracing")]
@@ -75,6 +77,7 @@ impl Youtube {
         }
 
         // Put the video in the cache if caching is enabled
+        #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching video information for {}", url);
@@ -174,10 +177,15 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
 
-        let output_str = output.as_ref();
-        let path = self.output_dir.join(output_str);
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                let output_str = output.as_ref();
+                let path = self.output_dir.join(output_str);
+            }
+        }
 
         // Check if the video is in the cache
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find the video in the cache by its ID
             if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id) {
@@ -218,6 +226,7 @@ impl Youtube {
             .await?;
 
         // Cache the downloaded file if caching is enabled
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching downloaded video with ID: {}", video.id);
@@ -415,10 +424,12 @@ impl Youtube {
         tracing::debug!("Downloading audio stream {}", video.title);
 
         let output_str = output.as_ref();
-        let path = self.output_dir.join(output_str);
 
         // Check if we have a cached audio file for this video
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
+            let path = self.output_dir.join(output_str);
+
             // Try to find an audio format in the cache by video ID
             let best_audio = video
                 .best_audio_format()
@@ -471,6 +482,7 @@ impl Youtube {
         let _ = utils::file_system::remove_temp_file(temp_path).await;
 
         // Cache the processed audio file
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching format with ID: {}", best_audio.format_id);
@@ -541,8 +553,13 @@ impl Youtube {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Use the internal function to download the format without preferences
-        self.download_format_internal(format, &output_path, None, None, None, None)
-            .await
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                self.download_format_internal(format, &output_path, None, None, None, None).await
+            } else {
+                self.download_format_internal(format, &output_path).await
+            }
+        }
     }
 
     /// Downloads a format with specific quality and codec preferences.
@@ -570,23 +587,29 @@ impl Youtube {
         &self,
         format: &Format,
         output: impl AsRef<str> + std::fmt::Debug + Display,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Use the internal function to download the format with preferences
-        self.download_format_internal(
-            format,
-            &output_path,
-            video_quality,
-            audio_quality,
-            video_codec,
-            audio_codec,
-        )
-        .await
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                self.download_format_internal(
+                    format,
+                    &output_path,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                )
+                .await
+            } else {
+                self.download_format_internal(format, &output_path).await
+            }
+        }
     }
 
     /// Internal function that handles downloading a format with or without preferences
@@ -596,18 +619,20 @@ impl Youtube {
         &self,
         format: &Format,
         path: &PathBuf,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         // Check if we have specific preferences
+        #[cfg(feature = "cache")]
         let has_preferences = video_quality.is_some()
             || audio_quality.is_some()
             || video_codec.is_some()
             || audio_codec.is_some();
 
         // Check if the format is in the cache
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             if let Some(video_id) = format.video_id.as_ref() {
                 // First try to find by exact format ID
@@ -663,6 +688,7 @@ impl Youtube {
         self.add_metadata_if_needed(path, format).await?;
 
         // Cache the downloaded file if caching is enabled
+        #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             let output_str = path
                 .file_name()
@@ -760,6 +786,7 @@ impl Youtube {
     /// * `Option<Video>` - The video if found, None otherwise
     pub async fn get_video_by_id(&self, video_id: &str) -> Option<Video> {
         // First check if the video is in the cache
+        #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
             // Try to find the video by its ID using the get_by_id method
             match cache.get_by_id(video_id) {
