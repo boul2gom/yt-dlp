@@ -87,6 +87,7 @@ This library puts a lot of functionality behind optional features in order to op
 compile time for the most common use cases. The following features are
 available.
 
+- **`cache`** (enabled by default) - Enables video metadata, files and thumbnails caching
 - **`tracing`** — <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> Enables profiling with the [```tracing```](https://crates.io/crates/tracing) crate.
   When this feature is enabled, the library will output span events at log levels `trace` and `debug`, depending on the importance of the called function.
 - **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
