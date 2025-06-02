@@ -5,6 +5,7 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
+use crate::model::has_drm::HasDrm;
 
 /// Represents an available format of a video.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
@@ -29,7 +30,7 @@ pub struct Format {
     pub language: Option<String>,
 
     /// If the format has DRM.
-    pub has_drm: Option<bool>,
+    pub has_drm: Option<HasDrm>,
     /// The extension of the file containing the format.
     #[serde(default)]
     pub container: Option<Container>,

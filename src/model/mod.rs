@@ -17,11 +17,13 @@ pub mod format;
 pub mod format_selector;
 pub mod thumbnail;
 pub mod utils;
+pub mod has_drm;
 
 // Re-export traits for easier access
 pub use utils::{AllTraits, CommonTraits};
 // Re-export format selectors for easier access
 pub use format_selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use has_drm::HasDrm;
 
 /// Represents a YouTube video, the output of 'yt-dlp'.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -72,7 +74,7 @@ pub struct Video {
     pub age_limit: i64,
     /// If the video is available in the country.
     #[serde(rename = "_has_drm")]
-    pub has_drm: Option<bool>,
+    pub has_drm: Option<HasDrm>,
     /// If the video was a live stream.
     pub live_status: String,
     /// If the video is playable in an embed.
