@@ -19,7 +19,6 @@ use tokio::sync::Mutex;
 
 pub mod deps;
 pub mod download_manager;
-pub mod streams;
 pub mod thumbnail;
 
 /// Context for segment download operations

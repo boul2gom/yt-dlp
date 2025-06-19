@@ -50,7 +50,7 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail from URL {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
+        let video = self.fetch_video_infos(&url).await?;
         self.download_thumbnail(&video, output).await
     }
 

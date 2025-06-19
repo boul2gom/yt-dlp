@@ -1,8 +1,8 @@
-<h2 align="center">🎬️ A Rust library (with auto dependencies installation) for YouTube downloading</h2>
+<h2 align="center">🎬️ A Rust library (with auto dependencies installation) for Multi-Platform Video Downloading</h2>
 
-<div align="center">This library is a Rust asynchronous wrapper around the yt-dlp command line tool, a feature-rich youtube (and others) audio/video downloader, which is a fork of youtube-dl with a lot of additional features and improvements.</div>
+<div align="center">This library is a Rust asynchronous wrapper around the yt-dlp command line tool, a feature-rich multi-platform audio/video downloader supporting <strong>1,868+ extractors</strong> including YouTube, Vimeo, Twitch, TikTok, Instagram, Twitter, Facebook, and many more.</div>
 <div align="center">
-  The crate is designed to download audio and video from various websites.
+  The crate is designed to download audio and video from various websites with automatic platform detection.
   You don't need to care about dependencies, yt-dlp and ffmpeg will be downloaded automatically.
 </div>
 
@@ -104,6 +104,114 @@ yt-dlp = { version = "latest version of the crate", features = ["tracing"] }
 ## 📖 Documentation
 
 The documentation is available on [docs.rs](https://docs.rs/yt-dlp).
+
+## 🌐 Multi-Platform Support
+
+This library now supports **1,868+ extractors** from yt-dlp, enabling downloads from virtually any video platform! The library automatically detects the platform from the URL and applies platform-specific optimizations.
+
+### 🎯 Supported Platforms
+
+- **YouTube** - Videos, playlists, channels, live streams
+- **Vimeo** - Videos, channels, password-protected content
+- **Twitch** - Videos, clips, live streams, chat replay
+- **TikTok** - Videos, user profiles, with/without watermarks
+- **Instagram** - Posts, stories, reels, highlights
+- **Twitter/X** - Videos, spaces, retweets
+- **Facebook** - Videos, live streams, stories
+- **And 1,861+ more platforms!**
+
+### 🚀 Quick Multi-Platform Example
+
+```rust
+use yt_dlp::{MediaDownloader, extractor::ExtractorConfig};
+use std::path::PathBuf;
+use yt_dlp::fetcher::deps::Libraries;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+
+    let yt_dlp = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+
+    let libraries = Libraries::new(yt_dlp, ffmpeg);
+    let downloader = MediaDownloader::new(libraries, output_dir)?;
+
+    // Download from different platforms using the same API!
+    let urls = vec![
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",  // YouTube
+        "https://vimeo.com/1084537",                     // Vimeo
+        "https://www.twitch.tv/videos/123456789",        // Twitch
+        "https://www.tiktok.com/@user/video/123456789",  // TikTok
+    ];
+
+    for url in urls {
+        // Automatic platform detection and download
+        let extractor = downloader.detect_extractor(url);
+        println!("Detected platform: {}", extractor);
+
+        let video_path = downloader.download_video_from_url(url, "video.mp4").await?;
+        println!("Downloaded: {:?}", video_path);
+    }
+
+    Ok(())
+}
+```
+
+### ⚙️ Platform-Specific Configuration
+
+```rust
+use yt_dlp::{MediaDownloader, extractor::ExtractorConfig};
+
+let mut config = ExtractorConfig::default();
+
+// YouTube-specific options
+config.youtube.skip_unavailable = true;
+config.youtube.include_live = false;
+
+// Vimeo-specific options
+config.vimeo.password = Some("secret123".to_string());
+
+// TikTok-specific options
+config.tiktok.include_watermark = false;
+
+// Twitch-specific options
+config.twitch.include_chat = true;
+
+downloader.set_extractor_config(config);
+```
+
+### 🔍 Platform Detection
+
+The library automatically detects the platform from URLs:
+
+```rust
+let detector = downloader.detect_extractor("https://www.youtube.com/watch?v=abc123");
+// Returns: Extractor::YouTube
+
+let is_supported = downloader.is_url_supported("https://example.com/video");
+// Returns: false (not a supported platform)
+
+let all_platforms = downloader.supported_extractors();
+// Returns: [YouTube, Vimeo, Twitch, TikTok, Instagram, Twitter, Facebook]
+```
+
+### 🔄 Backward Compatibility
+
+The library maintains full backward compatibility with existing code:
+
+```rust
+// Old way (still works!)
+use yt_dlp::Youtube;
+let fetcher = Youtube::new(libraries, output_dir)?;
+
+// New way (recommended)
+use yt_dlp::MediaDownloader;
+let downloader = MediaDownloader::new(libraries, output_dir)?;
+
+// Both are equivalent - Youtube is now an alias for MediaDownloader
+```
 
 ## 📚 Examples
 

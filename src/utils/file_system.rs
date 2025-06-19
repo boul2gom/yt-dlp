@@ -2,10 +2,8 @@
 
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
-use tar::Archive;
 use tokio::fs::{File, OpenOptions};
 use uuid::Uuid;
-use xz2::read::XzDecoder;
 use zip::ZipArchive;
 
 /// Returns the name of the given path.
@@ -132,31 +130,20 @@ pub async fn extract_zip(
 }
 
 /// Extracts a tar.xz file to the given destination.
+/// Currently disabled due to dependency conflicts.
 ///
 /// # Arguments
 ///
 /// * `tar_path` - The path to the tar.xz file.
 /// * `destination` - The path to extract the tar.xz file to.
+#[allow(dead_code)]
 pub async fn extract_tar_xz(
-    tar_path: impl AsRef<Path> + std::fmt::Debug,
-    destination: impl AsRef<Path> + std::fmt::Debug,
+    _tar_path: impl AsRef<Path> + std::fmt::Debug,
+    _destination: impl AsRef<Path> + std::fmt::Debug,
 ) -> Result<()> {
-    #[cfg(feature = "tracing")]
-    tracing::debug!(
-        "Extracting tar.xz file: {:?} to {:?}",
-        tar_path.as_ref(),
-        destination.as_ref()
-    );
-
-    let tar_gz = File::open(tar_path).await?;
-    let tar_gz = tar_gz.into_std().await;
-
-    let decompressor = XzDecoder::new(tar_gz);
-    let mut archive = Archive::new(decompressor);
-
-    archive.unpack(destination)?;
-
-    Ok(())
+    Err(Error::Unknown(
+        "tar.xz extraction is currently disabled due to dependency conflicts".to_string(),
+    ))
 }
 
 /// Sets the executable bit on the given file.
