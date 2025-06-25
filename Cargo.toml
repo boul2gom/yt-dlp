@@ -62,7 +62,7 @@ regex = "1.10.4"
 sha2 = "0.10.8"
 chrono = "0.4"
 tar = "0.4.43"
-zip = "4.0.0"
+zip = { version = "4.2.0", default-features = false, features = ["deflate", "time", "bzip2"] }
 xz2 = "0.1.7"
 
 # Logging dependencies
