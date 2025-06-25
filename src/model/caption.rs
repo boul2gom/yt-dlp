@@ -32,6 +32,8 @@ pub enum Extension {
     Ttml,
     /// The Vtt extension.
     Vtt,
+    /// The Srt extension.
+    Srt
 }
 
 // Implementation of the Display trait for AutomaticCaption
@@ -68,6 +70,7 @@ impl fmt::Display for Extension {
             Extension::Srv3 => write!(f, "srv3"),
             Extension::Ttml => write!(f, "ttml"),
             Extension::Vtt => write!(f, "vtt"),
+            Extension::Srt => write!(f, "srt"),
         }
     }
 }
