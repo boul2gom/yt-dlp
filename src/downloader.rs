@@ -494,7 +494,7 @@ impl MediaDownloader {
         tracing::debug!("Downloading video from URL: {}", url_str);
 
         // Detect the extractor for this URL
-        let _extractor = self.detect_extractor(url_str);
+        let extractor = self.detect_extractor(url_str);
 
         #[cfg(feature = "tracing")]
         tracing::debug!("Detected extractor: {} for URL: {}", extractor, url_str);
