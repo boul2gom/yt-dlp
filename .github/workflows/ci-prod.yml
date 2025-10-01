@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: 🔍 Scan with Scorecard
-        uses: ossf/scorecard-action@v2.4.2
+        uses: ossf/scorecard-action@v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
