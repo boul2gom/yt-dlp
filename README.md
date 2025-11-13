@@ -75,7 +75,7 @@ Using an external program is not ideal, but it is the most reliable and maintain
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = "1.3.4"
+yt-dlp = "1.4.1"
 ```
 
 A new release is automatically published every two weeks, to keep up to date with dependencies and features.
@@ -98,7 +98,7 @@ The crate supports the `tracing` feature to enable profiling, which can be usefu
 You can enable it by adding the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = { version = "latest version of the crate", features = ["tracing"] }
+yt-dlp = { version = "1.4.1", features = ["tracing"] }
 ```
 
 ## 📖 Documentation
