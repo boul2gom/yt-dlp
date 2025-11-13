@@ -9,11 +9,19 @@
 use crate::error::Result;
 use crate::fetcher::Fetcher;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
+
+// Download manager default configuration constants
+const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 3;
+const DEFAULT_SEGMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
+const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
+const DEFAULT_RETRY_ATTEMPTS: usize = 3;
+const DEFAULT_MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+const WAIT_FOR_COMPLETION_POLL_MS: u64 = 100;
 
 /// Download priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,11 +131,11 @@ pub struct ManagerConfig {
 impl Default for ManagerConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_downloads: 3,
-            segment_size: 1024 * 1024 * 5, // 5 MB
-            parallel_segments: 4,
-            retry_attempts: 3,
-            max_buffer_size: 1024 * 1024 * 10, // 10 MB
+            max_concurrent_downloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+            segment_size: DEFAULT_SEGMENT_SIZE,
+            parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
+            retry_attempts: DEFAULT_RETRY_ATTEMPTS,
+            max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
         }
     }
 }
@@ -169,6 +177,8 @@ pub struct DownloadManager {
     statuses: Arc<Mutex<HashMap<u64, DownloadStatus>>>,
     /// Download tasks in progress
     tasks: Arc<Mutex<HashMap<u64, JoinHandle<Result<()>>>>>,
+    /// Cancelled task IDs
+    cancelled: Arc<Mutex<HashSet<u64>>>,
 }
 
 impl std::fmt::Debug for DownloadManager {
@@ -204,6 +214,7 @@ impl DownloadManager {
             next_id: Arc::new(Mutex::new(0)),
             statuses: Arc::new(Mutex::new(HashMap::new())),
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            cancelled: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -322,6 +333,32 @@ impl DownloadManager {
         statuses.get(&id).cloned()
     }
 
+    /// Clean up completed, failed, and cancelled downloads from internal maps
+    ///
+    /// This method removes finished downloads from memory to prevent memory leaks.
+    /// It should be called periodically or after downloads complete.
+    pub async fn cleanup_finished(&self) {
+        let mut statuses = self.statuses.lock().await;
+        let mut cancelled = self.cancelled.lock().await;
+
+        // Collect IDs to remove
+        let ids_to_remove: Vec<u64> = statuses
+            .iter()
+            .filter_map(|(id, status)| match status {
+                DownloadStatus::Completed
+                | DownloadStatus::Failed { .. }
+                | DownloadStatus::Canceled => Some(*id),
+                _ => None,
+            })
+            .collect();
+
+        // Remove from statuses and cancelled
+        for id in ids_to_remove {
+            statuses.remove(&id);
+            cancelled.remove(&id);
+        }
+    }
+
     /// Cancel a download
     ///
     /// # Arguments
@@ -332,6 +369,12 @@ impl DownloadManager {
     ///
     /// true if the download was canceled, false if it doesn't exist or is already completed
     pub async fn cancel(&self, id: u64) -> bool {
+        // Mark as cancelled first to prevent race conditions
+        {
+            let mut cancelled = self.cancelled.lock().await;
+            cancelled.insert(id);
+        }
+
         // Check if the download is in progress
         let task_handle = {
             let mut tasks = self.tasks.lock().await;
@@ -375,7 +418,11 @@ impl DownloadManager {
             return true;
         }
 
-        false
+        // Even if not found in queue or tasks, it might be in the brief window
+        // between being popped and starting execution, so mark as cancelled
+        let mut statuses = self.statuses.lock().await;
+        statuses.insert(id, DownloadStatus::Canceled);
+        true
     }
 
     /// Wait for a download to complete
@@ -399,7 +446,10 @@ impl DownloadManager {
                 }
                 _ => {
                     // Wait a little before checking again
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        WAIT_FOR_COMPLETION_POLL_MS,
+                    ))
+                    .await;
                 }
             }
         }
@@ -412,6 +462,7 @@ impl DownloadManager {
         let statuses_clone = self.statuses.clone();
         let tasks_clone = self.tasks.clone();
         let config_clone = self.config.clone();
+        let cancelled_clone = self.cancelled.clone();
 
         tokio::spawn(async move {
             loop {
@@ -435,6 +486,15 @@ impl DownloadManager {
                         break;
                     }
                 };
+
+                // Check if the task was cancelled before starting
+                {
+                    let cancelled = cancelled_clone.lock().await;
+                    if cancelled.contains(&task.id) {
+                        drop(permit); // Release the permit
+                        continue; // Skip this task
+                    }
+                }
 
                 // Update status
                 {
@@ -460,15 +520,18 @@ impl DownloadManager {
 
                 if let Some(callback) = task.progress_callback {
                     fetcher = fetcher.with_progress_callback(move |downloaded, total| {
-                        // Update status with progress
-                        let mut statuses = statuses_for_callback.blocking_lock();
-                        statuses.insert(
-                            task_id,
-                            DownloadStatus::Downloading {
-                                downloaded_bytes: downloaded,
-                                total_bytes: total,
-                            },
-                        );
+                        let statuses_for_callback = statuses_for_callback.clone();
+                        tokio::task::spawn_blocking(move || {
+                            // Update status with progress
+                            let mut statuses = statuses_for_callback.blocking_lock();
+                            statuses.insert(
+                                task_id,
+                                DownloadStatus::Downloading {
+                                    downloaded_bytes: downloaded,
+                                    total_bytes: total,
+                                },
+                            );
+                        });
 
                         // Call the original callback
                         callback(downloaded, total);
@@ -477,14 +540,17 @@ impl DownloadManager {
                     // Default callback that just updates the status
                     let statuses_for_callback = statuses_clone.clone();
                     fetcher = fetcher.with_progress_callback(move |downloaded, total| {
-                        let mut statuses = statuses_for_callback.blocking_lock();
-                        statuses.insert(
-                            task_id,
-                            DownloadStatus::Downloading {
-                                downloaded_bytes: downloaded,
-                                total_bytes: total,
-                            },
-                        );
+                        let statuses_for_callback = statuses_for_callback.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let mut statuses = statuses_for_callback.blocking_lock();
+                            statuses.insert(
+                                task_id,
+                                DownloadStatus::Downloading {
+                                    downloaded_bytes: downloaded,
+                                    total_bytes: total,
+                                },
+                            );
+                        });
                     });
                 }
 

@@ -23,6 +23,51 @@ pub use utils::{AllTraits, CommonTraits};
 // Re-export format selectors for easier access
 pub use format_selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 
+/// DRM status of a video or format
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub enum DrmStatus {
+    Yes,
+    No,
+    Maybe,
+}
+
+impl<'de> Deserialize<'de> for DrmStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct DrmStatusVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for DrmStatusVisitor {
+            type Value = DrmStatus;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("A boolean or the string \"maybe\"")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<DrmStatus, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(if value { DrmStatus::Yes } else { DrmStatus::No })
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<DrmStatus, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "maybe" {
+                    Ok(DrmStatus::Maybe)
+                } else {
+                    Err(E::custom(format!("Expected \"maybe\", got \"{}\"", value)))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(DrmStatusVisitor)
+    }
+}
+
 /// Represents a YouTube video, the output of 'yt-dlp'.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Video {
@@ -72,7 +117,7 @@ pub struct Video {
     pub age_limit: i64,
     /// If the video is available in the country.
     #[serde(rename = "_has_drm")]
-    pub has_drm: Option<bool>,
+    pub has_drm: Option<DrmStatus>,
     /// If the video was a live stream.
     pub live_status: String,
     /// If the video is playable in an embed.

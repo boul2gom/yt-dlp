@@ -17,11 +17,11 @@ impl Url {
     }
 
     fn macos_intel() -> &'static str {
-        "https://www.osxexperts.net/ffmpeg71intel.zip"
+        "https://www.osxexperts.net/ffmpeg80intel.zip"
     }
 
     fn macos_arm() -> &'static str {
-        "https://www.osxexperts.net/ffmpeg71arm.zip"
+        "https://www.osxexperts.net/ffmpeg80arm.zip"
     }
 
     fn linux(arch: &str) -> String {
@@ -203,7 +203,7 @@ impl BuildFetcher {
     ) -> Option<Extraction> {
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg-7.1.1-essentials_build/bin/ffmpeg.exe"),
+                executable_path: PathBuf::new(), // Not used for Windows, dynamically detected
                 extracted_dir: None,
                 binary_extension: "exe".to_string(),
             }),
@@ -216,22 +216,22 @@ impl BuildFetcher {
 
             (Platform::Linux, Architecture::X64) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("ffmpeg-7.0.2-amd64-static".to_string()),
+                extracted_dir: Some("amd64".to_string()),
                 binary_extension: "".to_string(),
             }),
             (Platform::Linux, Architecture::X86) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("ffmpeg-7.0.2-i686-static".to_string()),
+                extracted_dir: Some("i686".to_string()),
                 binary_extension: "".to_string(),
             }),
             (Platform::Linux, Architecture::Armv7l) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("ffmpeg-7.0.2-armhf-static".to_string()),
+                extracted_dir: Some("armhf".to_string()),
                 binary_extension: "".to_string(),
             }),
             (Platform::Linux, Architecture::Aarch64) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("ffmpeg-7.0.2-arm64-static".to_string()),
+                extracted_dir: Some("arm64".to_string()),
                 binary_extension: "".to_string(),
             }),
 
@@ -327,10 +327,13 @@ impl BuildFetcher {
         let binary = parent.join(binary_name);
 
         // Find the executable path
-        let executable = if let Some(extracted_dir) = extraction_info.extracted_dir {
-            destination
-                .join(extracted_dir)
-                .join(extraction_info.executable_path)
+        let executable = if matches!(platform, Platform::Windows) {
+            // For Windows, dynamically find the extracted directory
+            self.find_windows_executable(&destination).await?
+        } else if matches!(platform, Platform::Linux) {
+            // For Linux, dynamically find the extracted directory
+            let arch = extraction_info.extracted_dir.as_deref().unwrap_or("");
+            self.find_linux_executable(&destination, arch).await?
         } else {
             destination.join(extraction_info.executable_path)
         };
@@ -348,5 +351,57 @@ impl BuildFetcher {
         }
 
         Ok(binary)
+    }
+
+    /// Find the ffmpeg executable in the extracted Windows archive
+    async fn find_windows_executable(&self, destination: &Path) -> Result<PathBuf> {
+        let mut entries = tokio::fs::read_dir(destination).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_dir() {
+                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+                // Look for directories matching the pattern ffmpeg-*-essentials_build
+                if dir_name.starts_with("ffmpeg-") && dir_name.ends_with("-essentials_build") {
+                    let executable = path.join("bin").join("ffmpeg.exe");
+                    if executable.exists() {
+                        return Ok(executable);
+                    }
+                }
+            }
+        }
+
+        Err(Error::Unknown(
+            "Could not find ffmpeg executable in extracted Windows archive".to_string(),
+        ))
+    }
+
+    /// Find the ffmpeg executable in the extracted Linux archive
+    async fn find_linux_executable(&self, destination: &Path, arch: &str) -> Result<PathBuf> {
+        let mut entries = tokio::fs::read_dir(destination).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_dir() {
+                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+                // Look for directories matching the pattern ffmpeg-*-{arch}-static
+                if dir_name.starts_with("ffmpeg-")
+                    && dir_name.contains(arch)
+                    && dir_name.ends_with("-static")
+                {
+                    let executable = path.join("ffmpeg");
+                    if executable.exists() {
+                        return Ok(executable);
+                    }
+                }
+            }
+        }
+
+        Err(Error::Unknown(format!(
+            "Could not find ffmpeg executable for architecture {} in extracted Linux archive",
+            arch
+        )))
     }
 }

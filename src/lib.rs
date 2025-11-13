@@ -227,8 +227,8 @@ impl Youtube {
     /// # }
     /// ```
     pub async fn with_new_binaries(
-        executables_dir: impl AsRef<Path> + std::fmt::Debug,
-        output_dir: impl AsRef<Path> + std::fmt::Debug,
+        executables_dir: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output_dir: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Creating a new video fetcher with binaries installation");
@@ -509,34 +509,34 @@ impl Youtube {
         let video_id =
             self.extract_video_id_from_file_paths(video_path.as_ref(), audio_path.as_ref());
 
-        if let Some(video_id) = video_id {
-            if let Some(video) = self.get_video_by_id(&video_id).await {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Adding metadata to combined file");
+        if let Some(video_id) = video_id
+            && let Some(video) = self.get_video_by_id(&video_id).await
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Adding metadata to combined file");
 
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "cache")] {
-                        let video_format = self.find_cached_format(video_path.as_ref()).await;
-                        let audio_format = self.find_cached_format(audio_path.as_ref()).await;
-                    } else {
-                        let video_format: Option<model::format::Format> = None;
-                        let audio_format: Option<model::format::Format> = None;
-                    }
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "cache")] {
+                    let video_format = self.find_cached_format(video_path.as_ref()).await;
+                    let audio_format = self.find_cached_format(audio_path.as_ref()).await;
+                } else {
+                    let video_format: Option<model::format::Format> = None;
+                    let audio_format: Option<model::format::Format> = None;
                 }
-
-                // Add metadata, log error on failure, then propagate
-                crate::metadata::MetadataManager::add_metadata_with_format(
-                    output_path.as_ref(),
-                    &video,
-                    video_format.as_ref(),
-                    audio_format.as_ref(),
-                )
-                .await
-                .inspect_err(|_e| {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!("Failed to add metadata to combined file: {}", _e);
-                })?;
             }
+
+            // Add metadata, log error on failure, then propagate
+            crate::metadata::MetadataManager::add_metadata_with_format(
+                output_path.as_ref(),
+                &video,
+                video_format.as_ref(),
+                audio_format.as_ref(),
+            )
+            .await
+            .inspect_err(|_e| {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to add metadata to combined file: {}", _e);
+            })?;
         }
 
         Ok(())
@@ -570,12 +570,11 @@ impl Youtube {
                 Err(_) => return None,
             };
 
-            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash) {
-                if let Some(format_json) = cached_file.format_json {
-                    if let Ok(format) = serde_json::from_str(&format_json) {
-                        return Some(format);
-                    }
-                }
+            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash)
+                && let Some(format_json) = cached_file.format_json
+                && let Ok(format) = serde_json::from_str(&format_json)
+            {
+                return Some(format);
             }
         }
 

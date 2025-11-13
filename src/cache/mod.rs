@@ -200,7 +200,7 @@ impl fmt::Display for CachedThumbnail {
 
 impl PartialOrd for CachedThumbnail {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
@@ -605,7 +605,82 @@ impl DownloadCache {
         hasher.update(&buffer);
         let hash = hasher.finalize();
 
-        Ok(format!("{:x}", hash))
+        Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+    }
+
+    /// Sanitize a filename to prevent path traversal attacks
+    ///
+    /// Removes directory separators and parent directory references
+    fn sanitize_filename(filename: &str) -> String {
+        filename
+            .replace("..", "")
+            .replace(['/', '\\', ':'], "")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
+            .collect()
+    }
+
+    /// Parse a database row into a CachedFile
+    ///
+    /// Returns None if any required field is missing or invalid
+    fn parse_cached_file_row(row: &rusqlite::Row) -> Option<CachedFile> {
+        // Extract all fields with error handling
+        let id: String = row.get(0).ok()?;
+        let filename: String = row.get(1).ok()?;
+        let relative_path: String = row.get(2).ok()?;
+        let video_id: Option<String> = row.get(3).ok()?;
+        let file_type_str: String = row.get(4).ok()?;
+        let format_id: Option<String> = row.get(5).ok()?;
+        let format_json: Option<String> = row.get(6).ok()?;
+        let filesize: u64 = row.get(11).ok()?;
+        let mime_type: String = row.get(12).ok()?;
+        let cached_at: u64 = row.get(13).ok()?;
+
+        // Parse file type
+        let file_type: CachedType =
+            serde_json::from_str(&file_type_str).unwrap_or(CachedType::Other);
+
+        // Parse quality and codec preferences (optional fields)
+        let video_quality: Option<VideoQuality> = row
+            .get::<_, Option<String>>(7)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        let audio_quality: Option<AudioQuality> = row
+            .get::<_, Option<String>>(8)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        let video_codec: Option<VideoCodecPreference> = row
+            .get::<_, Option<String>>(9)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        let audio_codec: Option<AudioCodecPreference> = row
+            .get::<_, Option<String>>(10)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        Some(CachedFile {
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
+            filesize,
+            mime_type,
+            cached_at,
+        })
     }
 
     /// Determines the MIME type of a file based on its extension.
@@ -708,9 +783,10 @@ impl DownloadCache {
         // Determine the MIME type
         let mime_type = Self::determine_mime_type(&source_path);
 
-        // Create the destination path
+        // Create the destination path with sanitized filename
         let filename_str = filename.as_ref();
-        let extension = Path::new(filename_str)
+        let sanitized_filename = Self::sanitize_filename(filename_str);
+        let extension = Path::new(&sanitized_filename)
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("");
@@ -898,150 +974,51 @@ impl DownloadCache {
 
         let connection = self.connection.lock().unwrap();
 
-        let mut stmt = match connection
-            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at FROM files WHERE id = ?") {
-            Ok(stmt) => stmt,
-            Err(_) => return None,
-        };
+        let mut stmt = connection
+            .prepare("SELECT id, filename, relative_path, video_id, file_type, format_id, format_json, video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at FROM files WHERE id = ?")
+            .ok()?;
 
-        let mut rows = match stmt.query(params![file_hash]) {
-            Ok(rows) => rows,
-            Err(_) => return None,
-        };
+        let mut rows = stmt.query(params![file_hash]).ok()?;
+        let row = rows.next().ok()??;
 
-        let row = match rows.next() {
-            Ok(Some(row)) => row,
-            _ => return None,
-        };
+        // Parse the row using the helper function
+        let cached_file = Self::parse_cached_file_row(row)?;
 
         // Check if the cache has expired
-        let cached_at: u64 = match row.get(13) {
-            Ok(cached_at) => cached_at,
-            Err(_) => return None,
-        };
-
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
 
-        if now - cached_at <= self.ttl {
-            let file_type_str: String = match row.get(4) {
-                Ok(file_type_str) => file_type_str,
-                Err(_) => return None,
-            };
-
-            let file_type: CachedType = match serde_json::from_str(&file_type_str) {
-                Ok(file_type) => file_type,
-                Err(_) => CachedType::Other,
-            };
-
-            // Parse quality and codec preferences
-            let video_quality: Option<VideoQuality> = match row.get::<_, Option<String>>(7) {
-                Ok(opt_str) => opt_str.and_then(|s| serde_json::from_str(&s).ok()),
-                Err(_) => None,
-            };
-
-            let audio_quality: Option<AudioQuality> = match row.get::<_, Option<String>>(8) {
-                Ok(opt_str) => opt_str.and_then(|s| serde_json::from_str(&s).ok()),
-                Err(_) => None,
-            };
-
-            let video_codec: Option<VideoCodecPreference> = match row.get::<_, Option<String>>(9) {
-                Ok(opt_str) => opt_str.and_then(|s| serde_json::from_str(&s).ok()),
-                Err(_) => None,
-            };
-
-            let audio_codec: Option<AudioCodecPreference> = match row.get::<_, Option<String>>(10) {
-                Ok(opt_str) => opt_str.and_then(|s| serde_json::from_str(&s).ok()),
-                Err(_) => None,
-            };
-
-            let id: String = match row.get(0) {
-                Ok(id) => id,
-                Err(_) => return None,
-            };
-
-            let filename: String = match row.get(1) {
-                Ok(filename) => filename,
-                Err(_) => return None,
-            };
-
-            let relative_path: String = match row.get(2) {
-                Ok(relative_path) => relative_path,
-                Err(_) => return None,
-            };
-
-            let video_id: Option<String> = match row.get(3) {
-                Ok(video_id) => video_id,
-                Err(_) => return None,
-            };
-
-            let format_id: Option<String> = match row.get(5) {
-                Ok(format_id) => format_id,
-                Err(_) => return None,
-            };
-
-            let format_json: Option<String> = match row.get(6) {
-                Ok(format_json) => format_json,
-                Err(_) => return None,
-            };
-
-            let filesize: u64 = match row.get(11) {
-                Ok(filesize) => filesize,
-                Err(_) => return None,
-            };
-
-            let mime_type: String = match row.get(12) {
-                Ok(mime_type) => mime_type,
-                Err(_) => return None,
-            };
-
-            let cached_file = CachedFile {
-                id,
-                filename,
-                relative_path,
-                video_id,
-                file_type,
-                format_id,
-                format_json,
-                video_quality,
-                audio_quality,
-                video_codec,
-                audio_codec,
-                filesize,
-                mime_type,
-                cached_at,
-            };
-
-            let file_path = self.cache_dir.join(&cached_file.relative_path);
-
-            // Verify the file exists
-            if file_path.exists() {
-                #[cfg(feature = "tracing")]
-                tracing::debug!(
-                    "Cache hit for video ID: {} and format ID: {}",
-                    cached_file
-                        .video_id
-                        .as_ref()
-                        .unwrap_or(&String::from("unknown")),
-                    cached_file
-                        .format_id
-                        .as_ref()
-                        .unwrap_or(&String::from("unknown"))
-                );
-
-                return Some((cached_file, file_path));
-            }
-        } else {
+        if now - cached_file.cached_at > self.ttl {
             #[cfg(feature = "tracing")]
             tracing::debug!("Cache expired for file with hash: {}", file_hash);
+            return None;
         }
 
-        #[cfg(feature = "tracing")]
-        tracing::debug!("File not found in cache with hash: {}", file_hash);
+        let file_path = self.cache_dir.join(&cached_file.relative_path);
 
-        None
+        // Verify the file exists
+        if file_path.exists() {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Cache hit for video ID: {} and format ID: {}",
+                cached_file
+                    .video_id
+                    .as_ref()
+                    .unwrap_or(&String::from("unknown")),
+                cached_file
+                    .format_id
+                    .as_ref()
+                    .unwrap_or(&String::from("unknown"))
+            );
+
+            Some((cached_file, file_path))
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("File not found in cache with hash: {}", file_hash);
+            None
+        }
     }
 
     /// Gets a file from the cache by video ID and format ID.
@@ -1368,15 +1345,15 @@ impl DownloadCache {
         // Delete expired files from the filesystem
         for (_, relative_path) in &expired_files {
             let file_path = self.cache_dir.join(relative_path);
-            if file_path.exists() {
-                if let Err(_e) = fs::remove_file(&file_path) {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!(
-                        "Failed to delete cached file {}: {}",
-                        file_path.display(),
-                        _e
-                    );
-                }
+            if file_path.exists()
+                && let Err(_e) = fs::remove_file(&file_path)
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Failed to delete cached file {}: {}",
+                    file_path.display(),
+                    _e
+                );
             }
         }
 

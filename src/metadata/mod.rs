@@ -19,7 +19,32 @@ use uuid::Uuid;
 
 /// Metadata manager for handling file metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetadataManager {}
+pub struct MetadataManager {
+    /// Path to ffmpeg executable
+    ffmpeg_path: PathBuf,
+}
+
+impl MetadataManager {
+    /// Create a new MetadataManager with default ffmpeg path
+    pub fn new() -> Self {
+        Self {
+            ffmpeg_path: PathBuf::from("ffmpeg"),
+        }
+    }
+
+    /// Create a new MetadataManager with custom ffmpeg path
+    pub fn with_ffmpeg_path(ffmpeg_path: impl AsRef<Path>) -> Self {
+        Self {
+            ffmpeg_path: ffmpeg_path.as_ref().to_path_buf(),
+        }
+    }
+}
+
+impl Default for MetadataManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Common metadata operations shared across different file formats
 pub trait BaseMetadata {
@@ -63,13 +88,13 @@ pub trait BaseMetadata {
         }
 
         // Add dates
-        if video.upload_date > 0 {
-            if let Some(date_str) = Self::format_timestamp(video.upload_date, "%Y-%m-%d") {
-                metadata.push(("date".to_string(), date_str));
+        if video.upload_date > 0
+            && let Some(date_str) = Self::format_timestamp(video.upload_date, "%Y-%m-%d")
+        {
+            metadata.push(("date".to_string(), date_str));
 
-                if let Some(year_str) = Self::format_timestamp(video.upload_date, "%Y") {
-                    metadata.push(("year".to_string(), year_str));
-                }
+            if let Some(year_str) = Self::format_timestamp(video.upload_date, "%Y") {
+                metadata.push(("year".to_string(), year_str));
             }
         }
 
@@ -142,8 +167,18 @@ pub trait BaseMetadata {
 impl BaseMetadata for MetadataManager {}
 
 impl MetadataManager {
+    /// Get the default ffmpeg path (can be overridden via environment variable)
+    fn default_ffmpeg_path() -> PathBuf {
+        std::env::var("FFMPEG_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
+    }
+
     /// Add metadata to a file based on its format.
-    pub async fn add_metadata(file_path: impl AsRef<Path>, video: &Video) -> Result<()> {
+    pub async fn add_metadata(
+        file_path: impl AsRef<Path> + Send + Sync,
+        video: &Video,
+    ) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Adding metadata to file: {:?}", file_path.as_ref());
 
@@ -210,7 +245,7 @@ impl MetadataManager {
 
     /// Add metadata and thumbnail to a file based on its format.
     pub async fn add_metadata_with_thumbnail(
-        file_path: impl AsRef<Path> + Debug + Copy,
+        file_path: impl AsRef<Path> + Debug + Copy + Send + Sync,
         video: &Video,
         thumbnail_path: Option<impl AsRef<Path>>,
     ) -> Result<()> {
@@ -426,7 +461,7 @@ impl MetadataManager {
 
         // Execute ffmpeg using Executor
         let executor = Executor {
-            executable_path: PathBuf::from("ffmpeg"),
+            executable_path: Self::default_ffmpeg_path(),
             timeout: Duration::from_secs(120),
             args,
         };
@@ -697,7 +732,7 @@ impl MetadataManager {
         ));
 
         let executor = Executor {
-            executable_path: PathBuf::from("ffmpeg"),
+            executable_path: Self::default_ffmpeg_path(),
             timeout: Duration::from_secs(120),
             args: ffmpeg_args,
         };
@@ -792,7 +827,7 @@ impl MetadataManager {
         ));
 
         let executor = Executor {
-            executable_path: PathBuf::from("ffmpeg"),
+            executable_path: Self::default_ffmpeg_path(),
             timeout: Duration::from_secs(120),
             args: ffmpeg_args,
         };

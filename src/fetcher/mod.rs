@@ -22,6 +22,13 @@ pub mod download_manager;
 pub mod streams;
 pub mod thumbnail;
 
+// Download configuration constants
+const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
+const DEFAULT_SEGMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
+const DEFAULT_RETRY_ATTEMPTS: usize = 3;
+const SEGMENT_CHECK_BUFFER_SIZE: usize = 1024; // 1 KB buffer for checking empty segments
+const REQUEST_TIMEOUT_SECS: u64 = 60;
+
 /// Context for segment download operations
 struct SegmentContext {
     file: Arc<Mutex<tokio::fs::File>>,
@@ -66,9 +73,9 @@ impl Fetcher {
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
             url: url.as_ref().to_string(),
-            parallel_segments: 4,          // 4 parallel segments by default
-            segment_size: 1024 * 1024 * 5, // 5 MB per segment by default
-            retry_attempts: 3,
+            parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
+            segment_size: DEFAULT_SEGMENT_SIZE,
+            retry_attempts: DEFAULT_RETRY_ATTEMPTS,
             progress_callback: None,
         }
     }
@@ -161,7 +168,10 @@ impl Fetcher {
     /// # Errors
     ///
     /// This function will return an error if the asset cannot be downloaded or written to the destination.
-    pub async fn fetch_asset(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
+    pub async fn fetch_asset(
+        &self,
+        destination: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+    ) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching asset from {} to {:?}", self.url, destination);
 
@@ -169,10 +179,10 @@ impl Fetcher {
         file_system::create_parent_dir(&destination)?;
 
         // If the parent directory doesn't exist, create it
-        if let Some(parent) = destination.as_ref().parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = destination.as_ref().parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         // Check if the file exists and if we can resume the download
@@ -215,12 +225,12 @@ impl Fetcher {
         };
 
         // If the file exists and has the same size, it is already downloaded
-        if let Some(size) = file_size {
-            if size == content_length {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("File already exists with correct size, skipping download");
-                return Ok(());
-            }
+        if let Some(size) = file_size
+            && size == content_length
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("File already exists with correct size, skipping download");
+            return Ok(());
         }
 
         // Create or open the destination file
@@ -278,10 +288,10 @@ impl Fetcher {
                 Ok(content) => {
                     let mut downloaded = vec![false; ranges.len()];
                     for line in content.lines() {
-                        if let Ok(index) = line.parse::<usize>() {
-                            if index < downloaded.len() {
-                                downloaded[index] = true;
-                            }
+                        if let Ok(index) = line.parse::<usize>()
+                            && index < downloaded.len()
+                        {
+                            downloaded[index] = true;
                         }
                     }
                     downloaded
@@ -466,7 +476,7 @@ impl Fetcher {
 
         // Read a small sample to check if the segment is already downloaded
         // This is a heuristic and not 100% reliable, but it's fast
-        let mut buffer = vec![0; 1024.min((end - start + 1) as usize)];
+        let mut buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
         let bytes_read = file_guard.read(&mut buffer).await?;
 
         // If we read some data and it's not all zeros, assume the segment is already downloaded
@@ -519,7 +529,7 @@ impl Fetcher {
     }
 
     /// Simple download method without parallel optimizations.
-    async fn fetch_asset_simple(&self, destination: impl AsRef<Path>) -> Result<()> {
+    async fn fetch_asset_simple(&self, destination: impl AsRef<Path> + Send + Sync) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Using simple download for {}", self.url);
 
@@ -527,10 +537,10 @@ impl Fetcher {
         file_system::create_parent_dir(&destination)?;
 
         // If the parent directory doesn't exist, create it
-        if let Some(parent) = destination.as_ref().parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = destination.as_ref().parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         // Check if the file exists and get its size
@@ -546,20 +556,20 @@ impl Fetcher {
 
         // Create a client with a longer timeout
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()?;
 
         // If the file exists, try to resume the download
         let mut request = client.get(&self.url);
 
         // Add Range header if the file exists and has some content
-        if let Some(size) = file_size {
-            if size > 0 {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Resuming download from byte {}", size);
+        if let Some(size) = file_size
+            && size > 0
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Resuming download from byte {}", size);
 
-                request = request.header(RANGE, format!("bytes={}-", size));
-            }
+            request = request.header(RANGE, format!("bytes={}-", size));
         }
 
         // Add User-Agent header

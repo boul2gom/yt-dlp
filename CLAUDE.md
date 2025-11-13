@@ -1,8 +1,3 @@
----
-description: 
-globs: 
-alwaysApply: true
----
 You are an expert in Rust, async programming, and concurrent systems.
 
 Key Principles

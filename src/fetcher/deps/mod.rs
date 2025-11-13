@@ -256,7 +256,10 @@ impl WantedRelease {
     /// release.download(destination).await?;
     /// # Ok(())
     /// # }
-    pub async fn download(&self, destination: impl AsRef<Path> + std::fmt::Debug) -> Result<()> {
+    pub async fn download(
+        &self,
+        destination: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+    ) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading asset from {} to {}",

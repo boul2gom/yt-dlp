@@ -47,7 +47,7 @@ pub fn try_parent(path: impl AsRef<Path>) -> Result<PathBuf> {
 /// # Arguments
 ///
 /// * `destination` - The path to create the file at.
-pub async fn create_file(destination: impl AsRef<Path>) -> Result<File> {
+pub async fn create_file(destination: impl AsRef<Path> + Send + Sync) -> Result<File> {
     let mut open_options = OpenOptions::new();
     open_options.read(true);
     open_options.write(true);
@@ -207,32 +207,29 @@ pub fn extract_video_id(filename: &str) -> Option<String> {
     if let Some(captures) = regex::Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})")
         .ok()?
         .captures(filename)
+        && let Some(id) = captures.get(1)
     {
-        if let Some(id) = captures.get(1) {
-            return Some(id.as_str().to_string());
-        }
+        return Some(id.as_str().to_string());
     }
 
     // Pattern 2: filename contains "[ID].mp4" or "[ID].mp3", etc.
     if let Some(captures) = regex::Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$")
         .ok()?
         .captures(filename)
+        && let Some(id) = captures.get(1)
     {
-        if let Some(id) = captures.get(1) {
-            return Some(id.as_str().to_string());
-        }
+        return Some(id.as_str().to_string());
     }
 
     // Pattern 3: if the name directly contains a YouTube ID (11 characters)
     if let Some(captures) = regex::Regex::new(r"[a-zA-Z0-9_-]{11}")
         .ok()?
         .captures(filename)
+        && let Some(id) = captures.get(0)
     {
-        if let Some(id) = captures.get(0) {
-            let id_str = id.as_str();
-            if id_str.len() == 11 {
-                return Some(id_str.to_string());
-            }
+        let id_str = id.as_str();
+        if id_str.len() == 11 {
+            return Some(id_str.to_string());
         }
     }
 
@@ -249,7 +246,7 @@ pub fn extract_video_id(filename: &str) -> Option<String> {
 /// # Returns
 ///
 /// `true` if the file was successfully deleted, `false` otherwise
-pub async fn remove_temp_file(file_path: impl AsRef<Path> + std::fmt::Debug) -> bool {
+pub async fn remove_temp_file(file_path: impl AsRef<Path> + std::fmt::Debug + Send + Sync) -> bool {
     let result = tokio::fs::remove_file(&file_path).await;
 
     #[cfg(feature = "tracing")]

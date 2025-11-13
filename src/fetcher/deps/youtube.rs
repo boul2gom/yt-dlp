@@ -151,7 +151,7 @@ impl GitHubFetcher {
         );
 
         let assets = &release.assets;
-        let asset = assets.iter().find(|asset| {
+        assets.iter().find(|asset| {
             let name = &asset.name;
 
             match (platform, architecture) {
@@ -176,8 +176,6 @@ impl GitHubFetcher {
 
                 _ => false,
             }
-        });
-
-        asset
+        })
     }
 }

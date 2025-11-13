@@ -1,5 +1,6 @@
 //! Formats-related models.
 
+use crate::model::DrmStatus;
 use crate::model::utils::serde::json_none;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
@@ -29,7 +30,7 @@ pub struct Format {
     pub language: Option<String>,
 
     /// If the format has DRM.
-    pub has_drm: Option<bool>,
+    pub has_drm: Option<DrmStatus>,
     /// The extension of the file containing the format.
     #[serde(default)]
     pub container: Option<Container>,
