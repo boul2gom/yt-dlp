@@ -14,7 +14,7 @@ pub use files::DownloadCache;
 pub use video::VideoCache;
 
 // Re-export common structures
-pub use video::{CachedVideo, CachedFile, CachedThumbnail};
+pub use video::{CachedFile, CachedThumbnail, CachedVideo};
 
 // Common types and traits
 pub use crate::model::selector::{

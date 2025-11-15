@@ -1,8 +1,8 @@
 //! Fetch the latest release of 'yt-dlp' from a GitHub repository.
 
-use crate::error::{Error, Result};
-use crate::download::Fetcher;
 use crate::client::deps::{Asset, Release, WantedRelease};
+use crate::download::Fetcher;
+use crate::error::{Error, Result};
 use crate::utils::platform::Architecture;
 use crate::utils::platform::Platform;
 use std::fmt;
@@ -101,12 +101,13 @@ impl GitHubFetcher {
         );
 
         let release = self.fetch_latest_release(auth_token).await?;
-        let asset = Self::select_asset(&platform, &architecture, &release)
-            .ok_or(Error::NoBinaryRelease {
+        let asset = Self::select_asset(&platform, &architecture, &release).ok_or(
+            Error::NoBinaryRelease {
                 binary: "yt-dlp".to_string(),
                 platform,
                 architecture,
-            })?;
+            },
+        )?;
 
         Ok(WantedRelease {
             name: asset.name.clone(),

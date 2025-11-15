@@ -227,12 +227,13 @@ impl Fetcher {
         let url_clone = self.url.clone();
         let client = Arc::clone(&self.client);
 
-        let head_response = self.retry_policy.execute_with_condition(
-            || async {
-                client.head(&url_clone).send().await
-            },
-            is_http_error_retryable,
-        ).await?;
+        let head_response = self
+            .retry_policy
+            .execute_with_condition(
+                || async { client.head(&url_clone).send().await },
+                is_http_error_retryable,
+            )
+            .await?;
 
         // If the server does not support range requests, use the simple method
         if !head_response.headers().contains_key("accept-ranges") {
@@ -535,20 +536,23 @@ impl Fetcher {
         let url_clone = url.to_string();
         let range_clone = range_header.clone();
 
-        let data = self.retry_policy.execute_with_condition(
-            || async {
-                let response = client
-                    .get(&url_clone)
-                    .header(RANGE, &range_clone)
-                    .send()
-                    .await?
-                    .error_for_status()?;
+        let data = self
+            .retry_policy
+            .execute_with_condition(
+                || async {
+                    let response = client
+                        .get(&url_clone)
+                        .header(RANGE, &range_clone)
+                        .send()
+                        .await?
+                        .error_for_status()?;
 
-                // Read the data
-                response.bytes().await
-            },
-            is_http_error_retryable,
-        ).await?;
+                    // Read the data
+                    response.bytes().await
+                },
+                is_http_error_retryable,
+            )
+            .await?;
 
         // Acquire the mutex ONLY for seek+write+flush (minimal lock duration)
         {
@@ -601,19 +605,24 @@ impl Fetcher {
 
         // Use the shared client for the request with retry logic
         let url_clone = self.url.clone();
-        let range_header = file_size.filter(|&s| s > 0).map(|s| format!("bytes={}-", s));
+        let range_header = file_size
+            .filter(|&s| s > 0)
+            .map(|s| format!("bytes={}-", s));
         let client = Arc::clone(&self.client);
 
-        let response = self.retry_policy.execute_with_condition(
-            || async {
-                let mut req = client.get(&url_clone);
-                if let Some(ref range) = range_header {
-                    req = req.header(RANGE, range);
-                }
-                req.send().await
-            },
-            is_http_error_retryable,
-        ).await?;
+        let response = self
+            .retry_policy
+            .execute_with_condition(
+                || async {
+                    let mut req = client.get(&url_clone);
+                    if let Some(ref range) = range_header {
+                        req = req.header(RANGE, range);
+                    }
+                    req.send().await
+                },
+                is_http_error_retryable,
+            )
+            .await?;
 
         // Check if the server accepted our range request
         let status = response.status();

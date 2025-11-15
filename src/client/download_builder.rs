@@ -3,9 +3,11 @@
 //! This module provides a builder pattern for configuring and executing downloads.
 
 use crate::client::Youtube;
-use crate::error::Result;
-use crate::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::download::DownloadPriority;
+use crate::error::Result;
+use crate::model::selector::{
+    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -140,30 +142,27 @@ impl<'a> DownloadBuilder<'a> {
         );
 
         // Get download URLs
-        let video_url = video_format
-            .download_info
-            .url
-            .as_ref()
-            .ok_or_else(|| crate::error::Error::FormatNoUrl {
+        let video_url = video_format.download_info.url.as_ref().ok_or_else(|| {
+            crate::error::Error::FormatNoUrl {
                 video_id: video.id.clone(),
                 format_id: video_format.format_id.clone(),
-            })?;
+            }
+        })?;
 
-        let audio_url = audio_format
-            .download_info
-            .url
-            .as_ref()
-            .ok_or_else(|| crate::error::Error::FormatNoUrl {
+        let audio_url = audio_format.download_info.url.as_ref().ok_or_else(|| {
+            crate::error::Error::FormatNoUrl {
                 video_id: video.id.clone(),
                 format_id: audio_format.format_id.clone(),
-            })?;
+            }
+        })?;
 
         // Create output paths
         let video_path = self.youtube.output_dir.join(&video_filename);
         let audio_path = self.youtube.output_dir.join(&audio_filename);
 
         // Enqueue downloads with configured priority
-        let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback {
+        let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback
+        {
             // Wrap callback in Arc to share between downloads
             let callback = Arc::new(callback);
 
@@ -189,7 +188,8 @@ impl<'a> DownloadBuilder<'a> {
                 }
             };
 
-            let video_id = self.youtube
+            let video_id = self
+                .youtube
                 .download_manager
                 .enqueue_with_progress(
                     video_url,
@@ -199,7 +199,8 @@ impl<'a> DownloadBuilder<'a> {
                 )
                 .await;
 
-            let audio_id = self.youtube
+            let audio_id = self
+                .youtube
                 .download_manager
                 .enqueue_with_progress(
                     audio_url,
@@ -211,12 +212,14 @@ impl<'a> DownloadBuilder<'a> {
 
             (video_id, audio_id)
         } else {
-            let video_id = self.youtube
+            let video_id = self
+                .youtube
                 .download_manager
                 .enqueue(video_url, video_path.clone(), Some(self.priority))
                 .await;
 
-            let audio_id = self.youtube
+            let audio_id = self
+                .youtube
                 .download_manager
                 .enqueue(audio_url, audio_path.clone(), Some(self.priority))
                 .await;
@@ -253,16 +256,12 @@ impl<'a> DownloadBuilder<'a> {
                     format!("Audio download failed: {}", reason),
                 ))
             }
-            (Some(DownloadStatus::Canceled), _) => {
-                Err(crate::error::Error::DownloadCancelled {
-                    download_id: video_download_id,
-                })
-            }
-            (_, Some(DownloadStatus::Canceled)) => {
-                Err(crate::error::Error::DownloadCancelled {
-                    download_id: audio_download_id,
-                })
-            }
+            (Some(DownloadStatus::Canceled), _) => Err(crate::error::Error::DownloadCancelled {
+                download_id: video_download_id,
+            }),
+            (_, Some(DownloadStatus::Canceled)) => Err(crate::error::Error::DownloadCancelled {
+                download_id: audio_download_id,
+            }),
             _ => Err(crate::error::Error::Unknown(
                 "Unexpected download status".to_string(),
             )),

@@ -20,8 +20,8 @@
 
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::model::format::Format;
 use crate::model::Video;
+use crate::model::format::Format;
 use chrono::DateTime;
 use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
 use mp4ameta::Tag as MP4Tag;
@@ -277,8 +277,7 @@ impl MetadataManager {
                 Self::add_metadata_to_webm(file_path.as_ref(), video, None, None).await
             }
             _ => {
-                Self::add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None)
-                    .await
+                Self::add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None).await
             }
         }
     }
@@ -319,13 +318,8 @@ impl MetadataManager {
                 Self::add_metadata_to_m4a(file_path.as_ref(), video, audio_format, video_format)
             }
             "webm" | "mkv" => {
-                Self::add_metadata_to_webm(
-                    file_path.as_ref(),
-                    video,
-                    video_format,
-                    audio_format,
-                )
-                .await
+                Self::add_metadata_to_webm(file_path.as_ref(), video, video_format, audio_format)
+                    .await
             }
             _ => {
                 Self::add_ffmpeg_metadata(
@@ -399,9 +393,7 @@ impl MetadataManager {
             .extension()
             .ok_or_else(|| Error::path_validation(path, "File has no extension"))?
             .to_str()
-            .ok_or_else(|| {
-                Error::path_validation(path, "Invalid characters in file extension")
-            })?
+            .ok_or_else(|| Error::path_validation(path, "Invalid characters in file extension"))?
             .to_lowercase();
 
         Ok(ext)
@@ -728,9 +720,9 @@ impl MetadataManager {
         let input_str = path
             .to_str()
             .ok_or_else(|| Error::Unknown("Failed to convert input path to string".to_string()))?;
-        let output_str = temp_output_path.to_str().ok_or_else(|| {
-            Error::Unknown("Failed to convert output path to string".to_string())
-        })?;
+        let output_str = temp_output_path
+            .to_str()
+            .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
         let mut all_metadata = Self::extract_basic_metadata(video);
@@ -788,7 +780,10 @@ impl MetadataManager {
             output_str.to_string(),
         ]);
 
-        Self::log_metadata_debug(format!("Running FFmpeg command with args: {:?}", ffmpeg_args));
+        Self::log_metadata_debug(format!(
+            "Running FFmpeg command with args: {:?}",
+            ffmpeg_args
+        ));
 
         let executor = Executor {
             executable_path: Self::default_ffmpeg_path(),
@@ -918,9 +913,9 @@ impl MetadataManager {
         let input_str = path
             .to_str()
             .ok_or_else(|| Error::Unknown("Failed to convert input path to string".to_string()))?;
-        let output_str = temp_output_path.to_str().ok_or_else(|| {
-            Error::Unknown("Failed to convert output path to string".to_string())
-        })?;
+        let output_str = temp_output_path
+            .to_str()
+            .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
         let mut all_metadata = Self::extract_basic_metadata(video);
@@ -953,7 +948,10 @@ impl MetadataManager {
             output_str.to_string(),
         ]);
 
-        Self::log_metadata_debug(format!("Running FFmpeg command with args: {:?}", ffmpeg_args));
+        Self::log_metadata_debug(format!(
+            "Running FFmpeg command with args: {:?}",
+            ffmpeg_args
+        ));
 
         let executor = Executor {
             executable_path: Self::default_ffmpeg_path(),

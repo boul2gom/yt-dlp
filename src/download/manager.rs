@@ -6,8 +6,8 @@
 //! - Resuming interrupted downloads
 //! - Optimizing memory usage
 
-use crate::error::Result;
 use crate::download::fetcher::Fetcher;
+use crate::error::Result;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -474,16 +474,14 @@ impl DownloadManager {
         // Wait for the completion event for this specific download
         loop {
             match rx.recv().await {
-                Ok((download_id, status)) if download_id == id => {
-                    match status {
-                        DownloadStatus::Completed
-                        | DownloadStatus::Failed { .. }
-                        | DownloadStatus::Canceled => {
-                            return Some(status);
-                        }
-                        _ => continue,
+                Ok((download_id, status)) if download_id == id => match status {
+                    DownloadStatus::Completed
+                    | DownloadStatus::Failed { .. }
+                    | DownloadStatus::Canceled => {
+                        return Some(status);
                     }
-                }
+                    _ => continue,
+                },
                 Ok(_) => continue, // Event for a different download
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     // Channel lagged, check current status
@@ -534,18 +532,13 @@ impl DownloadManager {
     ///     );
     /// }
     /// ```
-    pub fn progress_stream(
-        &self,
-        id: u64,
-    ) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
+    pub fn progress_stream(&self, id: u64) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
         let rx = self.progress_tx.subscribe();
 
         // Create a stream that filters events for the specific download ID
-        BroadcastStream::new(rx).filter_map(move |result| {
-            match result {
-                Ok(update) if update.download_id == id => Some(update),
-                _ => None,
-            }
+        BroadcastStream::new(rx).filter_map(move |result| match result {
+            Ok(update) if update.download_id == id => Some(update),
+            _ => None,
         })
     }
 

@@ -10,7 +10,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "cache")]
-use crate::cache::backend::{sqlite::SqliteVideoCache, VideoBackend};
+use crate::cache::backend::{VideoBackend, sqlite::SqliteVideoCache};
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]

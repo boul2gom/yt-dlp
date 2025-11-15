@@ -1,9 +1,9 @@
 //! The fetchers for required dependencies.
 
-use crate::error::Result;
-use crate::download::Fetcher;
 use crate::client::deps::ffmpeg::BuildFetcher;
 use crate::client::deps::youtube::GitHubFetcher;
+use crate::download::Fetcher;
+use crate::error::Result;
 use crate::utils::fs;
 use crate::{ternary, utils};
 use derive_more::Constructor;

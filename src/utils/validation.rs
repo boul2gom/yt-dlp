@@ -37,23 +37,25 @@ use std::path::{Path, PathBuf};
 /// ```
 pub fn validate_youtube_url(url: &str) -> Result<()> {
     // Try to parse the URL
-    let parsed = url::Url::parse(url).map_err(|e| {
-        Error::url_validation(url, format!("Invalid URL format: {}", e))
-    })?;
+    let parsed = url::Url::parse(url)
+        .map_err(|e| Error::url_validation(url, format!("Invalid URL format: {}", e)))?;
 
     // Check the scheme (only HTTP and HTTPS are allowed)
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         return Err(Error::url_validation(
             url,
-            format!("Unsafe URL scheme '{}'. Only HTTP and HTTPS are allowed", scheme)
+            format!(
+                "Unsafe URL scheme '{}'. Only HTTP and HTTPS are allowed",
+                scheme
+            ),
         ));
     }
 
     // Check the host
-    let host = parsed.host_str().ok_or_else(|| {
-        Error::url_validation(url, "URL must have a host")
-    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| Error::url_validation(url, "URL must have a host"))?;
 
     // Allow YouTube domains
     let is_youtube = host == "youtube.com"
@@ -66,7 +68,7 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
     if !is_youtube {
         return Err(Error::url_validation(
             url,
-            format!("URL must be from YouTube (got: {})", host)
+            format!("URL must be from YouTube (got: {})", host),
         ));
     }
 
@@ -107,7 +109,7 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
     if path.is_absolute() {
         return Err(Error::path_validation(
             path,
-            "Absolute paths are not allowed"
+            "Absolute paths are not allowed",
         ));
     }
 
@@ -123,7 +125,7 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
                 if part_str.contains("..") {
                     return Err(Error::path_validation(
                         path,
-                        format!("Path contains suspicious component: {}", part_str)
+                        format!("Path contains suspicious component: {}", part_str),
                     ));
                 }
                 sanitized.push(part);
@@ -137,13 +139,13 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
             std::path::Component::RootDir => {
                 return Err(Error::path_validation(
                     path,
-                    "Root directory reference in path"
+                    "Root directory reference in path",
                 ));
             }
             std::path::Component::Prefix(_) => {
                 return Err(Error::path_validation(
                     path,
-                    "Windows path prefix not allowed"
+                    "Windows path prefix not allowed",
                 ));
             }
         }
@@ -153,7 +155,7 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
     if has_parent_ref {
         return Err(Error::path_validation(
             path,
-            format!("Path traversal detected (..): {}", path.display())
+            format!("Path traversal detected (..): {}", path.display()),
         ));
     }
 
@@ -161,7 +163,7 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
     if sanitized.as_os_str().is_empty() {
         return Err(Error::path_validation(
             path,
-            "Empty path after sanitization"
+            "Empty path after sanitization",
         ));
     }
 

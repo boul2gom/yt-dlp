@@ -32,7 +32,11 @@ pub async fn execute_command(
     timeout: Duration,
 ) -> Result<ProcessOutput> {
     #[cfg(feature = "tracing")]
-    tracing::debug!("Executing command: {:?} with args: {:?}", executable_path, args);
+    tracing::debug!(
+        "Executing command: {:?} with args: {:?}",
+        executable_path,
+        args
+    );
 
     let mut command = tokio::process::Command::new(executable_path);
     command.stdout(std::process::Stdio::piped());

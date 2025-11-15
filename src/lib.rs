@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use crate::error::{Error, Result};
-use crate::executor::Executor;
 use crate::client::deps::{Libraries, LibraryInstaller};
 use crate::download::manager::ManagerConfig;
+use crate::error::{Error, Result};
+use crate::executor::Executor;
 use crate::utils::fs;
 #[cfg(feature = "cache")]
 use cache::{DownloadCache, VideoCache};
@@ -1025,11 +1025,7 @@ impl Youtube {
 
         // Download video format with preferences
         let video_ext = format!("{:?}", video_format.download_info.ext);
-        let video_filename = format!(
-            "temp_video_{}.{}",
-            utils::fs::random_filename(8),
-            video_ext
-        );
+        let video_filename = format!("temp_video_{}.{}", utils::fs::random_filename(8), video_ext);
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
@@ -1052,11 +1048,7 @@ impl Youtube {
 
         // Download audio format with preferences
         let audio_ext = format!("{:?}", audio_format.download_info.ext);
-        let audio_filename = format!(
-            "temp_audio_{}.{}",
-            utils::fs::random_filename(8),
-            audio_ext
-        );
+        let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
         cfg_if::cfg_if! {
             if #[cfg(feature = "cache")] {
                 let audio_path = self
@@ -1384,11 +1376,7 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn pipeline<F, Fut>(
-        self,
-        url: impl Into<String>,
-        operation: F,
-    ) -> Result<Self>
+    pub async fn pipeline<F, Fut>(self, url: impl Into<String>, operation: F) -> Result<Self>
     where
         F: FnOnce(Self, model::Video) -> Fut,
         Fut: std::future::Future<Output = Result<Self>>,

@@ -2,11 +2,11 @@
 //!
 //! This module provides a fluent API for constructing Youtube instances with various configurations.
 
+#[cfg(feature = "cache")]
+use crate::cache::{DownloadCache, VideoCache};
 use crate::client::{Libraries, Youtube};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::error::Result;
-#[cfg(feature = "cache")]
-use crate::cache::{DownloadCache, VideoCache};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

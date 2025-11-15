@@ -5,7 +5,10 @@
 
 use crate::model::caption::AutomaticCaption;
 use crate::model::format::Format;
-use crate::model::selector::{matches_audio_codec, matches_video_codec, AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use crate::model::selector::{
+    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality, matches_audio_codec,
+    matches_video_codec,
+};
 use crate::model::thumbnail::Thumbnail;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};

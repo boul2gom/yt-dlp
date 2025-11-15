@@ -103,8 +103,8 @@ impl RetryPolicy {
     /// * `attempt` - The retry attempt number (0-based)
     fn calculate_delay(&self, attempt: u32) -> Duration {
         // Calculate exponential backoff: initial_delay * (backoff_factor ^ attempt)
-        let base_delay = self.initial_delay.as_millis() as f64
-            * self.backoff_factor.powi(attempt as i32);
+        let base_delay =
+            self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
 
         // Cap at max_delay
         let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);
@@ -170,7 +170,12 @@ impl RetryPolicy {
                 }
                 Err(e) => {
                     #[cfg(feature = "tracing")]
-                    tracing::warn!("Operation failed (attempt {}/{}): {}", attempt + 1, self.max_attempts, e);
+                    tracing::warn!(
+                        "Operation failed (attempt {}/{}): {}",
+                        attempt + 1,
+                        self.max_attempts,
+                        e
+                    );
 
                     last_error = Some(e);
 
@@ -237,7 +242,12 @@ impl RetryPolicy {
                     }
 
                     #[cfg(feature = "tracing")]
-                    tracing::warn!("Operation failed (attempt {}/{}): {}", attempt + 1, self.max_attempts, e);
+                    tracing::warn!(
+                        "Operation failed (attempt {}/{}): {}",
+                        attempt + 1,
+                        self.max_attempts,
+                        e
+                    );
 
                     last_error = Some(e);
 

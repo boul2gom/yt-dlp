@@ -1,7 +1,7 @@
 //! Fetch the latest release of 'ffmpeg' from static builds.
 
-use crate::error::{Error, Result};
 use crate::client::deps::{Asset, WantedRelease};
+use crate::error::{Error, Result};
 use crate::utils::fs;
 use crate::utils::platform::{Architecture, Platform};
 use std::fmt;
@@ -289,13 +289,13 @@ impl BuildFetcher {
         let archive_path = archive.as_ref().to_path_buf();
         let destination = archive_path.with_extension("");
 
-        let extraction_info = self
-            .get_extraction_info(&platform, &architecture)
-            .ok_or(Error::NoBinaryRelease {
-                binary: "ffmpeg".to_string(),
-                platform: platform.clone(),
-                architecture: architecture.clone(),
-            })?;
+        let extraction_info =
+            self.get_extraction_info(&platform, &architecture)
+                .ok_or(Error::NoBinaryRelease {
+                    binary: "ffmpeg".to_string(),
+                    platform: platform.clone(),
+                    architecture: architecture.clone(),
+                })?;
 
         self.extract_archive(archive_path, destination, extraction_info, platform)
             .await
@@ -317,11 +317,13 @@ impl BuildFetcher {
             Platform::Linux => {
                 fs::extract_tar_xz(&archive, &destination).await?;
             }
-            _ => return Err(Error::NoBinaryRelease {
-                binary: "ffmpeg".to_string(),
-                platform: platform.clone(),
-                architecture: Architecture::detect(),
-            }),
+            _ => {
+                return Err(Error::NoBinaryRelease {
+                    binary: "ffmpeg".to_string(),
+                    platform: platform.clone(),
+                    architecture: Architecture::detect(),
+                });
+            }
         }
 
         // Get the parent directory of the destination

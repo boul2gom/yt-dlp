@@ -3,9 +3,9 @@
 //! This module provides different backend implementations for caching video metadata and files.
 //! Each backend must implement the appropriate traits for video and file caching.
 
+use crate::cache::video::{CachedFile, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
-use crate::cache::video::{CachedVideo, CachedFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "cache")]
@@ -13,8 +13,8 @@ use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
 
-pub mod sqlite;
 pub mod memory;
+pub mod sqlite;
 
 /// Trait for video cache backend implementations.
 #[async_trait::async_trait]

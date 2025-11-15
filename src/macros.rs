@@ -57,7 +57,8 @@ macro_rules! download_video {
             $crate::model::selector::VideoCodecPreference::Any,
             $crate::model::selector::AudioQuality::Best,
             $crate::model::selector::AudioCodecPreference::Any,
-        ).await
+        )
+        .await
     }};
 }
 
@@ -87,7 +88,8 @@ macro_rules! download_audio {
             $output,
             $quality,
             $crate::model::selector::AudioCodecPreference::Any,
-        ).await
+        )
+        .await
     }};
 }
 
@@ -128,9 +130,9 @@ macro_rules! ytdlp_args {
 #[macro_export]
 macro_rules! install_libraries {
     ($dir:expr) => {{
+        use std::path::PathBuf;
         use $crate::client::Libraries;
         use $crate::client::deps::LibraryInstaller;
-        use std::path::PathBuf;
 
         let dir = PathBuf::from($dir);
         let yt_dlp = dir.join("yt-dlp");
@@ -143,9 +145,9 @@ macro_rules! install_libraries {
     }};
 
     ($dir:expr, token: $token:expr) => {{
+        use std::path::PathBuf;
         use $crate::client::Libraries;
         use $crate::client::deps::LibraryInstaller;
-        use std::path::PathBuf;
 
         let dir = PathBuf::from($dir);
         let yt_dlp = dir.join("yt-dlp");

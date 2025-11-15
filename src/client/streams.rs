@@ -1,8 +1,8 @@
 //! Tools for fetching video streams from YouTube.
 
+use crate::download::Fetcher;
 use crate::error::Error;
 use crate::executor::Executor;
-use crate::download::Fetcher;
 use crate::model::Video;
 use crate::model::format::Format;
 #[cfg(feature = "cache")]
@@ -49,11 +49,12 @@ impl Youtube {
         // Check if the video is in the cache
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache
-            && let Some(video) = cache.get(&url).await? {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Using cached video information for {}", url);
-                return Ok(video);
-            }
+            && let Some(video) = cache.get(&url).await?
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Using cached video information for {}", url);
+            return Ok(video);
+        }
 
         // If the video is not in the cache, retrieve it from YouTube
         let download_args = vec!["--no-progress", "--dump-json", &url];
@@ -68,7 +69,10 @@ impl Youtube {
         };
 
         let output = executor.execute().await?;
-        let mut video: Video = serde_json::from_str(&output.stdout).map_err(|e| Error::Json { context: "Failed to parse video metadata".to_string(), source: e })?;
+        let mut video: Video = serde_json::from_str(&output.stdout).map_err(|e| Error::Json {
+            context: "Failed to parse video metadata".to_string(),
+            source: e,
+        })?;
 
         // Set the video ID on each format for caching purposes
         for format in &mut video.formats {
@@ -444,8 +448,9 @@ impl Youtube {
                 .best_audio_format()
                 .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
 
-            if let Some((_, cached_path)) =
-                download_cache.get_by_video_and_format(&video.id, &best_audio.format_id).await
+            if let Some((_, cached_path)) = download_cache
+                .get_by_video_and_format(&video.id, &best_audio.format_id)
+                .await
             {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
@@ -646,8 +651,9 @@ impl Youtube {
             && let Some(video_id) = format.video_id.as_ref()
         {
             // First try to find by exact format ID
-            if let Some((_, cached_path)) =
-                download_cache.get_by_video_and_format(video_id, &format.format_id).await
+            if let Some((_, cached_path)) = download_cache
+                .get_by_video_and_format(video_id, &format.format_id)
+                .await
             {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Using cached format by ID: {}", format.format_id);
@@ -659,20 +665,23 @@ impl Youtube {
 
             // Then try to find by preferences if they exist
             if has_preferences
-                && let Some((_, cached_path)) = download_cache.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec.clone(),
-                    audio_codec.clone(),
-                ).await {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Using cached format by preferences");
+                && let Some((_, cached_path)) = download_cache
+                    .get_by_video_and_preferences(
+                        video_id,
+                        video_quality,
+                        audio_quality,
+                        video_codec.clone(),
+                        audio_codec.clone(),
+                    )
+                    .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using cached format by preferences");
 
-                    // Copy the file from the cache to the output directory
-                    tokio::fs::copy(&cached_path, path).await?;
-                    return Ok(path.clone());
-                }
+                // Copy the file from the cache to the output directory
+                tokio::fs::copy(&cached_path, path).await?;
+                return Ok(path.clone());
+            }
         }
 
         // Check if URL is available
@@ -681,7 +690,10 @@ impl Youtube {
             .url
             .clone()
             .ok_or_else(|| Error::FormatNoUrl {
-                video_id: format.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                video_id: format
+                    .video_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 format_id: format.format_id.clone(),
             })?;
 
@@ -760,21 +772,21 @@ impl Youtube {
                 #[cfg(feature = "cache")]
                 if let Some(cache) = &self.cache
                     && let Ok(cached_video) = cache.get_by_id(video_id).await
-                        && let Ok(video) = cached_video.video() {
-                            // Add metadata with format information
-                            if let Err(e) =
-                                crate::metadata::MetadataManager::add_metadata_with_format(
-                                    path.as_ref(),
-                                    &video,
-                                    None,
-                                    Some(format),
-                                )
-                                .await
-                            {
-                                #[cfg(feature = "tracing")]
-                                tracing::warn!("Failed to add metadata: {}", e);
-                            }
-                        }
+                    && let Ok(video) = cached_video.video()
+                {
+                    // Add metadata with format information
+                    if let Err(e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                        path.as_ref(),
+                        &video,
+                        None,
+                        Some(format),
+                    )
+                    .await
+                    {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("Failed to add metadata: {}", e);
+                    }
+                }
 
                 #[cfg(not(feature = "cache"))]
                 {
@@ -807,11 +819,12 @@ impl Youtube {
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache
             && let Ok(cached_video) = cache.get_by_id(video_id).await
-                && let Ok(video) = cached_video.video() {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Using cached video data for ID: {}", video_id);
-                    return Some(video);
-                }
+            && let Ok(video) = cached_video.video()
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Using cached video data for ID: {}", video_id);
+            return Some(video);
+        }
 
         // If not in cache, try to fetch it using the ID-based URL
         #[cfg(feature = "tracing")]

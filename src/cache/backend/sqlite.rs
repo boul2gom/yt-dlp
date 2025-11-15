@@ -51,9 +51,7 @@ impl VideoBackend for SqliteVideoCache {
             .max_connections(5)
             .connect_with(connection_options)
             .await
-            .map_err(|e| {
-                crate::error::Error::Unknown(format!("Failed to create pool: {}", e))
-            })?;
+            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create pool: {}", e)))?;
 
         // Initialize the database schema
         sqlx::query(
@@ -252,9 +250,7 @@ impl FileBackend for SqliteFileCache {
             .max_connections(5)
             .connect_with(connection_options)
             .await
-            .map_err(|e| {
-                crate::error::Error::Unknown(format!("Failed to create pool: {}", e))
-            })?;
+            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create pool: {}", e)))?;
 
         // Initialize the database schema for files
         sqlx::query(
@@ -277,7 +273,9 @@ impl FileBackend for SqliteFileCache {
         )
         .execute(&pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create files table: {}", e)))?;
+        .map_err(|e| {
+            crate::error::Error::Unknown(format!("Failed to create files table: {}", e))
+        })?;
 
         // Create indices for faster lookups
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_files_video_id ON files(video_id)")
@@ -374,7 +372,10 @@ impl FileBackend for SqliteFileCache {
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for file in cache by preferences for video_id={}", video_id);
+        tracing::debug!(
+            "Looking for file in cache by preferences for video_id={}",
+            video_id
+        );
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

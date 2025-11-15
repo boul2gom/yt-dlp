@@ -90,11 +90,15 @@ impl DownloadCache {
         // Create the database file
         let db_path = cache_dir.join("downloads.db");
 
-        let connection_options = SqliteConnectOptions::from_str(
-            &format!("sqlite:{}", db_path.display())
-        )
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create connection options: {}", e)))?
-        .create_if_missing(true);
+        let connection_options =
+            SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
+                .map_err(|e| {
+                    crate::error::Error::Unknown(format!(
+                        "Failed to create connection options: {}",
+                        e
+                    ))
+                })?
+                .create_if_missing(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -119,11 +123,13 @@ impl DownloadCache {
                 filesize INTEGER NOT NULL,
                 mime_type TEXT NOT NULL,
                 cached_at INTEGER NOT NULL
-            )"
+            )",
         )
         .execute(&pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create files table: {}", e)))?;
+        .map_err(|e| {
+            crate::error::Error::Unknown(format!("Failed to create files table: {}", e))
+        })?;
 
         // Create the thumbnails table if it doesn't exist
         sqlx::query(
@@ -137,11 +143,13 @@ impl DownloadCache {
                 width INTEGER,
                 height INTEGER,
                 cached_at INTEGER NOT NULL
-            )"
+            )",
         )
         .execute(&pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create thumbnails table: {}", e)))?;
+        .map_err(|e| {
+            crate::error::Error::Unknown(format!("Failed to create thumbnails table: {}", e))
+        })?;
 
         // Create indexes for faster lookups
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_files_video_id ON files (video_id)")
@@ -238,26 +246,28 @@ impl DownloadCache {
         let cutoff = now - self.ttl;
 
         // Get all expired files with their paths
-        let expired_files: Vec<(String,)> = sqlx::query_as(
-            "SELECT relative_path FROM files WHERE cached_at < ?"
-        )
-        .bind(cutoff)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to query expired files: {}", e)))?;
+        let expired_files: Vec<(String,)> =
+            sqlx::query_as("SELECT relative_path FROM files WHERE cached_at < ?")
+                .bind(cutoff)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| {
+                    crate::error::Error::Unknown(format!("Failed to query expired files: {}", e))
+                })?;
 
         // Delete expired files from filesystem
         for (relative_path,) in expired_files {
             let file_path = self.cache_dir.join(&relative_path);
             if file_path.exists()
-                && let Err(_e) = tokio::fs::remove_file(&file_path).await {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!(
-                        "Failed to delete cached file {}: {}",
-                        file_path.display(),
-                        _e
-                    );
-                }
+                && let Err(_e) = tokio::fs::remove_file(&file_path).await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Failed to delete cached file {}: {}",
+                    file_path.display(),
+                    _e
+                );
+            }
         }
 
         // Delete expired entries from database
@@ -302,8 +312,23 @@ impl DownloadCache {
         .await
         .ok()?;
 
-        if let Some((id, filename, relative_path, video_id, file_type, format_id, format_json,
-                    video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at)) = result {
+        if let Some((
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
+            filesize,
+            mime_type,
+            cached_at,
+        )) = result
+        {
             let file_path = self.cache_dir.join(&relative_path);
 
             if file_path.exists() {
@@ -398,7 +423,11 @@ impl DownloadCache {
                 Some(serde_json::to_string(f).unwrap_or_default()),
             )
         } else {
-            (serde_json::to_string(&CachedType::Other).unwrap_or_default(), None, None)
+            (
+                serde_json::to_string(&CachedType::Other).unwrap_or_default(),
+                None,
+                None,
+            )
         };
 
         let cached_at = SystemTime::now()
@@ -406,10 +435,16 @@ impl DownloadCache {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let video_quality_str = video_quality.map(|vq| serde_json::to_string(&vq).unwrap_or_default());
-        let audio_quality_str = audio_quality.map(|aq| serde_json::to_string(&aq).unwrap_or_default());
-        let video_codec_str = video_codec.clone().map(|vc| serde_json::to_string(&vc).unwrap_or_default());
-        let audio_codec_str = audio_codec.clone().map(|ac| serde_json::to_string(&ac).unwrap_or_default());
+        let video_quality_str =
+            video_quality.map(|vq| serde_json::to_string(&vq).unwrap_or_default());
+        let audio_quality_str =
+            audio_quality.map(|aq| serde_json::to_string(&aq).unwrap_or_default());
+        let video_codec_str = video_codec
+            .clone()
+            .map(|vc| serde_json::to_string(&vc).unwrap_or_default());
+        let audio_codec_str = audio_codec
+            .clone()
+            .map(|ac| serde_json::to_string(&ac).unwrap_or_default());
 
         sqlx::query(
             "INSERT OR REPLACE INTO files
@@ -486,8 +521,23 @@ impl DownloadCache {
         .await
         .ok()?;
 
-        if let Some((id, filename, relative_path, video_id, file_type, format_id, format_json,
-                    video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at)) = result {
+        if let Some((
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
+            filesize,
+            mime_type,
+            cached_at,
+        )) = result
+        {
             let file_path = self.cache_dir.join(&relative_path);
 
             if file_path.exists() {
@@ -565,7 +615,25 @@ impl DownloadCache {
         }
 
         // Build query dynamically with proper bindings
-        let mut sql_query = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, String, i64)>(&query);
+        let mut sql_query = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                i64,
+                String,
+                i64,
+            ),
+        >(&query);
 
         for binding in &bindings {
             sql_query = sql_query.bind(binding);
@@ -573,8 +641,23 @@ impl DownloadCache {
 
         let result = sql_query.fetch_optional(&self.pool).await.ok()?;
 
-        if let Some((id, filename, relative_path, video_id, file_type, format_id, format_json,
-                    video_quality_str, audio_quality_str, video_codec_str, audio_codec_str, filesize, mime_type, cached_at)) = result {
+        if let Some((
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            video_quality_str,
+            audio_quality_str,
+            video_codec_str,
+            audio_codec_str,
+            filesize,
+            mime_type,
+            cached_at,
+        )) = result
+        {
             let file_path = self.cache_dir.join(&relative_path);
 
             if file_path.exists() {
@@ -699,7 +782,19 @@ impl DownloadCache {
         .await
         .ok()?;
 
-        if let Some((id, filename, relative_path, video_id, file_type, format_id, format_json, filesize, mime_type, cached_at)) = result {
+        if let Some((
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            filesize,
+            mime_type,
+            cached_at,
+        )) = result
+        {
             let file_path = self.cache_dir.join(&relative_path);
 
             if file_path.exists() {

@@ -65,7 +65,10 @@ pub enum Error {
     ///
     /// Indicates the operation and duration that was exceeded.
     #[error("Timeout after {duration:?} while {operation}")]
-    Timeout { operation: String, duration: Duration },
+    Timeout {
+        operation: String,
+        duration: Duration,
+    },
 
     // ==================== Data & Serialization Errors ====================
     /// JSON parsing or serialization failed.
@@ -143,19 +146,13 @@ pub enum Error {
     ///
     /// This can occur with DRM-protected or geo-restricted content.
     #[error("Format {format_id} for video {video_id} has no download URL")]
-    FormatNoUrl {
-        video_id: String,
-        format_id: String,
-    },
+    FormatNoUrl { video_id: String, format_id: String },
 
     /// The format is incompatible with the requested operation.
     ///
     /// For example, trying to extract audio from a video-only format.
     #[error("Format {format_id} is incompatible: {reason}")]
-    FormatIncompatible {
-        format_id: String,
-        reason: String,
-    },
+    FormatIncompatible { format_id: String, reason: String },
 
     /// No thumbnail is available for the video.
     #[error("No thumbnail available for video {video_id}")]
@@ -179,10 +176,7 @@ pub enum Error {
     ///
     /// Includes the download ID and reason for failure.
     #[error("Download {download_id} failed: {reason}")]
-    DownloadFailed {
-        download_id: u64,
-        reason: String,
-    },
+    DownloadFailed { download_id: u64, reason: String },
 
     /// Download was cancelled by user or system.
     #[error("Download {download_id} was cancelled")]
@@ -235,7 +229,11 @@ impl Error {
     }
 
     /// Create an HTTP error with URL context.
-    pub fn http(url: impl Into<String>, context: impl Into<String>, source: reqwest::Error) -> Self {
+    pub fn http(
+        url: impl Into<String>,
+        context: impl Into<String>,
+        source: reqwest::Error,
+    ) -> Self {
         Self::Http {
             url: url.into(),
             context: context.into(),
