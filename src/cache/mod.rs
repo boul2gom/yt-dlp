@@ -7,13 +7,16 @@
 
 pub mod backend;
 pub mod files;
+pub mod playlist;
 pub mod video;
 
 // Re-export main types
 pub use files::DownloadCache;
+pub use playlist::PlaylistCache;
 pub use video::VideoCache;
 
 // Re-export common structures
+pub use playlist::CachedPlaylist;
 pub use video::{CachedFile, CachedThumbnail, CachedVideo};
 
 // Common types and traits

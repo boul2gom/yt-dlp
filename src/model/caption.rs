@@ -34,6 +34,10 @@ pub enum Extension {
     Vtt,
     /// The Srt extension.
     Srt,
+    /// The ASS (Advanced SubStation Alpha) extension.
+    Ass,
+    /// The SSA (SubStation Alpha) extension.
+    Ssa,
 }
 
 // Implementation of the Display trait for AutomaticCaption
@@ -71,6 +75,8 @@ impl fmt::Display for Extension {
             Extension::Ttml => write!(f, "ttml"),
             Extension::Vtt => write!(f, "vtt"),
             Extension::Srt => write!(f, "srt"),
+            Extension::Ass => write!(f, "ass"),
+            Extension::Ssa => write!(f, "ssa"),
         }
     }
 }
@@ -82,5 +88,80 @@ impl Eq for Extension {}
 impl Hash for Extension {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
+    }
+}
+
+/// Represents a subtitle (user-uploaded or automatic caption) for a video.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Subtitle {
+    /// The language code of the subtitle (e.g., 'en', 'fr', 'es').
+    pub language_code: String,
+    /// The full language name (e.g., 'English', 'French', 'Spanish').
+    pub language_name: Option<String>,
+    /// The URL of the subtitle file.
+    pub url: String,
+    /// The file extension/format of the subtitle.
+    #[serde(rename = "ext")]
+    pub extension: Extension,
+    /// Whether this is an automatically generated subtitle.
+    #[serde(default)]
+    pub is_automatic: bool,
+}
+
+impl Subtitle {
+    /// Creates a new Subtitle from an AutomaticCaption.
+    pub fn from_automatic_caption(caption: &AutomaticCaption, language_code: String) -> Self {
+        Self {
+            language_code,
+            language_name: caption.name.clone(),
+            url: caption.url.clone(),
+            extension: caption.extension.clone(),
+            is_automatic: true,
+        }
+    }
+
+    /// Checks if this subtitle is in a specific format.
+    pub fn is_format(&self, format: &Extension) -> bool {
+        &self.extension == format
+    }
+
+    /// Returns the file extension as a string.
+    pub fn file_extension(&self) -> &str {
+        match self.extension {
+            Extension::Json3 => "json3",
+            Extension::Srv1 => "srv1",
+            Extension::Srv2 => "srv2",
+            Extension::Srv3 => "srv3",
+            Extension::Ttml => "ttml",
+            Extension::Vtt => "vtt",
+            Extension::Srt => "srt",
+            Extension::Ass => "ass",
+            Extension::Ssa => "ssa",
+        }
+    }
+}
+
+// Implementation of the Display trait for Subtitle
+impl fmt::Display for Subtitle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Subtitle(lang={}, format={}, auto={})",
+            self.language_name.as_deref().unwrap_or(&self.language_code),
+            self.file_extension(),
+            self.is_automatic
+        )
+    }
+}
+
+// Implementation of Eq for Subtitle
+impl Eq for Subtitle {}
+
+// Implementation of Hash for Subtitle
+impl Hash for Subtitle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.language_code.hash(state);
+        self.url.hash(state);
+        std::mem::discriminant(&self.extension).hash(state);
     }
 }

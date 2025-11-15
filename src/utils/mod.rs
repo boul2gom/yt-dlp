@@ -10,11 +10,16 @@ pub mod fs;
 pub mod http;
 pub mod platform;
 pub mod retry;
+pub mod subtitle;
+pub mod url_expiry;
 pub mod validation;
 
 // Re-export commonly used functions from fs
 pub use fs::*;
 pub use platform::Platform;
+pub use subtitle::subtitle_converter::convert_subtitle;
+pub use subtitle::subtitle_validator::{ValidationResult, is_format_compatible, validate_subtitle};
+pub use url_expiry::{ExpiryConfig, UrlStatus, check_download_error, should_refresh_url};
 
 /// Converts a vector of string slices to a vector of owned strings.
 pub fn to_owned(vec: Vec<impl AsRef<str>>) -> Vec<String> {

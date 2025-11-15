@@ -6,7 +6,7 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::utils::fs;
 #[cfg(feature = "cache")]
-use cache::{DownloadCache, VideoCache};
+use cache::{DownloadCache, PlaylistCache, VideoCache};
 use std::fmt::{self, Display};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,6 +18,7 @@ pub mod cache;
 pub mod error;
 pub mod executor;
 pub mod metadata;
+pub use metadata::PlaylistMetadata;
 pub mod model;
 pub mod utils;
 
@@ -87,6 +88,9 @@ pub struct Youtube {
     /// The cache for downloaded files.
     #[cfg(feature = "cache")]
     pub download_cache: Option<Arc<cache::DownloadCache>>,
+    /// The cache for playlist metadata.
+    #[cfg(feature = "cache")]
+    pub playlist_cache: Option<Arc<cache::PlaylistCache>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
     /// Cancellation token for graceful shutdown.
@@ -227,7 +231,9 @@ impl Youtube {
         #[cfg(feature = "cache")]
         let cache = VideoCache::new(cache_dir.clone(), None).await?;
         #[cfg(feature = "cache")]
-        let download_cache = DownloadCache::new(cache_dir, None).await?;
+        let download_cache = DownloadCache::new(cache_dir.clone(), None).await?;
+        #[cfg(feature = "cache")]
+        let playlist_cache = PlaylistCache::new(cache_dir.join("playlists.db")).await?;
 
         // Initialize download manager with default configuration
         let download_manager = DownloadManager::new();
@@ -241,6 +247,8 @@ impl Youtube {
             cache: Some(Arc::new(cache)),
             #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
+            #[cfg(feature = "cache")]
+            playlist_cache: Some(Arc::new(playlist_cache)),
             download_manager: Arc::new(download_manager),
             cancellation_token: tokio_util::sync::CancellationToken::new(),
         })
@@ -273,7 +281,9 @@ impl Youtube {
         #[cfg(feature = "cache")]
         let cache = VideoCache::new(cache_dir.clone(), None).await?;
         #[cfg(feature = "cache")]
-        let download_cache = DownloadCache::new(cache_dir, None).await?;
+        let download_cache = DownloadCache::new(cache_dir.clone(), None).await?;
+        #[cfg(feature = "cache")]
+        let playlist_cache = PlaylistCache::new(cache_dir.join("playlists.db")).await?;
 
         // Initialize download manager with custom configuration
         let download_manager = DownloadManager::with_config(download_manager_config);
@@ -287,6 +297,8 @@ impl Youtube {
             cache: Some(Arc::new(cache)),
             #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
+            #[cfg(feature = "cache")]
+            playlist_cache: Some(Arc::new(playlist_cache)),
             download_manager: Arc::new(download_manager),
             cancellation_token: tokio_util::sync::CancellationToken::new(),
         })
@@ -613,8 +625,8 @@ impl Youtube {
                     let video_format = self.find_cached_format(video_path.as_ref()).await;
                     let audio_format = self.find_cached_format(audio_path.as_ref()).await;
 
-                    // Add metadata to the combined file with full format information
-                    if let Err(e) = metadata::MetadataManager::add_metadata_with_format(
+                    // Add metadata (including chapters) to the combined file with full format information
+                    if let Err(_e) = metadata::MetadataManager::add_metadata_with_chapters(
                         output_path.as_ref(),
                         &video,
                         video_format.as_ref(),
@@ -623,10 +635,10 @@ impl Youtube {
                     .await
                     {
                         #[cfg(feature = "tracing")]
-                        tracing::warn!("Failed to add metadata to combined file: {}", e);
+                        tracing::warn!("Failed to add metadata to combined file: {}", _e);
                     } else {
                         #[cfg(feature = "tracing")]
-                        tracing::debug!("Successfully added metadata to combined file");
+                        tracing::debug!("Successfully added metadata (including chapters) to combined file");
                     }
                 } else {
                     // Without cache, we don't have format details, add basic metadata only
@@ -775,6 +787,56 @@ impl Youtube {
 
         let download_cache = DownloadCache::new(cache_dir.as_ref(), ttl).await?;
         self.download_cache = Some(Arc::new(download_cache));
+        Ok(self)
+    }
+
+    /// Enables caching of playlist metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - The directory where to store the cache.
+    /// * `ttl` - The time-to-live for cache entries in seconds (default: 6 hours).
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the cache directory could not be created.
+    ///
+    /// # Examples
+    ///
+    /// ```rust, no_run
+    /// # use yt_dlp::Youtube;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries_dir = PathBuf::from("libs");
+    /// # let output_dir = PathBuf::from("output");
+    /// # let youtube = libraries_dir.join("yt-dlp");
+    /// # let ffmpeg = libraries_dir.join("ffmpeg");
+    /// # let libraries = Libraries::new(youtube, ffmpeg);
+    /// let mut fetcher = Youtube::new(libraries, output_dir)?;
+    ///
+    /// // Enable playlist metadata caching
+    /// fetcher.with_playlist_cache(PathBuf::from("cache"), None)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "cache")]
+    pub async fn with_playlist_cache(
+        &mut self,
+        cache_dir: impl AsRef<Path> + std::fmt::Debug,
+        ttl: Option<i64>,
+    ) -> Result<&mut Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Enabling playlist metadata cache");
+
+        let db_path = cache_dir.as_ref().join("playlists.db");
+        let playlist_cache = if let Some(ttl_seconds) = ttl {
+            PlaylistCache::with_ttl(db_path, ttl_seconds).await?
+        } else {
+            PlaylistCache::new(db_path).await?
+        };
+        self.playlist_cache = Some(Arc::new(playlist_cache));
         Ok(self)
     }
 

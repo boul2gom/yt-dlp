@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub mod caption;
+pub mod chapter;
 pub mod format;
+pub mod heatmap;
+pub mod playlist;
 pub mod selector;
 pub mod thumbnail;
 pub mod utils; // Keep for traits
@@ -14,6 +17,9 @@ pub mod video;
 
 // Re-export main types
 pub use video::Video;
+
+// Re-export chapter types
+pub use chapter::{ChapterList, ChapterValidation};
 
 // Re-export selector types
 pub use selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};

@@ -5,6 +5,7 @@ use crate::error::Error;
 use crate::executor::Executor;
 use crate::model::Video;
 use crate::model::format::Format;
+use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 #[cfg(feature = "cache")]
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
@@ -13,6 +14,7 @@ use crate::{Youtube, utils};
 use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 impl Youtube {
     /// Fetch the video information from the given URL.
@@ -775,7 +777,7 @@ impl Youtube {
                     && let Ok(video) = cached_video.video()
                 {
                     // Add metadata with format information
-                    if let Err(e) = crate::metadata::MetadataManager::add_metadata_with_format(
+                    if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
                         path.as_ref(),
                         &video,
                         None,
@@ -784,7 +786,7 @@ impl Youtube {
                     .await
                     {
                         #[cfg(feature = "tracing")]
-                        tracing::warn!("Failed to add metadata: {}", e);
+                        tracing::warn!("Failed to add metadata: {}", _e);
                     }
                 }
 
@@ -840,5 +842,818 @@ impl Youtube {
             tracing::warn!("Failed to fetch video by ID: {}", video_id);
             None
         })
+    }
+
+    /// Lists all available subtitle languages for a video.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to get subtitle languages from
+    ///
+    /// # Returns
+    ///
+    /// A vector of language codes that have subtitles available
+    pub fn list_subtitle_languages(&self, video: &Video) -> Vec<String> {
+        video.subtitles.keys().cloned().collect()
+    }
+
+    /// Checks if a video has subtitles in a specific language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to check
+    /// * `language_code` - The language code to check for (e.g., "en", "fr")
+    ///
+    /// # Returns
+    ///
+    /// true if subtitles are available in the specified language
+    pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
+        video.subtitles.contains_key(language_code)
+    }
+
+    /// Downloads a subtitle file for a specific language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download subtitles from
+    /// * `language_code` - The language code of the subtitle (e.g., "en", "fr")
+    /// * `output` - The output filename
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subtitle language is not available or download fails
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded subtitle file
+    pub async fn download_subtitle(
+        &self,
+        video: &Video,
+        language_code: impl AsRef<str>,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+    ) -> crate::error::Result<PathBuf> {
+        let language_code = language_code.as_ref();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading subtitle for video {} in language {}",
+            video.id,
+            language_code
+        );
+
+        let output_path = self.output_dir.join(output.as_ref());
+
+        // Check if subtitle is in the cache
+        #[cfg(feature = "cache")]
+        if let Some(download_cache) = &self.download_cache
+            && let Some((_, cached_path)) = download_cache
+                .get_subtitle_by_language(&video.id, language_code)
+                .await
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Using cached subtitle for video {} in language {}",
+                video.id,
+                language_code
+            );
+
+            // Copy the file from the cache to the output directory
+            tokio::fs::copy(&cached_path, &output_path).await?;
+            return Ok(output_path);
+        }
+
+        // Get subtitles for the language
+        let subtitles =
+            video
+                .subtitles
+                .get(language_code)
+                .ok_or_else(|| Error::SubtitleNotAvailable {
+                    video_id: video.id.clone(),
+                    language: language_code.to_string(),
+                })?;
+
+        // Prefer SRT format, then VTT, then any available format
+        let subtitle = subtitles
+            .iter()
+            .find(|s| s.is_format(&crate::model::caption::Extension::Srt))
+            .or_else(|| {
+                subtitles
+                    .iter()
+                    .find(|s| s.is_format(&crate::model::caption::Extension::Vtt))
+            })
+            .or_else(|| subtitles.first())
+            .ok_or_else(|| Error::SubtitleNotAvailable {
+                video_id: video.id.clone(),
+                language: language_code.to_string(),
+            })?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading subtitle from {} to {:?}",
+            subtitle.url,
+            output_path
+        );
+
+        // Download the subtitle file
+        let fetcher = Fetcher::new(&subtitle.url);
+        fetcher.fetch_asset(&output_path).await?;
+
+        // Cache the downloaded subtitle
+        #[cfg(feature = "cache")]
+        if let Some(download_cache) = &self.download_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Caching subtitle for video {} in language {}",
+                video.id,
+                language_code
+            );
+
+            if let Err(_e) = download_cache
+                .put_subtitle_file(
+                    &output_path,
+                    output.as_ref(),
+                    video.id.clone(),
+                    language_code.to_string(),
+                )
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache subtitle: {}", _e);
+            }
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "Successfully downloaded subtitle for language {} to {:?}",
+            language_code,
+            output_path
+        );
+
+        Ok(output_path)
+    }
+
+    /// Downloads all available subtitles for a video.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download subtitles from
+    /// * `output_dir` - The directory to save subtitle files
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any subtitle download fails
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded subtitle files
+    pub async fn download_all_subtitles(
+        &self,
+        video: &Video,
+        output_dir: impl AsRef<Path>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading all subtitles for video {}", video.id);
+
+        let output_dir = output_dir.as_ref();
+        let mut downloaded_files = Vec::new();
+
+        for (language_code, subtitles) in &video.subtitles {
+            if let Some(subtitle) = subtitles.first() {
+                let filename = format!(
+                    "{}.{}.{}",
+                    video.id,
+                    language_code,
+                    subtitle.file_extension()
+                );
+                let output_path = output_dir.join(&filename);
+
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Downloading subtitle for language {} from {}",
+                    language_code,
+                    subtitle.url
+                );
+
+                let fetcher = Fetcher::new(&subtitle.url);
+                fetcher.fetch_asset(&output_path).await?;
+                downloaded_files.push(output_path);
+            }
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "Successfully downloaded {} subtitle files",
+            downloaded_files.len()
+        );
+
+        Ok(downloaded_files)
+    }
+
+    /// Embeds subtitle files into a video file using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - The path to the video file
+    /// * `subtitle_paths` - Paths to the subtitle files to embed
+    /// * `output` - The output filename for the video with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg execution fails
+    ///
+    /// # Returns
+    ///
+    /// The path to the output video file with embedded subtitles
+    pub async fn embed_subtitles_in_video(
+        &self,
+        video_path: impl AsRef<Path>,
+        subtitle_paths: &[PathBuf],
+        output: impl AsRef<str>,
+    ) -> crate::error::Result<PathBuf> {
+        self.embed_subtitles_with_languages(video_path, subtitle_paths, &[], output)
+            .await
+    }
+
+    /// Embeds subtitle files into a video file with language metadata using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - The path to the video file
+    /// * `subtitle_paths` - Paths to the subtitle files to embed
+    /// * `language_codes` - Language codes for each subtitle (e.g., "en", "fr"). Must match subtitle_paths length.
+    /// * `output` - The output filename for the video with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg execution fails or if subtitle_paths and language_codes lengths don't match
+    ///
+    /// # Returns
+    ///
+    /// The path to the output video file with embedded subtitles
+    pub async fn embed_subtitles_with_languages(
+        &self,
+        video_path: impl AsRef<Path>,
+        subtitle_paths: &[PathBuf],
+        language_codes: &[&str],
+        output: impl AsRef<str>,
+    ) -> crate::error::Result<PathBuf> {
+        let video_path = video_path.as_ref();
+        let output_path = self.output_dir.join(output.as_ref());
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Embedding {} subtitles into video {:?}",
+            subtitle_paths.len(),
+            video_path
+        );
+
+        // Build ffmpeg command
+        let mut args = vec!["-i".to_string(), video_path.to_string_lossy().to_string()];
+
+        // Add each subtitle file as input
+        for subtitle_path in subtitle_paths {
+            args.push("-i".to_string());
+            args.push(subtitle_path.to_string_lossy().to_string());
+        }
+
+        // Map video and audio streams
+        args.push("-map".to_string());
+        args.push("0:v".to_string());
+        args.push("-map".to_string());
+        args.push("0:a".to_string());
+
+        // Map subtitle streams
+        for i in 0..subtitle_paths.len() {
+            args.push("-map".to_string());
+            args.push(format!("{}:s", i + 1));
+        }
+
+        // Add language metadata for each subtitle stream
+        for (i, &language_code) in language_codes.iter().enumerate() {
+            if i < subtitle_paths.len() {
+                // Set language metadata for subtitle stream
+                args.push(format!("-metadata:s:s:{}", i));
+                args.push(format!("language={}", language_code));
+
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Setting language {} for subtitle stream {}",
+                    language_code,
+                    i
+                );
+            }
+        }
+
+        // Copy codecs
+        args.push("-c".to_string());
+        args.push("copy".to_string());
+
+        // Output file
+        args.push(output_path.to_string_lossy().to_string());
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Running ffmpeg with args: {:?}", args);
+
+        let executor = Executor {
+            executable_path: self.libraries.ffmpeg.clone(),
+            timeout: self.timeout,
+            args,
+        };
+
+        executor.execute().await?;
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "Successfully embedded subtitles into video at {:?}",
+            output_path
+        );
+
+        Ok(output_path)
+    }
+
+    /// Fetches playlist information from a URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the playlist to fetch
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the playlist could not be fetched
+    ///
+    /// # Returns
+    ///
+    /// The playlist metadata
+    pub async fn fetch_playlist_infos(&self, url: String) -> crate::error::Result<Playlist> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Fetching playlist information from {}", url);
+
+        // Check if the playlist is in the cache
+        #[cfg(feature = "cache")]
+        if let Some(cache) = &self.playlist_cache
+            && let Some(playlist) = cache.get(&url).await?
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Using cached playlist information for {}", url);
+            return Ok(playlist);
+        }
+
+        // Use --flat-playlist to get just the playlist metadata without downloading videos
+        let playlist_args = vec![
+            "--flat-playlist",
+            "--dump-single-json",
+            "--no-progress",
+            &url,
+        ];
+
+        let mut final_args = self.args.clone();
+        final_args.append(&mut utils::to_owned(playlist_args));
+
+        let executor = Executor {
+            executable_path: self.libraries.youtube.clone(),
+            timeout: self.timeout,
+            args: final_args,
+        };
+
+        let output = executor.execute().await?;
+        let mut playlist: Playlist =
+            serde_json::from_str(&output.stdout).map_err(|e| Error::Json {
+                context: "Failed to parse playlist metadata".to_string(),
+                source: e,
+            })?;
+
+        // Store the URL in the playlist for caching purposes
+        playlist.url = Some(url.clone());
+
+        // Cache the playlist if caching is enabled
+        #[cfg(feature = "cache")]
+        if let Some(cache) = &self.playlist_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching playlist information for {}", url);
+
+            if let Err(_e) = cache.put(url.clone(), playlist.clone()).await {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache playlist information: {}", _e);
+            }
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "Successfully fetched playlist {} with {} videos",
+            playlist.id,
+            playlist.entry_count()
+        );
+
+        Ok(playlist)
+    }
+
+    /// Downloads all videos from a playlist.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The playlist to download
+    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any video download fails
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded videos
+    pub async fn download_playlist(
+        &self,
+        playlist: &Playlist,
+        output_pattern: impl AsRef<str>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading playlist {} with {} videos",
+            playlist.id,
+            playlist.entry_count()
+        );
+
+        let mut downloaded_files = Vec::new();
+
+        // Download each video sequentially (parallel downloading can be added later)
+        for entry in &playlist.entries {
+            if !entry.is_available() {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Skipping unavailable video: {} ({})", entry.title, entry.id);
+                continue;
+            }
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "Downloading video {} from playlist (index: {})",
+                entry.id,
+                entry.index.unwrap_or(0)
+            );
+
+            // Fetch full video info
+            let video = self.fetch_video_infos(entry.url.clone()).await?;
+
+            // Generate filename from pattern
+            let filename = output_pattern
+                .as_ref()
+                .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
+                .replace("%(title)s", &entry.title)
+                .replace("%(id)s", &entry.id);
+
+            // Download the video
+            let video_path = self.download_video(&video, &filename).await?;
+            downloaded_files.push(video_path);
+
+            #[cfg(feature = "tracing")]
+            tracing::info!(
+                "Downloaded video {}/{}: {}",
+                downloaded_files.len(),
+                playlist.entry_count(),
+                entry.title
+            );
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "Successfully downloaded all {} videos from playlist {}",
+            downloaded_files.len(),
+            playlist.id
+        );
+
+        Ok(downloaded_files)
+    }
+
+    /// Downloads all videos from a playlist in parallel.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The playlist to download
+    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
+    /// * `max_concurrent` - Maximum number of concurrent downloads (defaults to 3)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error containing all failed downloads if any occur
+    ///
+    /// # Returns
+    ///
+    /// A vector of results for each video download
+    pub async fn download_playlist_parallel(
+        &self,
+        playlist: &Playlist,
+        output_pattern: impl AsRef<str>,
+        max_concurrent: Option<usize>,
+    ) -> crate::error::Result<Vec<crate::error::Result<PathBuf>>> {
+        self.download_playlist_parallel_with_progress::<fn(PlaylistDownloadProgress)>(
+            playlist,
+            output_pattern,
+            max_concurrent,
+            None,
+        )
+        .await
+    }
+
+    /// Downloads all videos from a playlist in parallel with progress tracking.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The playlist to download
+    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
+    /// * `max_concurrent` - Maximum number of concurrent downloads (defaults to 3)
+    /// * `progress_callback` - Optional callback to receive progress updates
+    ///
+    /// # Errors
+    ///
+    /// Returns an error containing all failed downloads if any occur
+    ///
+    /// # Returns
+    ///
+    /// A vector of results for each video download
+    pub async fn download_playlist_parallel_with_progress<F>(
+        &self,
+        playlist: &Playlist,
+        output_pattern: impl AsRef<str>,
+        max_concurrent: Option<usize>,
+        progress_callback: Option<F>,
+    ) -> crate::error::Result<Vec<crate::error::Result<PathBuf>>>
+    where
+        F: Fn(PlaylistDownloadProgress) + Send + Sync + 'static,
+    {
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading playlist {} with {} videos in parallel (max {} concurrent)",
+            playlist.id,
+            playlist.entry_count(),
+            max_concurrent.unwrap_or(3)
+        );
+
+        let max_concurrent = max_concurrent.unwrap_or(3);
+        let total_videos = playlist.entry_count();
+        let mut completed = 0usize;
+        let mut results = Vec::new();
+        let mut tasks = FuturesUnordered::new();
+        let mut entry_iter = playlist.entries.iter().peekable();
+
+        let output_pattern = output_pattern.as_ref().to_string();
+        let progress_callback = progress_callback.map(Arc::new);
+
+        loop {
+            // Spawn tasks up to max_concurrent limit
+            while tasks.len() < max_concurrent {
+                if let Some(entry) = entry_iter.next() {
+                    if !entry.is_available() {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!(
+                            "Skipping unavailable video: {} ({})",
+                            entry.title,
+                            entry.id
+                        );
+
+                        let entry_clone = entry.clone();
+                        completed += 1;
+
+                        // Call progress callback for unavailable video
+                        if let Some(callback) = &progress_callback {
+                            callback(PlaylistDownloadProgress {
+                                entry: entry_clone.clone(),
+                                result: Err(format!("Video {} is not available", entry_clone.id)),
+                                completed,
+                                total: total_videos,
+                            });
+                        }
+
+                        results.push(Err(Error::Unknown(format!(
+                            "Video {} is not available",
+                            entry.id
+                        ))));
+                        continue;
+                    }
+
+                    let entry = entry.clone();
+                    let output_pattern = output_pattern.clone();
+                    let youtube = self.clone();
+                    let _callback = progress_callback.clone();
+
+                    let task = tokio::spawn(async move {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            "Downloading video {} from playlist (index: {})",
+                            entry.id,
+                            entry.index.unwrap_or(0)
+                        );
+
+                        // Fetch full video info
+                        let video_result = youtube.fetch_video_infos(entry.url.clone()).await;
+                        let video = match video_result {
+                            Ok(v) => v,
+                            Err(e) => return (entry, Err(e)),
+                        };
+
+                        // Generate filename from pattern
+                        let filename = output_pattern
+                            .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
+                            .replace("%(title)s", &entry.title)
+                            .replace("%(id)s", &entry.id);
+
+                        // Download the video
+                        let download_result = youtube.download_video(&video, &filename).await;
+
+                        #[cfg(feature = "tracing")]
+                        if download_result.is_ok() {
+                            tracing::info!(
+                                "Downloaded video from playlist: {} (index: {})",
+                                entry.title,
+                                entry.index.unwrap_or(0)
+                            );
+                        }
+
+                        (entry, download_result)
+                    });
+
+                    tasks.push(task);
+                } else {
+                    // No more entries to spawn
+                    break;
+                }
+            }
+
+            // If no tasks running and no more entries, we're done
+            if tasks.is_empty() {
+                break;
+            }
+
+            // Wait for next task to complete
+            if let Some(result) = tasks.next().await {
+                completed += 1;
+
+                match result {
+                    Ok((entry, download_result)) => {
+                        // Call progress callback
+                        if let Some(callback) = &progress_callback {
+                            let result_for_progress = download_result
+                                .as_ref()
+                                .map(|p| p.clone())
+                                .map_err(|e| e.to_string());
+
+                            callback(PlaylistDownloadProgress {
+                                entry,
+                                result: result_for_progress,
+                                completed,
+                                total: total_videos,
+                            });
+                        }
+
+                        results.push(download_result);
+                    }
+                    Err(e) => {
+                        results.push(Err(Error::Unknown(format!("Task join error: {}", e))));
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "tracing")]
+        {
+            let successful = results.iter().filter(|r| r.is_ok()).count();
+            tracing::info!(
+                "Downloaded {}/{} videos from playlist {} in parallel",
+                successful,
+                playlist.entry_count(),
+                playlist.id
+            );
+        }
+
+        Ok(results)
+    }
+
+    /// Downloads specific videos from a playlist by their indices.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The playlist to download from
+    /// * `indices` - The indices of videos to download (0-based)
+    /// * `output_pattern` - The output filename pattern
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any video download fails
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded videos
+    pub async fn download_playlist_items(
+        &self,
+        playlist: &Playlist,
+        indices: &[usize],
+        output_pattern: impl AsRef<str>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading {} specific videos from playlist {}",
+            indices.len(),
+            playlist.id
+        );
+
+        let mut downloaded_files = Vec::new();
+
+        for &index in indices {
+            if let Some(entry) = playlist.get_entry_by_index(index) {
+                if !entry.is_available() {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!(
+                        "Skipping unavailable video at index {}: {}",
+                        index,
+                        entry.title
+                    );
+                    continue;
+                }
+
+                // Fetch full video info
+                let video = self.fetch_video_infos(entry.url.clone()).await?;
+
+                // Generate filename from pattern
+                let filename = output_pattern
+                    .as_ref()
+                    .replace("%(playlist_index)s", &index.to_string())
+                    .replace("%(title)s", &entry.title)
+                    .replace("%(id)s", &entry.id);
+
+                // Download the video
+                let video_path = self.download_video(&video, &filename).await?;
+                downloaded_files.push(video_path);
+
+                #[cfg(feature = "tracing")]
+                tracing::info!("Downloaded video at index {}: {}", index, entry.title);
+            } else {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Index {} is out of bounds for playlist", index);
+            }
+        }
+
+        Ok(downloaded_files)
+    }
+
+    /// Downloads a range of videos from a playlist.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The playlist to download from
+    /// * `start` - The starting index (0-based, inclusive)
+    /// * `end` - The ending index (0-based, inclusive)
+    /// * `output_pattern` - The output filename pattern
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any video download fails
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded videos
+    pub async fn download_playlist_range(
+        &self,
+        playlist: &Playlist,
+        start: usize,
+        end: usize,
+        output_pattern: impl AsRef<str>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Downloading videos {}-{} from playlist {}",
+            start,
+            end,
+            playlist.id
+        );
+
+        let entries = playlist.get_entries_in_range(start, end);
+        let mut downloaded_files = Vec::new();
+
+        for entry in entries {
+            if !entry.is_available() {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Skipping unavailable video: {} ({})", entry.title, entry.id);
+                continue;
+            }
+
+            // Fetch full video info
+            let video = self.fetch_video_infos(entry.url.clone()).await?;
+
+            // Generate filename from pattern
+            let filename = output_pattern
+                .as_ref()
+                .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
+                .replace("%(title)s", &entry.title)
+                .replace("%(id)s", &entry.id);
+
+            // Download the video
+            let video_path = self.download_video(&video, &filename).await?;
+            downloaded_files.push(video_path);
+
+            #[cfg(feature = "tracing")]
+            tracing::info!("Downloaded video: {}", entry.title);
+        }
+
+        Ok(downloaded_files)
     }
 }

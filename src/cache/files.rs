@@ -30,6 +30,7 @@ type FileQueryResult = (
     Option<String>, // audio_quality
     Option<String>, // video_codec
     Option<String>, // audio_codec
+    Option<String>, // language_code
     i64,            // filesize
     String,         // mime_type
     i64,            // cached_at
@@ -120,6 +121,7 @@ impl DownloadCache {
                 audio_quality TEXT,
                 video_codec TEXT,
                 audio_codec TEXT,
+                language_code TEXT,
                 filesize INTEGER NOT NULL,
                 mime_type TEXT NOT NULL,
                 cached_at INTEGER NOT NULL
@@ -161,6 +163,13 @@ impl DownloadCache {
             .execute(&pool)
             .await
             .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_files_language_code ON files (video_id, language_code)",
+        )
+        .execute(&pool)
+        .await
+        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_thumbnails_video_id ON thumbnails (video_id)")
             .execute(&pool)
@@ -225,6 +234,9 @@ impl DownloadCache {
             "m4a" => "audio/mp4".to_string(),
             "jpg" | "jpeg" => "image/jpeg".to_string(),
             "png" => "image/png".to_string(),
+            "vtt" => "text/vtt".to_string(),
+            "srt" => "application/x-subrip".to_string(),
+            "ass" | "ssa" => "text/x-ssa".to_string(),
             _ => "application/octet-stream".to_string(),
         }
     }
@@ -302,7 +314,7 @@ impl DownloadCache {
 
         let result: Option<FileQueryResult> = sqlx::query_as(
             "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json,
-                    video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at
+                    video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at
              FROM files
              WHERE id = ? AND cached_at > ?"
         )
@@ -324,6 +336,7 @@ impl DownloadCache {
             audio_quality,
             video_codec,
             audio_codec,
+            language_code,
             filesize,
             mime_type,
             cached_at,
@@ -344,6 +357,7 @@ impl DownloadCache {
                     audio_quality,
                     video_codec,
                     audio_codec,
+                    language_code,
                     filesize,
                     mime_type,
                     cached_at,
@@ -449,8 +463,8 @@ impl DownloadCache {
         sqlx::query(
             "INSERT OR REPLACE INTO files
              (id, filename, relative_path, video_id, file_type, format_id, format_json,
-              video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+              video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&file_hash)
         .bind(filename_str)
@@ -463,6 +477,7 @@ impl DownloadCache {
         .bind(&audio_quality_str)
         .bind(&video_codec_str)
         .bind(&audio_codec_str)
+        .bind::<Option<String>>(None) // language_code (only for subtitles)
         .bind(filesize)
         .bind(&mime_type)
         .bind(cached_at)
@@ -482,6 +497,7 @@ impl DownloadCache {
             audio_quality: audio_quality_str,
             video_codec: video_codec_str,
             audio_codec: audio_codec_str,
+            language_code: None,
             filesize,
             mime_type,
             cached_at,
@@ -510,7 +526,7 @@ impl DownloadCache {
 
         let result: Option<FileQueryResult> = sqlx::query_as(
             "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json,
-                    video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at
+                    video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at
              FROM files
              WHERE video_id = ? AND format_id = ? AND cached_at > ?"
         )
@@ -533,6 +549,7 @@ impl DownloadCache {
             audio_quality,
             video_codec,
             audio_codec,
+            language_code,
             filesize,
             mime_type,
             cached_at,
@@ -553,6 +570,7 @@ impl DownloadCache {
                     audio_quality,
                     video_codec,
                     audio_codec,
+                    language_code,
                     filesize,
                     mime_type,
                     cached_at,
@@ -588,7 +606,7 @@ impl DownloadCache {
         let cutoff = now - self.ttl;
 
         let mut query = "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json,
-                                video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, cached_at
+                                video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at
                          FROM files
                          WHERE video_id = ? AND cached_at > ?".to_string();
 
@@ -629,6 +647,7 @@ impl DownloadCache {
                 Option<String>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
                 i64,
                 String,
                 i64,
@@ -653,6 +672,7 @@ impl DownloadCache {
             audio_quality_str,
             video_codec_str,
             audio_codec_str,
+            language_code,
             filesize,
             mime_type,
             cached_at,
@@ -673,6 +693,7 @@ impl DownloadCache {
                     audio_quality: audio_quality_str,
                     video_codec: video_codec_str,
                     audio_codec: audio_codec_str,
+                    language_code,
                     filesize,
                     mime_type,
                     cached_at,
@@ -810,6 +831,7 @@ impl DownloadCache {
                     audio_quality: None,
                     video_codec: None,
                     audio_codec: None,
+                    language_code: None,
                     filesize,
                     mime_type,
                     cached_at,
@@ -820,5 +842,195 @@ impl DownloadCache {
         }
 
         None
+    }
+
+    /// Gets a subtitle file from cache by video ID and language code.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video ID
+    /// * `language_code` - The language code of the subtitle (e.g., "en", "fr")
+    ///
+    /// # Returns
+    ///
+    /// The cached subtitle file and its path if found and not expired
+    pub async fn get_subtitle_by_language(
+        &self,
+        video_id: &str,
+        language_code: &str,
+    ) -> Option<(CachedFile, PathBuf)> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Looking for subtitle in cache: video_id={}, language={}",
+            video_id,
+            language_code
+        );
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let cutoff = now - self.ttl;
+        let file_type_json = serde_json::to_string(&CachedType::Subtitle).ok()?;
+
+        let result: Option<FileQueryResult> = sqlx::query_as(
+            "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json,
+                    video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at
+             FROM files
+             WHERE video_id = ? AND language_code = ? AND file_type = ? AND cached_at > ?"
+        )
+        .bind(video_id)
+        .bind(language_code)
+        .bind(&file_type_json)
+        .bind(cutoff)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()?;
+
+        if let Some((
+            id,
+            filename,
+            relative_path,
+            video_id,
+            file_type,
+            format_id,
+            format_json,
+            video_quality,
+            audio_quality,
+            video_codec,
+            audio_codec,
+            language_code,
+            filesize,
+            mime_type,
+            cached_at,
+        )) = result
+        {
+            let file_path = self.cache_dir.join(&relative_path);
+
+            if file_path.exists() {
+                let cached_file = CachedFile {
+                    id,
+                    filename,
+                    relative_path,
+                    video_id,
+                    file_type,
+                    format_id,
+                    format_json,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                    language_code,
+                    filesize,
+                    mime_type,
+                    cached_at,
+                };
+
+                return Some((cached_file, file_path));
+            }
+        }
+
+        None
+    }
+
+    /// Puts a subtitle file in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - The path to the subtitle file
+    /// * `filename` - The filename for the subtitle
+    /// * `video_id` - The video ID this subtitle belongs to
+    /// * `language_code` - The language code (e.g., "en", "fr")
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be cached
+    pub async fn put_subtitle_file(
+        &self,
+        source_path: impl AsRef<Path> + std::fmt::Debug,
+        filename: impl AsRef<str> + std::fmt::Debug,
+        video_id: String,
+        language_code: String,
+    ) -> Result<CachedFile> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Caching subtitle file {:?} for video {} in language {}",
+            source_path,
+            video_id,
+            language_code
+        );
+
+        let file_hash = Self::calculate_file_hash(&source_path).await?;
+        let metadata = tokio::fs::metadata(&source_path).await?;
+        let filesize = metadata.len() as i64;
+        let mime_type = Self::determine_mime_type(&source_path);
+
+        let filename_str = filename.as_ref();
+        let sanitized_filename = Self::sanitize_filename(filename_str);
+        let extension = Path::new(&sanitized_filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+
+        let relative_path = format!("subtitles/{}/{}.{}", video_id, language_code, extension);
+        let dest_path = self.cache_dir.join(&relative_path);
+
+        if let Some(parent) = dest_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        if !dest_path.exists() {
+            tokio::fs::copy(&source_path, &dest_path).await?;
+        }
+
+        let file_type = serde_json::to_string(&CachedType::Subtitle).unwrap_or_default();
+        let cached_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        sqlx::query(
+            "INSERT OR REPLACE INTO files
+             (id, filename, relative_path, video_id, file_type, format_id, format_json,
+              video_quality, audio_quality, video_codec, audio_codec, language_code, filesize, mime_type, cached_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&file_hash)
+        .bind(filename_str)
+        .bind(&relative_path)
+        .bind(&video_id)
+        .bind(&file_type)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind(&language_code)
+        .bind(filesize)
+        .bind(&mime_type)
+        .bind(cached_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| crate::error::Error::Unknown(format!("Failed to insert subtitle file: {}", e)))?;
+
+        Ok(CachedFile {
+            id: file_hash,
+            filename: filename_str.to_string(),
+            relative_path,
+            video_id: Some(video_id),
+            file_type,
+            format_id: None,
+            format_json: None,
+            video_quality: None,
+            audio_quality: None,
+            video_codec: None,
+            audio_codec: None,
+            language_code: Some(language_code),
+            filesize,
+            mime_type,
+            cached_at,
+        })
     }
 }

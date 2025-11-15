@@ -3,7 +3,7 @@
 //! This module provides a fluent API for constructing Youtube instances with various configurations.
 
 #[cfg(feature = "cache")]
-use crate::cache::{DownloadCache, VideoCache};
+use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::{Libraries, Youtube};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::error::Result;
@@ -154,13 +154,16 @@ impl YoutubeBuilder {
 
         // Create caches if enabled
         #[cfg(feature = "cache")]
-        let (cache, download_cache) = if let Some(cache_dir) = self.cache_dir {
+        let (cache, download_cache, playlist_cache) = if let Some(cache_dir) = self.cache_dir {
             (
                 Some(Arc::new(VideoCache::new(cache_dir.clone(), None).await?)),
-                Some(Arc::new(DownloadCache::new(cache_dir, None).await?)),
+                Some(Arc::new(DownloadCache::new(cache_dir.clone(), None).await?)),
+                Some(Arc::new(
+                    PlaylistCache::new(cache_dir.join("playlists.db")).await?,
+                )),
             )
         } else {
-            (None, None)
+            (None, None, None)
         };
 
         Ok(Youtube {
@@ -172,6 +175,8 @@ impl YoutubeBuilder {
             cache,
             #[cfg(feature = "cache")]
             download_cache,
+            #[cfg(feature = "cache")]
+            playlist_cache,
             download_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
         })

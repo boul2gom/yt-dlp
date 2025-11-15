@@ -158,6 +158,10 @@ pub enum Error {
     #[error("No thumbnail available for video {video_id}")]
     NoThumbnail { video_id: String },
 
+    /// No subtitles are available for the requested language.
+    #[error("No subtitles available for video {video_id} in language '{language}'")]
+    SubtitleNotAvailable { video_id: String, language: String },
+
     // ==================== Path & Security Errors ====================
     /// Path validation failed due to security concerns.
     ///

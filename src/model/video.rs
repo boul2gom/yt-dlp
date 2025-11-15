@@ -3,8 +3,10 @@
 //! This module contains the Video struct and all its implementations,
 //! including format selection and comparison logic.
 
-use crate::model::caption::AutomaticCaption;
+use crate::model::caption::{AutomaticCaption, Subtitle};
+use crate::model::chapter::Chapter;
 use crate::model::format::Format;
+use crate::model::heatmap::Heatmap;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality, matches_audio_codec,
     matches_video_codec,
@@ -58,6 +60,15 @@ pub struct Video {
     pub thumbnails: Vec<Thumbnail>,
     /// The automatic captions of the video.
     pub automatic_captions: HashMap<String, Vec<AutomaticCaption>>,
+    /// The subtitles of the video (user-uploaded and automatic).
+    #[serde(default)]
+    pub subtitles: HashMap<String, Vec<Subtitle>>,
+    /// The chapters of the video.
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
+    /// The heatmap data for the video (most replayed segments).
+    #[serde(default)]
+    pub heatmap: Option<Heatmap>,
 
     /// The tags of the video.
     pub tags: Vec<String>,
@@ -395,6 +406,57 @@ impl Video {
                 select_closest_audio_bitrate(codec_filtered, bitrate, self)
             }
         }
+    }
+
+    /// Returns the chapters of the video.
+    ///
+    /// # Returns
+    ///
+    /// A slice containing all chapters in the video
+    pub fn get_chapters(&self) -> &[Chapter] {
+        &self.chapters
+    }
+
+    /// Finds the chapter at a specific timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// * `timestamp` - The timestamp in seconds
+    ///
+    /// # Returns
+    ///
+    /// The chapter containing the timestamp, or None if no chapter matches
+    pub fn get_chapter_at_time(&self, timestamp: f64) -> Option<&Chapter> {
+        self.chapters
+            .iter()
+            .find(|chapter| chapter.contains_timestamp(timestamp))
+    }
+
+    /// Checks if the video has chapters.
+    ///
+    /// # Returns
+    ///
+    /// true if the video has at least one chapter, false otherwise
+    pub fn has_chapters(&self) -> bool {
+        !self.chapters.is_empty()
+    }
+
+    /// Returns the heatmap data for the video if available.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the heatmap, or None if no heatmap data is available
+    pub fn get_heatmap(&self) -> Option<&Heatmap> {
+        self.heatmap.as_ref()
+    }
+
+    /// Checks if the video has heatmap data.
+    ///
+    /// # Returns
+    ///
+    /// true if the video has heatmap data, false otherwise
+    pub fn has_heatmap(&self) -> bool {
+        self.heatmap.is_some()
     }
 }
 

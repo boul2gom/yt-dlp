@@ -76,6 +76,8 @@ pub struct CachedFile {
     pub video_codec: Option<String>,
     /// The audio codec preference used to select this format (if any).
     pub audio_codec: Option<String>,
+    /// The language code for subtitle files (if any).
+    pub language_code: Option<String>,
     /// The file size in bytes.
     pub filesize: i64,
     /// The MIME type of the file.
@@ -91,6 +93,8 @@ pub enum CachedType {
     Format,
     /// A thumbnail image
     Thumbnail,
+    /// A subtitle file
+    Subtitle,
     /// Any other type of file
     Other,
 }
