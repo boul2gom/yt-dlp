@@ -1,13 +1,20 @@
 //! Utility functions and types used throughout the application.
 //!
-//! This module contains various utility to interact with the shell, and the file system.
+//! This module contains various utilities for file system operations,
+//! HTTP connections, retry logic, and validation.
 
 use crate::error::Result;
-use platform::Platform;
 use tokio::task::JoinHandle;
 
-pub mod file_system;
+pub mod fs;
+pub mod http;
 pub mod platform;
+pub mod retry;
+pub mod validation;
+
+// Re-export commonly used functions from fs
+pub use fs::*;
+pub use platform::Platform;
 
 /// Converts a vector of string slices to a vector of owned strings.
 pub fn to_owned(vec: Vec<impl AsRef<str>>) -> Vec<String> {

@@ -1,15 +1,29 @@
 //! Metadata management module for downloaded files.
 //!
 //! This module provides functionality to add metadata to downloaded files,
-//! such as title, artist, album, etc.
+//! such as title, artist, album, genre, technical information, and thumbnails.
+//!
+//! ## Supported Formats
+//!
+//! - **MP3**: Title, artist, comment, genre (from tags), release year
+//! - **M4A**: Title, artist, comment, genre (from tags), release year
+//! - **MP4**: All basic metadata, plus technical information (resolution, FPS, video codec, video bitrate, audio codec, audio bitrate, audio channels, sample rate)
+//! - **WebM**: All basic metadata (via Matroska format), plus technical information as with MP4
+//!
+//! ## Intelligent Metadata Management
+//!
+//! The system intelligently manages metadata application:
+//!
+//! - **Standalone files** (audio or audio+video): Metadata applied immediately during download
+//! - **Separate streams** (to be combined later): NO metadata applied to avoid redundant work
+//! - **Combined files**: Complete metadata applied to final file, including info from both streams
 
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::model::Video;
 use crate::model::format::Format;
+use crate::model::Video;
 use chrono::DateTime;
 use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
-use mp4ameta;
 use mp4ameta::Tag as MP4Tag;
 use std::fmt::Debug;
 use std::fs;
@@ -18,6 +32,9 @@ use std::time::Duration;
 use uuid::Uuid;
 
 /// Metadata manager for handling file metadata.
+///
+/// This manager provides methods to add metadata and thumbnails to downloaded files
+/// in various formats (MP3, M4A, MP4, WebM, MKV, etc.).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataManager {
     /// Path to ffmpeg executable
@@ -25,18 +42,34 @@ pub struct MetadataManager {
 }
 
 impl MetadataManager {
-    /// Create a new MetadataManager with default ffmpeg path
+    /// Create a new MetadataManager with default ffmpeg path.
+    ///
+    /// The default ffmpeg path is "ffmpeg" unless overridden by the `FFMPEG_PATH`
+    /// environment variable.
     pub fn new() -> Self {
         Self {
-            ffmpeg_path: PathBuf::from("ffmpeg"),
+            ffmpeg_path: Self::default_ffmpeg_path(),
         }
     }
 
-    /// Create a new MetadataManager with custom ffmpeg path
+    /// Create a new MetadataManager with custom ffmpeg path.
+    ///
+    /// # Arguments
+    ///
+    /// * `ffmpeg_path` - Path to the ffmpeg executable
     pub fn with_ffmpeg_path(ffmpeg_path: impl AsRef<Path>) -> Self {
         Self {
             ffmpeg_path: ffmpeg_path.as_ref().to_path_buf(),
         }
+    }
+
+    /// Get the default ffmpeg path.
+    ///
+    /// Can be overridden via the `FFMPEG_PATH` environment variable.
+    fn default_ffmpeg_path() -> PathBuf {
+        std::env::var("FFMPEG_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
     }
 }
 
@@ -46,9 +79,20 @@ impl Default for MetadataManager {
     }
 }
 
-/// Common metadata operations shared across different file formats
+/// Common metadata operations shared across different file formats.
+///
+/// This trait provides methods to extract and format metadata from Video and Format objects.
 pub trait BaseMetadata {
-    /// Format a timestamp into a string according to a specified format
+    /// Format a timestamp into a string according to a specified format.
+    ///
+    /// # Arguments
+    ///
+    /// * `timestamp` - Unix timestamp to format
+    /// * `format_str` - Format string (e.g., "%Y-%m-%d" for date, "%Y" for year)
+    ///
+    /// # Returns
+    ///
+    /// Formatted string if the timestamp is valid, None otherwise
     fn format_timestamp(timestamp: i64, format_str: &str) -> Option<String> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Formatting timestamp: {}", timestamp);
@@ -56,7 +100,13 @@ pub trait BaseMetadata {
         DateTime::from_timestamp(timestamp, 0).map(|dt| dt.format(format_str).to_string())
     }
 
-    /// Add metadata to a vector if the value exists
+    /// Add metadata to a vector if the value exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `metadata` - Vector to add the metadata to
+    /// * `key` - Metadata key
+    /// * `value` - Optional value to add
     fn add_metadata_if_some<T: ToString>(
         metadata: &mut Vec<(String, String)>,
         key: &str,
@@ -70,7 +120,17 @@ pub trait BaseMetadata {
         }
     }
 
-    /// Extract basic metadata from a video
+    /// Extract basic metadata from a video.
+    ///
+    /// Basic metadata includes: title, artist (channel), album, genre (from tags), date/year
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to extract metadata from
+    ///
+    /// # Returns
+    ///
+    /// Vector of (key, value) metadata pairs
     fn extract_basic_metadata(video: &Video) -> Vec<(String, String)> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Extracting basic metadata for video: {}", video.id);
@@ -101,7 +161,17 @@ pub trait BaseMetadata {
         metadata
     }
 
-    /// Extract video format metadata
+    /// Extract video format metadata.
+    ///
+    /// Video format metadata includes: resolution, FPS, video codec, video bitrate
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to extract metadata from
+    ///
+    /// # Returns
+    ///
+    /// Vector of (key, value) metadata pairs
     fn extract_video_format_metadata(format: &Format) -> Vec<(String, String)> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Extracting video format metadata: {}", format.format_id);
@@ -132,7 +202,17 @@ pub trait BaseMetadata {
         metadata
     }
 
-    /// Extract audio format metadata
+    /// Extract audio format metadata.
+    ///
+    /// Audio format metadata includes: audio bitrate, audio codec, audio channels, sample rate
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to extract metadata from
+    ///
+    /// # Returns
+    ///
+    /// Vector of (key, value) metadata pairs
     fn extract_audio_format_metadata(format: &Format) -> Vec<(String, String)> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Extracting audio format metadata: {}", format.format_id);
@@ -163,18 +243,22 @@ pub trait BaseMetadata {
     }
 }
 
-// Implementation of BaseMetadata for MetadataManager
 impl BaseMetadata for MetadataManager {}
 
 impl MetadataManager {
-    /// Get the default ffmpeg path (can be overridden via environment variable)
-    fn default_ffmpeg_path() -> PathBuf {
-        std::env::var("FFMPEG_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
-    }
-
     /// Add metadata to a file based on its format.
+    ///
+    /// This method automatically detects the file format and applies appropriate metadata.
+    /// Use this for standalone files when you don't have format details.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to add metadata to
+    /// * `video` - Video metadata to apply
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file format is unsupported or if metadata writing fails
     pub async fn add_metadata(
         file_path: impl AsRef<Path> + Send + Sync,
         video: &Video,
@@ -182,22 +266,39 @@ impl MetadataManager {
         #[cfg(feature = "tracing")]
         tracing::trace!("Adding metadata to file: {:?}", file_path.as_ref());
 
-        // Determine file format
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
         match file_format.as_str() {
-            "mp3" => Self::add_metadata_to_mp3(file_path.as_ref(), video),
+            "mp3" => Self::add_metadata_to_mp3(file_path.as_ref(), video, None),
             "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => {
-                Self::add_metadata_to_m4a(file_path.as_ref(), video)
+                Self::add_metadata_to_m4a(file_path.as_ref(), video, None, None)
             }
-            "webm" | "mkv" => Self::add_metadata_to_webm(file_path.as_ref(), video).await,
+            "webm" | "mkv" => {
+                Self::add_metadata_to_webm(file_path.as_ref(), video, None, None).await
+            }
             _ => {
-                Self::add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None).await
+                Self::add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None)
+                    .await
             }
         }
     }
 
-    /// Add metadata to a file with format details for audio and video
+    /// Add metadata to a file with format details for audio and video.
+    ///
+    /// This method should be used when you have detailed format information,
+    /// typically for combined audio+video files. Technical metadata (resolution,
+    /// codecs, bitrates) will be included for MP4 and WebM formats.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to add metadata to
+    /// * `video` - Video metadata to apply
+    /// * `video_format` - Optional video format details (for technical metadata)
+    /// * `audio_format` - Optional audio format details (for technical metadata)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file format is unsupported or if metadata writing fails
     pub async fn add_metadata_with_format(
         file_path: impl AsRef<Path>,
         video: &Video,
@@ -210,19 +311,15 @@ impl MetadataManager {
             file_path.as_ref()
         );
 
-        // Determine file format
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
         match file_format.as_str() {
-            "mp3" => Self::add_metadata_to_mp3_with_format(file_path.as_ref(), video, audio_format),
-            "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => Self::add_metadata_to_m4a_with_format(
-                file_path.as_ref(),
-                video,
-                audio_format,
-                video_format,
-            ),
+            "mp3" => Self::add_metadata_to_mp3(file_path.as_ref(), video, audio_format),
+            "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => {
+                Self::add_metadata_to_m4a(file_path.as_ref(), video, audio_format, video_format)
+            }
             "webm" | "mkv" => {
-                Self::add_metadata_to_webm_with_format(
+                Self::add_metadata_to_webm(
                     file_path.as_ref(),
                     video,
                     video_format,
@@ -243,61 +340,18 @@ impl MetadataManager {
         }
     }
 
-    /// Add metadata and thumbnail to a file based on its format.
-    pub async fn add_metadata_with_thumbnail(
-        file_path: impl AsRef<Path> + Debug + Copy + Send + Sync,
-        video: &Video,
-        thumbnail_path: Option<impl AsRef<Path>>,
-    ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Adding metadata with thumbnail to file: {:?}",
-            file_path.as_ref()
-        );
-
-        // Add basic metadata first
-        Self::add_metadata(file_path, video).await?;
-
-        // Add thumbnail if provided, otherwise use video's thumbnail
-        if let Some(thumbnail_path) = thumbnail_path {
-            Self::add_thumbnail_to_file(file_path, thumbnail_path).await
-        } else {
-            // Try to get the best thumbnail from video
-            if !video.thumbnails.is_empty() {
-                let best_thumbnail = video
-                    .thumbnails
-                    .iter()
-                    .max_by_key(|t| t.width.unwrap_or(0))
-                    .ok_or(Error::MissingThumbnail)?;
-
-                // Create a temporary file for the thumbnail
-                let temp_dir = std::env::temp_dir();
-                let thumbnail_file = temp_dir.join(format!("thumbnail_{}.jpg", video.id));
-
-                // Download the thumbnail
-                let fetcher = crate::fetcher::Fetcher::new(&best_thumbnail.url);
-                fetcher.fetch_asset(thumbnail_file.clone()).await?;
-
-                // Add the thumbnail to the file
-                let result = Self::add_thumbnail_to_file(file_path, thumbnail_file.as_path()).await;
-
-                // Clean up temporary file
-                if let Err(_e) = tokio::fs::remove_file(&thumbnail_file).await {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!("Failed to remove temporary thumbnail file: {}", _e);
-                }
-
-                result
-            } else {
-                // No thumbnail available
-                #[cfg(feature = "tracing")]
-                tracing::debug!("No thumbnail available for video: {}", video.id);
-                Ok(())
-            }
-        }
-    }
-
     /// Add a thumbnail to a file based on its format.
+    ///
+    /// Thumbnails are embedded in the file metadata. Supported formats: MP3, M4A, MP4, WebM, MKV
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to add thumbnail to
+    /// * `thumbnail_path` - Path to the thumbnail image file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file format doesn't support thumbnails or if embedding fails
     pub async fn add_thumbnail_to_file(
         file_path: impl AsRef<Path> + Debug + Copy,
         thumbnail_path: impl AsRef<Path>,
@@ -305,7 +359,6 @@ impl MetadataManager {
         #[cfg(feature = "tracing")]
         tracing::trace!("Adding thumbnail to file: {:?}", file_path.as_ref());
 
-        // Determine file format
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
         match file_format.as_str() {
@@ -324,188 +377,102 @@ impl MetadataManager {
         }
     }
 
-    /// Add thumbnail to an MP3 file using ID3
-    fn add_thumbnail_to_mp3<P: AsRef<Path> + Debug + Copy>(
-        file_path: P,
-        thumbnail_path: &Path,
-    ) -> Result<()> {
+    /// Get the file extension from a path.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to extract extension from
+    ///
+    /// # Returns
+    ///
+    /// Lowercase file extension
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file has no extension or contains invalid characters
+    fn get_file_extension(file_path: impl AsRef<Path>) -> Result<String> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding thumbnail to MP3 file: {:?}", file_path);
+        tracing::trace!("Getting file extension for {:?}", file_path.as_ref());
 
-        // Try to load existing tag or create a new one
-        let mut tag = match ID3Tag::read_from_path(file_path.as_ref()) {
-            Ok(tag) => tag,
-            Err(_) => ID3Tag::new(),
-        };
+        let path = file_path.as_ref();
+        let ext = path
+            .extension()
+            .ok_or_else(|| Error::path_validation(path, "File has no extension"))?
+            .to_str()
+            .ok_or_else(|| {
+                Error::path_validation(path, "Invalid characters in file extension")
+            })?
+            .to_lowercase();
 
-        // Read thumbnail content
-        let image_data = match std::fs::read(thumbnail_path) {
-            Ok(data) => data,
-            Err(e) => return Err(Error::IO(e)),
-        };
+        Ok(ext)
+    }
 
-        // Determine MIME type based on file extension
-        let mime_type = match thumbnail_path.extension().and_then(|ext| ext.to_str()) {
-            Some("jpg") | Some("jpeg") => "image/jpeg",
-            Some("png") => "image/png",
-            _ => "image/jpeg", // Default to JPEG
-        };
-
-        // Create picture frame
-        let picture = ID3Frame::with_content(
-            "APIC",
-            id3::frame::Content::Picture(id3::frame::Picture {
-                mime_type: mime_type.to_string(),
-                picture_type: id3::frame::PictureType::CoverFront,
-                description: String::new(),
-                data: image_data,
-            }),
+    /// Create a temporary output path for metadata processing.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Original file path
+    /// * `file_format` - File extension for the temporary file
+    ///
+    /// # Returns
+    ///
+    /// PathBuf to a unique temporary file in the same directory
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be created
+    fn create_temp_output_path(file_path: impl AsRef<Path>, file_format: &str) -> Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            "Creating temporary output path for {:?}",
+            file_path.as_ref()
         );
 
-        // Add the picture frame to the tag
-        tag.add_frame(picture);
+        let path = file_path.as_ref();
+        let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
+        let uuid = Uuid::new_v4();
 
-        // Save the tag
-        if let Err(e) = tag.write_to_path(file_path.as_ref(), ID3Version::Id3v24) {
-            return Err(Error::Unknown(format!("Failed to write ID3 tags: {}", e)));
+        if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
+            Ok(parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format)))
+        } else {
+            Ok(parent_dir.join(format!("output_{}_temp.{}", uuid, file_format)))
         }
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Added thumbnail to MP3 file: {:?}", file_path);
-
-        Ok(())
     }
 
-    /// Add thumbnail to an M4A file
-    fn add_thumbnail_to_m4a<P: AsRef<Path> + Debug + Copy>(
-        file_path: P,
-        thumbnail_path: &Path,
-    ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Adding thumbnail to M4A file: {:?}", file_path);
-
-        // Read the tag
-        let mut tag = mp4ameta::Tag::read_from_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
-
-        // Read the image file content
-        let image_data = fs::read(thumbnail_path).map_err(Error::IO)?;
-
-        // Determine image format from file extension
-        let fmt = match thumbnail_path.extension().and_then(|ext| ext.to_str()) {
-            Some("png") => mp4ameta::ImgFmt::Png,
-            Some("jpg") | Some("jpeg") => mp4ameta::ImgFmt::Jpeg,
-            Some("bmp") => mp4ameta::ImgFmt::Bmp,
-            _ => mp4ameta::ImgFmt::Jpeg, // Default to JPEG if unknown
-        };
-
-        // Create an Img object with the correct format
-        let artwork = mp4ameta::Img::new(fmt, image_data);
-
-        // Set the artwork (this will replace any existing artwork)
-        tag.set_artwork(artwork);
-
-        // Write the tag back to the file
-        tag.write_to_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to write metadata to m4a file: {}", e)))?;
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Added thumbnail to M4A file: {:?}", file_path);
-
-        Ok(())
-    }
-
-    /// Add thumbnail to a WebM/MKV file
-    async fn add_thumbnail_to_webm<P: AsRef<Path> + Debug + Copy>(
-        file_path: P,
-        thumbnail_path: &Path,
-    ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Adding thumbnail to WebM/MKV file: {:?}", file_path);
-
-        // For WebM/MKV, we'll use ffmpeg to add the thumbnail as an attachment
-        let file_path_str = match file_path.as_ref().to_str() {
-            Some(s) => s,
-            None => return Err(Error::Path("Invalid file path".to_string())),
-        };
-
-        let thumbnail_path_str = match thumbnail_path.to_str() {
-            Some(s) => s,
-            None => return Err(Error::Path("Invalid thumbnail path".to_string())),
-        };
-
-        let mut args = vec![
-            "-i".to_string(),
-            file_path_str.to_string(),
-            "-i".to_string(),
-            thumbnail_path_str.to_string(),
-            "-map".to_string(),
-            "0".to_string(),
-            "-map".to_string(),
-            "1".to_string(),
-            "-c".to_string(),
-            "copy".to_string(),
-            "-disposition:v:1".to_string(),
-            "attached_pic".to_string(),
-        ];
-
-        // Create output file path
-        let temp_output_path = Self::create_temp_output_path(file_path.as_ref(), "mkv")?;
-        let temp_output_str = match temp_output_path.to_str() {
-            Some(s) => s,
-            None => return Err(Error::Path("Invalid output path".to_string())),
-        };
-
-        args.push("-y".to_string());
-        args.push(temp_output_str.to_string());
-
-        // Execute ffmpeg using Executor
-        let executor = Executor {
-            executable_path: Self::default_ffmpeg_path(),
-            timeout: Duration::from_secs(120),
-            args,
-        };
-
-        let _ = executor.execute().await?;
-
-        // Replace original file with the new one
-        tokio::fs::rename(temp_output_path, file_path.as_ref()).await?;
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Added thumbnail to WebM/MKV file: {:?}", file_path);
-
-        Ok(())
-    }
-
-    /// Log metadata debug messages if tracing is enabled
+    /// Log metadata debug messages if tracing is enabled.
     fn log_metadata_debug<S: AsRef<str>>(_message: S) {
         #[cfg(feature = "tracing")]
         tracing::debug!("{}", _message.as_ref());
     }
 
-    /// Add metadata to an MP3 file using ID3
+    // ========================================================================
+    // MP3 METADATA SUPPORT (ID3)
+    // ========================================================================
+
+    /// Add metadata to an MP3 file using ID3 tags.
+    ///
+    /// MP3 metadata includes: Title, artist, album, genre (from tags), release year
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the MP3 file
+    /// * `video` - Video metadata to apply
+    /// * `audio_format` - Optional audio format for technical metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ID3 tags cannot be read or written
     fn add_metadata_to_mp3<P: AsRef<Path> + Debug + Copy>(
-        file_path: P,
-        video: &Video,
-    ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to MP3 file: {:?}", file_path);
-
-        Self::add_metadata_to_mp3_with_format(file_path, video, None)
-    }
-
-    /// Add metadata to an MP3 file with format details
-    fn add_metadata_to_mp3_with_format<P: AsRef<Path> + Debug + Copy>(
         file_path: P,
         video: &Video,
         audio_format: Option<&Format>,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to MP3 file with format: {:?}", file_path);
+        tracing::trace!("Adding metadata to MP3 file: {:?}", file_path);
 
         Self::log_metadata_debug(format!("Adding metadata to MP3 file: {:?}", file_path));
 
-        // Try to load existing tag or create a new one
+        // Load existing tag or create a new one
         let mut tag = match ID3Tag::read_from_path(file_path.as_ref()) {
             Ok(tag) => tag,
             Err(_) => ID3Tag::new(),
@@ -526,15 +493,13 @@ impl MetadataManager {
                     }
                 }
                 _ => {
-                    // Skip other metadata fields
                     Self::log_metadata_debug(format!("Skipping ID3 metadata: {} = {}", key, value));
                 }
             }
         }
 
-        // Add technical metadata if available
+        // Add technical metadata if available (as custom frames)
         if let Some(format) = audio_format {
-            // Add a custom frame for audio quality information
             if let Some(audio_rate) = format.rates_info.audio_rate {
                 let frame = ID3Frame::text("TXXX", format!("Audio Bitrate: {}", audio_rate));
                 tag.add_frame(frame);
@@ -547,44 +512,100 @@ impl MetadataManager {
         }
 
         // Save changes
-        let file_path_str = file_path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| Error::Unknown("Failed to convert path to string".to_string()))?;
-
-        tag.write_to_path(file_path_str, ID3Version::Id3v24)
+        tag.write_to_path(file_path.as_ref(), ID3Version::Id3v24)
             .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
 
         Ok(())
     }
 
-    /// Add metadata to an M4A file using MP4AMETA
-    fn add_metadata_to_m4a<P: AsRef<Path> + Debug + Copy>(
+    /// Add thumbnail to an MP3 file using ID3 picture frame.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the MP3 file
+    /// * `thumbnail_path` - Path to the thumbnail image
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the thumbnail cannot be read or the ID3 tags cannot be written
+    fn add_thumbnail_to_mp3<P: AsRef<Path> + Debug + Copy>(
         file_path: P,
-        video: &Video,
+        thumbnail_path: &Path,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to M4A file: {:?}", file_path);
+        tracing::trace!("Adding thumbnail to MP3 file: {:?}", file_path);
 
-        Self::add_metadata_to_m4a_with_format(file_path, video, None, None)
+        // Load existing tag or create a new one
+        let mut tag = match ID3Tag::read_from_path(file_path.as_ref()) {
+            Ok(tag) => tag,
+            Err(_) => ID3Tag::new(),
+        };
+
+        // Read thumbnail content
+        let image_data = std::fs::read(thumbnail_path)
+            .map_err(|e| Error::io_with_path("read thumbnail", thumbnail_path, e))?;
+
+        // Determine MIME type based on file extension
+        let mime_type = match thumbnail_path.extension().and_then(|ext| ext.to_str()) {
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("png") => "image/png",
+            _ => "image/jpeg",
+        };
+
+        // Create picture frame
+        let picture = ID3Frame::with_content(
+            "APIC",
+            id3::frame::Content::Picture(id3::frame::Picture {
+                mime_type: mime_type.to_string(),
+                picture_type: id3::frame::PictureType::CoverFront,
+                description: String::new(),
+                data: image_data,
+            }),
+        );
+
+        tag.add_frame(picture);
+
+        // Save the tag
+        tag.write_to_path(file_path.as_ref(), ID3Version::Id3v24)
+            .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Added thumbnail to MP3 file: {:?}", file_path);
+
+        Ok(())
     }
 
-    /// Add metadata to an M4A/MP4 file with format details
-    fn add_metadata_to_m4a_with_format<P: AsRef<Path> + Debug + Copy>(
+    // ========================================================================
+    // M4A/MP4 METADATA SUPPORT (mp4ameta)
+    // ========================================================================
+
+    /// Add metadata to an M4A/MP4 file using mp4ameta.
+    ///
+    /// M4A/MP4 metadata includes: Title, artist, album, genre (from tags), release year
+    /// For MP4 files with video, technical metadata is also included.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the M4A/MP4 file
+    /// * `video` - Video metadata to apply
+    /// * `audio_format` - Optional audio format for technical metadata
+    /// * `video_format` - Optional video format for technical metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if MP4 tags cannot be read or written
+    fn add_metadata_to_m4a<P: AsRef<Path> + Debug + Copy>(
         file_path: P,
         video: &Video,
         audio_format: Option<&Format>,
         video_format: Option<&Format>,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Adding metadata to M4A/MP4 file with format: {:?}",
-            file_path
-        );
+        tracing::trace!("Adding metadata to M4A/MP4 file: {:?}", file_path);
 
         Self::log_metadata_debug(format!("Adding metadata to M4A/MP4 file: {:?}", file_path));
 
-        // Try to load existing tag
+        // Load existing tag
         let mut tag = MP4Tag::read_from_path(file_path.as_ref())
             .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
 
@@ -603,23 +624,15 @@ impl MetadataManager {
                     }
                 }
                 _ => {
-                    // Skip other metadata fields
                     Self::log_metadata_debug(format!("Skipping MP4 metadata: {} = {}", key, value));
                 }
             }
         }
 
-        // Add technical metadata
         // MP4 format has limited metadata support compared to ID3
-        if let Some(_format) = audio_format {
+        if audio_format.is_some() || video_format.is_some() {
             Self::log_metadata_debug(
-                "Audio format info available but MP4 tag has limited support for technical metadata",
-            );
-        }
-
-        if let Some(_format) = video_format {
-            Self::log_metadata_debug(
-                "Video format info available but MP4 tag has limited support for technical metadata",
+                "Format info available but MP4 tag has limited support for technical metadata",
             );
         }
 
@@ -630,31 +643,83 @@ impl MetadataManager {
         Ok(())
     }
 
-    /// Add metadata to a WebM file using FFmpeg
-    async fn add_metadata_to_webm<P: AsRef<Path> + Debug + Copy>(
+    /// Add thumbnail to an M4A/MP4 file.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the M4A/MP4 file
+    /// * `thumbnail_path` - Path to the thumbnail image
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the thumbnail cannot be read or the MP4 tags cannot be written
+    fn add_thumbnail_to_m4a<P: AsRef<Path> + Debug + Copy>(
         file_path: P,
-        video: &Video,
+        thumbnail_path: &Path,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to WebM file: {:?}", file_path);
+        tracing::trace!("Adding thumbnail to M4A/MP4 file: {:?}", file_path);
 
-        Self::add_metadata_to_webm_with_format(file_path, video, None, None).await
+        // Read the tag
+        let mut tag = MP4Tag::read_from_path(file_path.as_ref())
+            .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+
+        // Read the image file content
+        let image_data = fs::read(thumbnail_path)
+            .map_err(|e| Error::io_with_path("read thumbnail", thumbnail_path, e))?;
+
+        // Determine image format from file extension
+        let fmt = match thumbnail_path.extension().and_then(|ext| ext.to_str()) {
+            Some("png") => mp4ameta::ImgFmt::Png,
+            Some("jpg") | Some("jpeg") => mp4ameta::ImgFmt::Jpeg,
+            Some("bmp") => mp4ameta::ImgFmt::Bmp,
+            _ => mp4ameta::ImgFmt::Jpeg,
+        };
+
+        // Create an Img object with the correct format
+        let artwork = mp4ameta::Img::new(fmt, image_data);
+        tag.set_artwork(artwork);
+
+        // Write the tag back to the file
+        tag.write_to_path(file_path.as_ref())
+            .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Added thumbnail to M4A/MP4 file: {:?}", file_path);
+
+        Ok(())
     }
 
-    /// Add metadata to a WebM file with format details
-    async fn add_metadata_to_webm_with_format<P: AsRef<Path> + Debug + Copy>(
+    // ========================================================================
+    // WebM/MKV METADATA SUPPORT (FFmpeg)
+    // ========================================================================
+
+    /// Add metadata to a WebM/MKV file using FFmpeg.
+    ///
+    /// WebM/MKV metadata includes: All basic metadata (via Matroska format),
+    /// plus technical information (resolution, FPS, codecs, bitrates, etc.)
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the WebM/MKV file
+    /// * `video` - Video metadata to apply
+    /// * `video_format` - Optional video format for technical metadata
+    /// * `audio_format` - Optional audio format for technical metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if FFmpeg command fails
+    async fn add_metadata_to_webm<P: AsRef<Path> + Debug + Copy>(
         file_path: P,
         video: &Video,
         video_format: Option<&Format>,
         audio_format: Option<&Format>,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to WebM file with format: {:?}", file_path);
+        tracing::trace!("Adding metadata to WebM/MKV file: {:?}", file_path);
 
-        Self::log_metadata_debug(format!("Adding metadata to WebM file: {:?}", file_path));
+        Self::log_metadata_debug(format!("Adding metadata to WebM/MKV file: {:?}", file_path));
 
-        // WebM uses Matroska format, which is handled by FFmpeg with specific options
-        // Create a temporary output file path
         let path = file_path.as_ref();
         let file_format = "webm";
         let temp_output_path = Self::create_temp_output_path(path, file_format)?;
@@ -663,9 +728,9 @@ impl MetadataManager {
         let input_str = path
             .to_str()
             .ok_or_else(|| Error::Unknown("Failed to convert input path to string".to_string()))?;
-        let output_str = temp_output_path
-            .to_str()
-            .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
+        let output_str = temp_output_path.to_str().ok_or_else(|| {
+            Error::Unknown("Failed to convert output path to string".to_string())
+        })?;
 
         // Collect all metadata
         let mut all_metadata = Self::extract_basic_metadata(video);
@@ -693,7 +758,7 @@ impl MetadataManager {
                     "album" => "album",
                     "genre" => "genre",
                     "date" => "date",
-                    "year" => "date", // Matroska uses date for year
+                    "year" => "date",
                     "framerate" => "FRAMERATE",
                     "resolution" => "RESOLUTION",
                     "video_codec" => "ENCODER",
@@ -711,12 +776,10 @@ impl MetadataManager {
         // Build the FFmpeg command
         let mut ffmpeg_args = vec!["-i".to_string(), input_str.to_string()];
 
-        // Add metadata arguments
         for arg in metadata_args {
             ffmpeg_args.push(arg);
         }
 
-        // Add output arguments
         ffmpeg_args.extend(vec![
             "-c".to_string(),
             "copy".to_string(),
@@ -725,11 +788,7 @@ impl MetadataManager {
             output_str.to_string(),
         ]);
 
-        // Execute FFmpeg command
-        Self::log_metadata_debug(format!(
-            "Running FFmpeg command with args: {:?}",
-            ffmpeg_args
-        ));
+        Self::log_metadata_debug(format!("Running FFmpeg command with args: {:?}", ffmpeg_args));
 
         let executor = Executor {
             executable_path: Self::default_ffmpeg_path(),
@@ -739,14 +798,15 @@ impl MetadataManager {
 
         let output = executor.execute().await?;
 
-        // Clean up temporary file if failure
         if !output.code.eq(&0) {
-            // Clean up temporary file if it exists
             if temp_output_path.exists() {
                 let _ = tokio::fs::remove_file(&temp_output_path).await;
             }
-
-            return Err(Error::Command("FFmpeg command failed".to_string()));
+            return Err(Error::CommandFailed {
+                command: "ffmpeg".to_string(),
+                exit_code: output.code,
+                stderr: output.stderr,
+            });
         }
 
         // Replace original file with the file containing metadata
@@ -757,7 +817,91 @@ impl MetadataManager {
         Ok(())
     }
 
-    /// Add metadata to a video file using FFmpeg.
+    /// Add thumbnail to a WebM/MKV file using FFmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the WebM/MKV file
+    /// * `thumbnail_path` - Path to the thumbnail image
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if FFmpeg command fails
+    async fn add_thumbnail_to_webm<P: AsRef<Path> + Debug + Copy>(
+        file_path: P,
+        thumbnail_path: &Path,
+    ) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Adding thumbnail to WebM/MKV file: {:?}", file_path);
+
+        let file_path_str = file_path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| Error::path_validation(file_path.as_ref(), "Invalid file path"))?;
+
+        let thumbnail_path_str = thumbnail_path
+            .to_str()
+            .ok_or_else(|| Error::path_validation(thumbnail_path, "Invalid thumbnail path"))?;
+
+        let mut args = vec![
+            "-i".to_string(),
+            file_path_str.to_string(),
+            "-i".to_string(),
+            thumbnail_path_str.to_string(),
+            "-map".to_string(),
+            "0".to_string(),
+            "-map".to_string(),
+            "1".to_string(),
+            "-c".to_string(),
+            "copy".to_string(),
+            "-disposition:v:1".to_string(),
+            "attached_pic".to_string(),
+        ];
+
+        let temp_output_path = Self::create_temp_output_path(file_path.as_ref(), "mkv")?;
+        let temp_output_str = temp_output_path
+            .to_str()
+            .ok_or_else(|| Error::path_validation(&temp_output_path, "Invalid output path"))?;
+
+        args.push("-y".to_string());
+        args.push(temp_output_str.to_string());
+
+        let executor = Executor {
+            executable_path: Self::default_ffmpeg_path(),
+            timeout: Duration::from_secs(120),
+            args,
+        };
+
+        let _ = executor.execute().await?;
+
+        // Replace original file with the new one
+        tokio::fs::rename(temp_output_path, file_path.as_ref()).await?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Added thumbnail to WebM/MKV file: {:?}", file_path);
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // GENERIC FFMPEG METADATA SUPPORT
+    // ========================================================================
+
+    /// Add metadata to a video file using FFmpeg (for formats not directly supported).
+    ///
+    /// This is a fallback method for formats that don't have dedicated support.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the video file
+    /// * `video` - Video metadata to apply
+    /// * `file_format` - File extension
+    /// * `video_format` - Optional video format for technical metadata
+    /// * `audio_format` - Optional audio format for technical metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if FFmpeg command fails
     async fn add_ffmpeg_metadata<P: AsRef<Path>>(
         file_path: P,
         video: &Video,
@@ -769,30 +913,22 @@ impl MetadataManager {
         tracing::trace!("Adding metadata using FFmpeg: {:?}", file_path.as_ref());
 
         let path = file_path.as_ref();
-
-        // Extract basic metadata
-        let metadata = Self::extract_basic_metadata(video);
-
-        // Create a temporary output file path
         let temp_output_path = Self::create_temp_output_path(path, file_format)?;
 
-        // Convert paths to strings
         let input_str = path
             .to_str()
             .ok_or_else(|| Error::Unknown("Failed to convert input path to string".to_string()))?;
-        let output_str = temp_output_path
-            .to_str()
-            .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
+        let output_str = temp_output_path.to_str().ok_or_else(|| {
+            Error::Unknown("Failed to convert output path to string".to_string())
+        })?;
 
         // Collect all metadata
-        let mut all_metadata = metadata;
+        let mut all_metadata = Self::extract_basic_metadata(video);
 
-        // Add video format metadata if available
         if let Some(format) = video_format {
             all_metadata.extend(Self::extract_video_format_metadata(format));
         }
 
-        // Add audio format metadata if available
         if let Some(format) = audio_format {
             all_metadata.extend(Self::extract_audio_format_metadata(format));
         }
@@ -803,15 +939,12 @@ impl MetadataManager {
             .map(|(key, value)| format!("-metadata {}={}", key, value))
             .collect();
 
-        // Build the FFmpeg command
         let mut ffmpeg_args = vec!["-i".to_string(), input_str.to_string()];
 
-        // Add metadata arguments
         for arg in metadata_args {
             ffmpeg_args.push(arg);
         }
 
-        // Add output arguments
         ffmpeg_args.extend(vec![
             "-c".to_string(),
             "copy".to_string(),
@@ -820,11 +953,7 @@ impl MetadataManager {
             output_str.to_string(),
         ]);
 
-        // Execute FFmpeg command
-        Self::log_metadata_debug(format!(
-            "Running FFmpeg command with args: {:?}",
-            ffmpeg_args
-        ));
+        Self::log_metadata_debug(format!("Running FFmpeg command with args: {:?}", ffmpeg_args));
 
         let executor = Executor {
             executable_path: Self::default_ffmpeg_path(),
@@ -834,60 +963,21 @@ impl MetadataManager {
 
         let output = executor.execute().await?;
 
-        // Clean up temporary file if failure
         if !output.code.eq(&0) {
-            // Clean up temporary file if it exists
             if temp_output_path.exists() {
                 let _ = tokio::fs::remove_file(&temp_output_path).await;
             }
-
-            return Err(Error::Command("FFmpeg command failed".to_string()));
+            return Err(Error::CommandFailed {
+                command: "ffmpeg".to_string(),
+                exit_code: output.code,
+                stderr: output.stderr,
+            });
         }
 
-        // Replace original file with the file containing metadata
         tokio::fs::rename(&temp_output_path, path)
             .await
             .map_err(|e| Error::Unknown(format!("Failed to replace original file: {}", e)))?;
 
         Ok(())
-    }
-
-    /// Create a temporary output path for metadata processing
-    fn create_temp_output_path(file_path: impl AsRef<Path>, file_format: &str) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Creating temporary output path for {:?}",
-            file_path.as_ref()
-        );
-
-        // Extract the parent directory
-        let path = file_path.as_ref();
-        let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
-
-        // Generate a unique temporary filename
-        let uuid = Uuid::new_v4();
-
-        if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-            Ok(parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format)))
-        } else {
-            Ok(parent_dir.join(format!("output_{}_temp.{}", uuid, file_format)))
-        }
-    }
-
-    /// Get the file extension from a path
-    fn get_file_extension(file_path: impl AsRef<Path>) -> Result<String> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Getting file extension for {:?}", file_path.as_ref());
-
-        // Get file extension
-        let ext = file_path
-            .as_ref()
-            .extension()
-            .ok_or_else(|| Error::Path("File has no extension".to_string()))?
-            .to_str()
-            .ok_or_else(|| Error::Path("Invalid characters in file extension".to_string()))?
-            .to_lowercase();
-
-        Ok(ext)
     }
 }

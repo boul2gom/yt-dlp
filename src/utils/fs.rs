@@ -13,10 +13,10 @@ pub fn try_name(path: impl AsRef<Path>) -> Result<String> {
     let name = path
         .as_ref()
         .file_name()
-        .ok_or(Error::Path("Failed to get name".to_string()))?;
+        .ok_or(Error::Unknown("Failed to get name".to_string()))?;
     let name = name
         .to_str()
-        .ok_or(Error::Path("Failed to convert name".to_string()))?;
+        .ok_or(Error::Unknown("Failed to convert name".to_string()))?;
 
     Ok(name.to_string())
 }
@@ -27,7 +27,7 @@ pub fn try_without_extension(path: impl AsRef<Path>) -> Result<String> {
     let name = name
         .split('.')
         .next()
-        .ok_or(Error::Path("Failed to get name".to_string()))?;
+        .ok_or(Error::Unknown("Failed to get name".to_string()))?;
 
     Ok(name.to_string())
 }
@@ -37,7 +37,7 @@ pub fn try_parent(path: impl AsRef<Path>) -> Result<PathBuf> {
     let parent = path
         .as_ref()
         .parent()
-        .ok_or(Error::Path("Failed to get parent".to_string()))?;
+        .ok_or(Error::Unknown("Failed to get parent".to_string()))?;
 
     Ok(parent.to_path_buf())
 }

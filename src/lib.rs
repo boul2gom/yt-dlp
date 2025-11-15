@@ -2,9 +2,9 @@
 
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::fetcher::deps::{Libraries, LibraryInstaller};
-use crate::fetcher::download_manager::{DownloadManager, ManagerConfig};
-use crate::utils::file_system;
+use crate::client::deps::{Libraries, LibraryInstaller};
+use crate::download::manager::ManagerConfig;
+use crate::utils::fs;
 #[cfg(feature = "cache")]
 use cache::{DownloadCache, VideoCache};
 use std::fmt::{self, Display};
@@ -12,17 +12,29 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+// Core modules
 #[cfg(feature = "cache")]
 pub mod cache;
 pub mod error;
 pub mod executor;
-pub mod fetcher;
 pub mod metadata;
 pub mod model;
 pub mod utils;
 
+// Architecture modules
+pub mod client;
+pub mod download;
+
+// Convenience modules
+pub mod macros;
+pub mod prelude;
+
 // Re-export of common traits to facilitate their use
 pub use model::utils::{AllTraits, CommonTraits};
+
+// Re-export main types for easy access
+pub use client::{DownloadBuilder, YoutubeBuilder};
+pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 
 /// A YouTube video fetcher that uses yt-dlp to fetch video information and download it.
 ///
@@ -38,7 +50,7 @@ pub use model::utils::{AllTraits, CommonTraits};
 /// ```rust, no_run
 /// # use yt_dlp::Youtube;
 /// # use std::path::PathBuf;
-/// # use yt_dlp::fetcher::deps::Libraries;
+/// # use yt_dlp::client::deps::Libraries;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let libraries_dir = PathBuf::from("libs");
@@ -77,6 +89,8 @@ pub struct Youtube {
     pub download_cache: Option<Arc<cache::DownloadCache>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
+    /// Cancellation token for graceful shutdown.
+    pub(crate) cancellation_token: tokio_util::sync::CancellationToken,
 }
 
 impl fmt::Display for Youtube {
@@ -90,6 +104,83 @@ impl fmt::Display for Youtube {
 }
 
 impl Youtube {
+    /// Creates a new builder for constructing a Youtube instance with a fluent API.
+    ///
+    /// This is the recommended way to create a Youtube instance as it provides
+    /// a clean and intuitive interface for configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `libraries` - The required libraries (yt-dlp and ffmpeg paths)
+    /// * `output_dir` - The directory where videos will be downloaded
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    ///
+    /// let youtube = Youtube::builder(libraries, "output")
+    ///     .with_timeout(std::time::Duration::from_secs(120))
+    ///     .with_max_concurrent_downloads(4)
+    ///     .build()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder(libraries: Libraries, output_dir: impl Into<PathBuf>) -> YoutubeBuilder {
+        YoutubeBuilder::new(libraries, output_dir)
+    }
+
+    /// Creates a new download builder for downloading a video with custom quality and codec preferences.
+    ///
+    /// This provides a fluent API for configuring and executing downloads with
+    /// custom quality, codec preferences, priority, and progress tracking.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The YouTube video URL to download
+    /// * `output` - The output filename for the downloaded video
+    ///
+    /// # Returns
+    ///
+    /// A `DownloadBuilder` instance that can be configured with various options
+    /// before calling `execute()` to start the download.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::model::selector::{VideoQuality, AudioQuality, VideoCodecPreference};
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    /// # let fetcher = Youtube::new(libraries, "output")?;
+    /// let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    ///
+    /// let video_path = fetcher.download(url, "my-video.mp4")
+    ///     .video_quality(VideoQuality::Q1080p)
+    ///     .video_codec(VideoCodecPreference::H264)
+    ///     .audio_quality(AudioQuality::Best)
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn download(
+        &self,
+        url: impl Into<String>,
+        output: impl Into<PathBuf>,
+    ) -> client::DownloadBuilder<'_> {
+        client::DownloadBuilder::new(self, url, output)
+    }
+
     /// Creates a new YouTube fetcher with the given yt-dlp executable, ffmpeg executable and video URL.
     /// The output directory can be void if you only want to fetch the video information.
     ///
@@ -107,7 +198,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let libraries_dir = PathBuf::from("libs");
@@ -121,22 +212,22 @@ impl Youtube {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(
+    pub async fn new(
         libraries: Libraries,
         output_dir: impl AsRef<Path> + std::fmt::Debug,
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Creating a new video fetcher");
 
-        file_system::create_parent_dir(&output_dir)?;
+        fs::create_parent_dir(&output_dir)?;
 
         // Initialize cache in the output directory
         let cache_dir = output_dir.as_ref().join("cache");
-        file_system::create_parent_dir(&cache_dir)?;
+        fs::create_parent_dir(&cache_dir)?;
         #[cfg(feature = "cache")]
-        let cache = VideoCache::new(cache_dir.clone(), None)?;
+        let cache = VideoCache::new(cache_dir.clone(), None).await?;
         #[cfg(feature = "cache")]
-        let download_cache = DownloadCache::new(cache_dir, None)?;
+        let download_cache = DownloadCache::new(cache_dir, None).await?;
 
         // Initialize download manager with default configuration
         let download_manager = DownloadManager::new();
@@ -151,6 +242,7 @@ impl Youtube {
             #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
             download_manager: Arc::new(download_manager),
+            cancellation_token: tokio_util::sync::CancellationToken::new(),
         })
     }
 
@@ -165,7 +257,7 @@ impl Youtube {
     /// # Errors
     ///
     /// This function will return an error if the parent directories of the executables and output directory could not be created.
-    pub fn with_download_manager_config(
+    pub async fn with_download_manager_config(
         libraries: Libraries,
         output_dir: impl AsRef<Path> + std::fmt::Debug,
         download_manager_config: ManagerConfig,
@@ -173,15 +265,15 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Creating a new video fetcher with custom download manager config");
 
-        file_system::create_parent_dir(&output_dir)?;
+        fs::create_parent_dir(&output_dir)?;
 
         // Initialize cache in the output directory
         let cache_dir = output_dir.as_ref().join("cache");
-        file_system::create_parent_dir(&cache_dir)?;
+        fs::create_parent_dir(&cache_dir)?;
         #[cfg(feature = "cache")]
-        let cache = VideoCache::new(cache_dir.clone(), None)?;
+        let cache = VideoCache::new(cache_dir.clone(), None).await?;
         #[cfg(feature = "cache")]
-        let download_cache = DownloadCache::new(cache_dir, None)?;
+        let download_cache = DownloadCache::new(cache_dir, None).await?;
 
         // Initialize download manager with custom configuration
         let download_manager = DownloadManager::with_config(download_manager_config);
@@ -196,6 +288,7 @@ impl Youtube {
             #[cfg(feature = "cache")]
             download_cache: Some(Arc::new(download_cache)),
             download_manager: Arc::new(download_manager),
+            cancellation_token: tokio_util::sync::CancellationToken::new(),
         })
     }
 
@@ -256,7 +349,7 @@ impl Youtube {
         };
 
         let libraries = Libraries::new(youtube, ffmpeg);
-        Self::new(libraries, output_dir)
+        Self::new(libraries, output_dir).await
     }
 
     /// Sets the arguments to pass to yt-dlp.
@@ -270,7 +363,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -301,7 +394,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # use std::time::Duration;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -333,7 +426,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -364,7 +457,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -412,7 +505,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -474,15 +567,15 @@ impl Youtube {
         let audio = audio_path
             .as_ref()
             .to_str()
-            .ok_or(Error::Path("Invalid audio path".to_string()))?;
+            .ok_or(Error::Unknown("Invalid audio path".to_string()))?;
         let video = video_path
             .as_ref()
             .to_str()
-            .ok_or(Error::Path("Invalid video path".to_string()))?;
+            .ok_or(Error::Unknown("Invalid video path".to_string()))?;
         let output = output_path
             .as_ref()
             .to_str()
-            .ok_or(Error::Path("Invalid output path".to_string()))?;
+            .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
         let args = vec![
             "-i", audio, "-i", video, "-c:v", "copy", "-c:a", "aac", output,
@@ -519,24 +612,38 @@ impl Youtube {
                 if #[cfg(feature = "cache")] {
                     let video_format = self.find_cached_format(video_path.as_ref()).await;
                     let audio_format = self.find_cached_format(audio_path.as_ref()).await;
+
+                    // Add metadata to the combined file with full format information
+                    if let Err(e) = metadata::MetadataManager::add_metadata_with_format(
+                        output_path.as_ref(),
+                        &video,
+                        video_format.as_ref(),
+                        audio_format.as_ref(),
+                    )
+                    .await
+                    {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("Failed to add metadata to combined file: {}", e);
+                    } else {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!("Successfully added metadata to combined file");
+                    }
                 } else {
-                    let video_format: Option<model::format::Format> = None;
-                    let audio_format: Option<model::format::Format> = None;
+                    // Without cache, we don't have format details, add basic metadata only
+                    if let Err(e) = metadata::MetadataManager::add_metadata(
+                        output_path.as_ref(),
+                        &video,
+                    )
+                    .await
+                    {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("Failed to add basic metadata to combined file: {}", e);
+                    } else {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!("Successfully added basic metadata to combined file");
+                    }
                 }
             }
-
-            // Add metadata, log error on failure, then propagate
-            crate::metadata::MetadataManager::add_metadata_with_format(
-                output_path.as_ref(),
-                &video,
-                video_format.as_ref(),
-                audio_format.as_ref(),
-            )
-            .await
-            .inspect_err(|_e| {
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to add metadata to combined file: {}", _e);
-            })?;
         }
 
         Ok(())
@@ -550,12 +657,12 @@ impl Youtube {
     ) -> Option<String> {
         let video_filename = video_path.as_ref().file_name()?.to_str()?;
 
-        if let Some(id) = utils::file_system::extract_video_id(video_filename) {
+        if let Some(id) = utils::fs::extract_video_id(video_filename) {
             return Some(id);
         }
 
         let audio_filename = audio_path.as_ref().file_name()?.to_str()?;
-        utils::file_system::extract_video_id(audio_filename)
+        utils::fs::extract_video_id(audio_filename)
     }
 
     /// Finds the format of a file in the cache if it exists
@@ -570,9 +677,9 @@ impl Youtube {
                 Err(_) => return None,
             };
 
-            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash)
-                && let Some(format_json) = cached_file.format_json
-                && let Ok(format) = serde_json::from_str(&format_json)
+            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash).await
+                && let Some(ref format_json) = cached_file.format_json
+                && let Ok(format) = serde_json::from_str(format_json)
             {
                 return Some(format);
             }
@@ -597,7 +704,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -613,7 +720,7 @@ impl Youtube {
     /// # }
     /// ```
     #[cfg(feature = "cache")]
-    pub fn with_cache(
+    pub async fn with_cache(
         &mut self,
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
         ttl: Option<u64>,
@@ -621,7 +728,7 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Enabling video metadata cache");
 
-        let cache = VideoCache::new(cache_dir.as_ref(), ttl)?;
+        let cache = VideoCache::new(cache_dir.as_ref(), ttl).await?;
         self.cache = Some(Arc::new(cache));
         Ok(self)
     }
@@ -642,7 +749,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -658,7 +765,7 @@ impl Youtube {
     /// # }
     /// ```
     #[cfg(feature = "cache")]
-    pub fn with_download_cache(
+    pub async fn with_download_cache(
         &mut self,
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
         ttl: Option<u64>,
@@ -666,7 +773,7 @@ impl Youtube {
         #[cfg(feature = "tracing")]
         tracing::debug!("Enabling downloaded files cache");
 
-        let download_cache = DownloadCache::new(cache_dir.as_ref(), ttl)?;
+        let download_cache = DownloadCache::new(cache_dir.as_ref(), ttl).await?;
         self.download_cache = Some(Arc::new(download_cache));
         Ok(self)
     }
@@ -693,7 +800,7 @@ impl Youtube {
         &self,
         video: &model::Video,
         output: impl AsRef<str> + std::fmt::Debug,
-        priority: Option<fetcher::download_manager::DownloadPriority>,
+        priority: Option<download::manager::DownloadPriority>,
     ) -> Result<u64> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video with priority: {}", video.id);
@@ -703,14 +810,21 @@ impl Youtube {
             .formats
             .iter()
             .find(|f| f.format_type().is_audio_and_video())
-            .ok_or_else(|| Error::MissingFormat("audio+video".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio+video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Get the URL
         let url = format
             .download_info
             .url
             .as_ref()
-            .ok_or_else(|| Error::MissingUrl(format.format_id.clone()))?;
+            .ok_or_else(|| Error::FormatNoUrl {
+                video_id: video.id.clone(),
+                format_id: format.format_id.clone(),
+            })?;
 
         // Create the output path
         let output_path = self.output_dir.join(output.as_ref());
@@ -758,14 +872,21 @@ impl Youtube {
             .formats
             .iter()
             .find(|f| f.format_type().is_audio_and_video())
-            .ok_or_else(|| Error::MissingFormat("audio+video".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio+video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Get the URL
         let url = format
             .download_info
             .url
             .as_ref()
-            .ok_or_else(|| Error::MissingUrl(format.format_id.clone()))?;
+            .ok_or_else(|| Error::FormatNoUrl {
+                video_id: video.id.clone(),
+                format_id: format.format_id.clone(),
+            })?;
 
         // Create the output path
         let output_path = self.output_dir.join(output.as_ref());
@@ -776,7 +897,7 @@ impl Youtube {
             .enqueue_with_progress(
                 url,
                 output_path,
-                Some(fetcher::download_manager::DownloadPriority::Normal),
+                Some(download::manager::DownloadPriority::Normal),
                 progress_callback,
             )
             .await;
@@ -796,7 +917,7 @@ impl Youtube {
     pub async fn get_download_status(
         &self,
         download_id: u64,
-    ) -> Option<fetcher::download_manager::DownloadStatus> {
+    ) -> Option<download::manager::DownloadStatus> {
         self.download_manager.get_status(download_id).await
     }
 
@@ -825,7 +946,7 @@ impl Youtube {
     pub async fn wait_for_download(
         &self,
         download_id: u64,
-    ) -> Option<fetcher::download_manager::DownloadStatus> {
+    ) -> Option<download::manager::DownloadStatus> {
         self.download_manager.wait_for_completion(download_id).await
     }
 
@@ -849,7 +970,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -877,28 +998,36 @@ impl Youtube {
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
         output: impl AsRef<str> + std::fmt::Debug + Display,
-        video_quality: model::format_selector::VideoQuality,
-        video_codec: model::format_selector::VideoCodecPreference,
-        audio_quality: model::format_selector::AudioQuality,
-        audio_codec: model::format_selector::AudioCodecPreference,
+        video_quality: model::selector::VideoQuality,
+        video_codec: model::selector::VideoCodecPreference,
+        audio_quality: model::selector::AudioQuality,
+        audio_codec: model::selector::AudioCodecPreference,
     ) -> Result<PathBuf> {
         let video = self.fetch_video_infos(url.to_string()).await?;
 
         // Select video format based on quality and codec preferences
         let video_format = video
             .select_video_format(video_quality, video_codec.clone())
-            .ok_or_else(|| Error::MissingFormat("video".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Select audio format based on quality and codec preferences
         let audio_format = video
             .select_audio_format(audio_quality, audio_codec.clone())
-            .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Download video format with preferences
         let video_ext = format!("{:?}", video_format.download_info.ext);
         let video_filename = format!(
             "temp_video_{}.{}",
-            utils::file_system::random_filename(8),
+            utils::fs::random_filename(8),
             video_ext
         );
 
@@ -925,7 +1054,7 @@ impl Youtube {
         let audio_ext = format!("{:?}", audio_format.download_info.ext);
         let audio_filename = format!(
             "temp_audio_{}.{}",
-            utils::file_system::random_filename(8),
+            utils::fs::random_filename(8),
             audio_ext
         );
         cfg_if::cfg_if! {
@@ -984,7 +1113,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1010,15 +1139,19 @@ impl Youtube {
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
         output: impl AsRef<str> + std::fmt::Debug + Display,
-        quality: model::format_selector::VideoQuality,
-        codec: model::format_selector::VideoCodecPreference,
+        quality: model::selector::VideoQuality,
+        codec: model::selector::VideoCodecPreference,
     ) -> Result<PathBuf> {
         let video = self.fetch_video_infos(url.to_string()).await?;
 
         // Select video format based on quality and codec preferences
         let video_format = video
             .select_video_format(quality, codec.clone())
-            .ok_or_else(|| Error::MissingFormat("video".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Download video format with preferences
         cfg_if::cfg_if! {
@@ -1057,7 +1190,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # use yt_dlp::model::{AudioQuality, AudioCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1083,15 +1216,19 @@ impl Youtube {
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
         output: impl AsRef<str> + std::fmt::Debug + Display,
-        quality: model::format_selector::AudioQuality,
-        codec: model::format_selector::AudioCodecPreference,
+        quality: model::selector::AudioQuality,
+        codec: model::selector::AudioCodecPreference,
     ) -> Result<PathBuf> {
         let video = self.fetch_video_infos(url.to_string()).await?;
 
         // Select audio format based on quality and codec preferences
         let audio_format = video
             .select_audio_format(quality, codec.clone())
-            .ok_or_else(|| Error::MissingFormat("audio".to_string()))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Download audio format with preferences
         cfg_if::cfg_if! {
@@ -1110,5 +1247,153 @@ impl Youtube {
                     .await
             }
         }
+    }
+
+    /// Initiates a graceful shutdown of all ongoing operations.
+    ///
+    /// This method triggers the cancellation token, signaling all ongoing
+    /// downloads and operations to stop gracefully. It does not wait for
+    /// operations to complete.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new(PathBuf::from("yt-dlp"), PathBuf::from("ffmpeg"));
+    /// let youtube = Youtube::new(libs, "output").await?;
+    ///
+    /// // Start some downloads...
+    ///
+    /// // Initiate graceful shutdown
+    /// youtube.shutdown();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn shutdown(&self) {
+        #[cfg(feature = "tracing")]
+        tracing::info!("Initiating graceful shutdown");
+
+        self.cancellation_token.cancel();
+    }
+
+    /// Checks if a shutdown has been requested.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if shutdown has been initiated, `false` otherwise.
+    pub fn is_shutdown_requested(&self) -> bool {
+        self.cancellation_token.is_cancelled()
+    }
+
+    // ==================== Fluent API Methods ====================
+
+    /// Fluent method to fetch video info and return self for chaining.
+    ///
+    /// This is useful for building operation pipelines.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The YouTube video URL
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (self, video) for method chaining
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// let (youtube, video) = Youtube::builder(libs, "output")
+    ///     .build()
+    ///     .await?
+    ///     .fetch("https://youtube.com/watch?v=dQw4w9WgXcQ")
+    ///     .await?;
+    ///
+    /// println!("Title: {}", video.title);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fetch(self, url: impl Into<String>) -> Result<(Self, model::Video)> {
+        let video = self.fetch_video_infos(url.into()).await?;
+        Ok((self, video))
+    }
+
+    /// Fluent method to download a video and return self for chaining.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download
+    /// * `output` - The output filename
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// let youtube = Youtube::builder(libs, "output")
+    ///     .build()
+    ///     .await?
+    ///     .fetch("https://youtube.com/watch?v=dQw4w9WgXcQ")
+    ///     .await?
+    ///     .0
+    ///     .download_and_continue(&video, "output.mp4")
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_and_continue(
+        self,
+        video: &model::Video,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+    ) -> Result<Self> {
+        self.download_video(video, output).await?;
+        Ok(self)
+    }
+
+    /// Chain multiple operations in a pipeline.
+    ///
+    /// This method allows you to chain fetch -> download -> metadata operations.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// Youtube::builder(libs, "output")
+    ///     .build()
+    ///     .await?
+    ///     .pipeline("https://youtube.com/watch?v=dQw4w9WgXcQ", |yt, video| async move {
+    ///         yt.download_video(&video, "video.mp4").await?;
+    ///         Ok(yt)
+    ///     })
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn pipeline<F, Fut>(
+        self,
+        url: impl Into<String>,
+        operation: F,
+    ) -> Result<Self>
+    where
+        F: FnOnce(Self, model::Video) -> Fut,
+        Fut: std::future::Future<Output = Result<Self>>,
+    {
+        let video = self.fetch_video_infos(url.into()).await?;
+        operation(self, video).await
     }
 }

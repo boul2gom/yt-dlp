@@ -1,8 +1,8 @@
 //! Fetch the latest release of 'ffmpeg' from static builds.
 
 use crate::error::{Error, Result};
-use crate::fetcher::deps::{Asset, WantedRelease};
-use crate::utils::file_system;
+use crate::client::deps::{Asset, WantedRelease};
+use crate::utils::fs;
 use crate::utils::platform::{Architecture, Platform};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -109,7 +109,11 @@ impl BuildFetcher {
 
         let asset = self
             .select_asset(&platform, &architecture)
-            .ok_or(Error::Binary(platform, architecture))?;
+            .ok_or(Error::NoBinaryRelease {
+                binary: "ffmpeg".to_string(),
+                platform,
+                architecture,
+            })?;
 
         Ok(WantedRelease {
             url: asset.download_url.clone(),
@@ -287,7 +291,11 @@ impl BuildFetcher {
 
         let extraction_info = self
             .get_extraction_info(&platform, &architecture)
-            .ok_or(Error::Binary(platform.clone(), architecture.clone()))?;
+            .ok_or(Error::NoBinaryRelease {
+                binary: "ffmpeg".to_string(),
+                platform: platform.clone(),
+                architecture: architecture.clone(),
+            })?;
 
         self.extract_archive(archive_path, destination, extraction_info, platform)
             .await
@@ -304,16 +312,20 @@ impl BuildFetcher {
         // Extract the archive based on platform
         match platform {
             Platform::Windows | Platform::Mac => {
-                file_system::extract_zip(&archive, &destination).await?;
+                fs::extract_zip(&archive, &destination).await?;
             }
             Platform::Linux => {
-                file_system::extract_tar_xz(&archive, &destination).await?;
+                fs::extract_tar_xz(&archive, &destination).await?;
             }
-            _ => return Err(Error::Binary(platform.clone(), Architecture::detect())),
+            _ => return Err(Error::NoBinaryRelease {
+                binary: "ffmpeg".to_string(),
+                platform: platform.clone(),
+                architecture: Architecture::detect(),
+            }),
         }
 
         // Get the parent directory of the destination
-        let parent = file_system::try_parent(&destination)?;
+        let parent = fs::try_parent(&destination)?;
 
         // Construct paths
         let binary_name = format!(
@@ -347,7 +359,7 @@ impl BuildFetcher {
 
         // Set executable permissions on Unix platforms
         if matches!(platform, Platform::Mac | Platform::Linux) {
-            file_system::set_executable(binary.clone())?;
+            fs::set_executable(binary.clone())?;
         }
 
         Ok(binary)

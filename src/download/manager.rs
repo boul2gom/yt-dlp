@@ -7,13 +7,15 @@
 //! - Optimizing memory usage
 
 use crate::error::Result;
-use crate::fetcher::Fetcher;
+use crate::download::fetcher::Fetcher;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::{Stream, StreamExt};
 
 // Download manager default configuration constants
 const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 3;
@@ -21,7 +23,6 @@ const DEFAULT_SEGMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
 const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
 const DEFAULT_RETRY_ATTEMPTS: usize = 3;
 const DEFAULT_MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-const WAIT_FOR_COMPLETION_POLL_MS: u64 = 100;
 
 /// Download priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,17 @@ impl Default for ManagerConfig {
     }
 }
 
+/// Progress update event for streaming API
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressUpdate {
+    /// Download ID
+    pub download_id: u64,
+    /// Downloaded bytes
+    pub downloaded_bytes: u64,
+    /// Total bytes
+    pub total_bytes: u64,
+}
+
 /// Download status
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadStatus {
@@ -179,6 +191,10 @@ pub struct DownloadManager {
     tasks: Arc<Mutex<HashMap<u64, JoinHandle<Result<()>>>>>,
     /// Cancelled task IDs
     cancelled: Arc<Mutex<HashSet<u64>>>,
+    /// Broadcast channel for status updates (event-driven completion notifications)
+    completion_tx: broadcast::Sender<(u64, DownloadStatus)>,
+    /// Broadcast channel for progress updates (stream-based progress API)
+    progress_tx: broadcast::Sender<ProgressUpdate>,
 }
 
 impl std::fmt::Debug for DownloadManager {
@@ -207,6 +223,9 @@ impl DownloadManager {
 
     /// Create a new download manager with custom configuration
     pub fn with_config(config: ManagerConfig) -> Self {
+        let (completion_tx, _) = broadcast::channel(100);
+        let (progress_tx, _) = broadcast::channel(1000); // Larger buffer for frequent progress updates
+
         Self {
             config: config.clone(),
             queue: Arc::new(Mutex::new(BinaryHeap::new())),
@@ -215,6 +234,8 @@ impl DownloadManager {
             statuses: Arc::new(Mutex::new(HashMap::new())),
             tasks: Arc::new(Mutex::new(HashMap::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
+            completion_tx,
+            progress_tx,
         }
     }
 
@@ -425,7 +446,7 @@ impl DownloadManager {
         true
     }
 
-    /// Wait for a download to complete
+    /// Wait for a download to complete using event-driven notifications (no polling).
     ///
     /// # Arguments
     ///
@@ -435,24 +456,110 @@ impl DownloadManager {
     ///
     /// The final download status, or None if the ID doesn't exist
     pub async fn wait_for_completion(&self, id: u64) -> Option<DownloadStatus> {
-        loop {
-            let status = self.get_status(id).await?;
-
+        // First check if the download already completed
+        if let Some(status) = self.get_status(id).await {
             match status {
                 DownloadStatus::Completed
                 | DownloadStatus::Failed { .. }
                 | DownloadStatus::Canceled => {
                     return Some(status);
                 }
-                _ => {
-                    // Wait a little before checking again
-                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                        WAIT_FOR_COMPLETION_POLL_MS,
-                    ))
-                    .await;
-                }
+                _ => {}
             }
         }
+
+        // Subscribe to completion events
+        let mut rx = self.completion_tx.subscribe();
+
+        // Wait for the completion event for this specific download
+        loop {
+            match rx.recv().await {
+                Ok((download_id, status)) if download_id == id => {
+                    match status {
+                        DownloadStatus::Completed
+                        | DownloadStatus::Failed { .. }
+                        | DownloadStatus::Canceled => {
+                            return Some(status);
+                        }
+                        _ => continue,
+                    }
+                }
+                Ok(_) => continue, // Event for a different download
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    // Channel lagged, check current status
+                    if let Some(status) = self.get_status(id).await {
+                        match status {
+                            DownloadStatus::Completed
+                            | DownloadStatus::Failed { .. }
+                            | DownloadStatus::Canceled => {
+                                return Some(status);
+                            }
+                            _ => continue,
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                Err(_) => return None, // Channel closed
+            }
+        }
+    }
+
+    /// Subscribe to progress updates for a specific download as a stream.
+    ///
+    /// This provides a stream-based API for tracking download progress in real-time.
+    /// The stream will emit `ProgressUpdate` events as the download progresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the download to track
+    ///
+    /// # Returns
+    ///
+    /// A stream of `ProgressUpdate` events filtered for the specified download ID
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tokio_stream::StreamExt;
+    ///
+    /// let download_id = manager.enqueue("https://example.com/file", "output", None).await;
+    /// let mut progress_stream = manager.progress_stream(download_id);
+    ///
+    /// while let Some(update) = progress_stream.next().await {
+    ///     println!("Downloaded: {}/{} bytes ({:.1}%)",
+    ///         update.downloaded_bytes,
+    ///         update.total_bytes,
+    ///         (update.downloaded_bytes as f64 / update.total_bytes as f64) * 100.0
+    ///     );
+    /// }
+    /// ```
+    pub fn progress_stream(
+        &self,
+        id: u64,
+    ) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
+        let rx = self.progress_tx.subscribe();
+
+        // Create a stream that filters events for the specific download ID
+        BroadcastStream::new(rx).filter_map(move |result| {
+            match result {
+                Ok(update) if update.download_id == id => Some(update),
+                _ => None,
+            }
+        })
+    }
+
+    /// Subscribe to all progress updates as a stream.
+    ///
+    /// This provides a stream-based API for tracking all download progress in real-time.
+    ///
+    /// # Returns
+    ///
+    /// A stream of `ProgressUpdate` events for all downloads
+    pub fn progress_stream_all(&self) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
+        let rx = self.progress_tx.subscribe();
+
+        BroadcastStream::new(rx).filter_map(|result| result.ok())
     }
 
     /// Process the download queue
@@ -463,6 +570,8 @@ impl DownloadManager {
         let tasks_clone = self.tasks.clone();
         let config_clone = self.config.clone();
         let cancelled_clone = self.cancelled.clone();
+        let completion_tx_clone = self.completion_tx.clone();
+        let progress_tx_clone = self.progress_tx.clone();
 
         tokio::spawn(async move {
             loop {
@@ -517,10 +626,13 @@ impl DownloadManager {
                 // Add progress callback if available
                 let task_id = task.id;
                 let statuses_for_callback = statuses_clone.clone();
+                let progress_tx_for_callback = progress_tx_clone.clone();
 
                 if let Some(callback) = task.progress_callback {
                     fetcher = fetcher.with_progress_callback(move |downloaded, total| {
                         let statuses_for_callback = statuses_for_callback.clone();
+                        let progress_tx = progress_tx_for_callback.clone();
+
                         tokio::task::spawn_blocking(move || {
                             // Update status with progress
                             let mut statuses = statuses_for_callback.blocking_lock();
@@ -533,14 +645,25 @@ impl DownloadManager {
                             );
                         });
 
+                        // Emit progress event for stream-based API
+                        let _ = progress_tx.send(ProgressUpdate {
+                            download_id: task_id,
+                            downloaded_bytes: downloaded,
+                            total_bytes: total,
+                        });
+
                         // Call the original callback
                         callback(downloaded, total);
                     });
                 } else {
                     // Default callback that just updates the status
                     let statuses_for_callback = statuses_clone.clone();
+                    let progress_tx_for_callback = progress_tx_clone.clone();
+
                     fetcher = fetcher.with_progress_callback(move |downloaded, total| {
                         let statuses_for_callback = statuses_for_callback.clone();
+                        let progress_tx = progress_tx_for_callback.clone();
+
                         tokio::task::spawn_blocking(move || {
                             let mut statuses = statuses_for_callback.blocking_lock();
                             statuses.insert(
@@ -551,6 +674,13 @@ impl DownloadManager {
                                 },
                             );
                         });
+
+                        // Emit progress event for stream-based API
+                        let _ = progress_tx.send(ProgressUpdate {
+                            download_id: task_id,
+                            downloaded_bytes: downloaded,
+                            total_bytes: total,
+                        });
                     });
                 }
 
@@ -558,6 +688,7 @@ impl DownloadManager {
                 let destination = task.destination.clone();
                 let statuses_for_task = statuses_clone.clone();
                 let tasks_for_task = tasks_clone.clone();
+                let completion_tx_for_task = completion_tx_clone.clone();
 
                 let handle = tokio::spawn(async move {
                     // The permit will be released automatically when it is drop at the end of this closure
@@ -566,21 +697,21 @@ impl DownloadManager {
                     // Download the file
                     let result = fetcher.fetch_asset(&destination).await;
 
-                    // Update status based on result
-                    let mut statuses = statuses_for_task.lock().await;
-                    match &result {
-                        Ok(_) => {
-                            statuses.insert(task_id, DownloadStatus::Completed);
-                        }
-                        Err(e) => {
-                            statuses.insert(
-                                task_id,
-                                DownloadStatus::Failed {
-                                    reason: e.to_string(),
-                                },
-                            );
-                        }
+                    // Update status based on result and notify completion
+                    let final_status = match &result {
+                        Ok(_) => DownloadStatus::Completed,
+                        Err(e) => DownloadStatus::Failed {
+                            reason: e.to_string(),
+                        },
+                    };
+
+                    {
+                        let mut statuses = statuses_for_task.lock().await;
+                        statuses.insert(task_id, final_status.clone());
                     }
+
+                    // Notify completion via broadcast channel (event-driven, no polling needed)
+                    let _ = completion_tx_for_task.send((task_id, final_status));
 
                     // Remove the task from the list of tasks in progress
                     let mut tasks = tasks_for_task.lock().await;

@@ -1,10 +1,10 @@
 //! The fetchers for required dependencies.
 
 use crate::error::Result;
-use crate::fetcher::Fetcher;
-use crate::fetcher::deps::ffmpeg::BuildFetcher;
-use crate::fetcher::deps::youtube::GitHubFetcher;
-use crate::utils::file_system;
+use crate::download::Fetcher;
+use crate::client::deps::ffmpeg::BuildFetcher;
+use crate::client::deps::youtube::GitHubFetcher;
+use crate::utils::fs;
 use crate::{ternary, utils};
 use derive_more::Constructor;
 use serde::Deserialize;
@@ -86,7 +86,7 @@ impl LibraryInstaller {
             custom_name
         );
 
-        file_system::create_dir(self.destination.clone())?;
+        fs::create_dir(self.destination.clone())?;
 
         let fetcher = GitHubFetcher::new(owner, repo);
 
@@ -107,7 +107,7 @@ impl LibraryInstaller {
             custom_name
         );
 
-        file_system::create_dir(self.destination.clone())?;
+        fs::create_dir(self.destination.clone())?;
 
         let fetcher = BuildFetcher::new();
         let archive = self.destination.join("ffmpeg-release.zip");
@@ -144,7 +144,7 @@ impl Libraries {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing yt-dlp");
 
-        let parent = file_system::try_parent(self.youtube.clone())?;
+        let parent = fs::try_parent(self.youtube.clone())?;
         let installer = LibraryInstaller::new(parent);
 
         if self.youtube.exists() {
@@ -152,7 +152,7 @@ impl Libraries {
         }
 
         let name = utils::find_executable("yt-dlp");
-        let file_name = file_system::try_name(self.youtube.clone())?;
+        let file_name = fs::try_name(self.youtube.clone())?;
 
         let custom_name = ternary!(file_name == name, None, Some(file_name));
         installer.install_youtube(custom_name).await
@@ -163,7 +163,7 @@ impl Libraries {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing ffmpeg");
 
-        let parent = file_system::try_parent(self.ffmpeg.clone())?;
+        let parent = fs::try_parent(self.ffmpeg.clone())?;
         let installer = LibraryInstaller::new(parent);
 
         if self.ffmpeg.exists() {
@@ -171,7 +171,7 @@ impl Libraries {
         }
 
         let name = utils::find_executable("ffmpeg");
-        let file_name = file_system::try_name(self.ffmpeg.clone())?;
+        let file_name = fs::try_name(self.ffmpeg.clone())?;
 
         let custom_name = ternary!(file_name == name, None, Some(file_name));
         installer.install_ffmpeg(custom_name).await

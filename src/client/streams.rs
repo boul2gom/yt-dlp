@@ -2,11 +2,11 @@
 
 use crate::error::Error;
 use crate::executor::Executor;
-use crate::fetcher::Fetcher;
+use crate::download::Fetcher;
 use crate::model::Video;
 use crate::model::format::Format;
 #[cfg(feature = "cache")]
-use crate::model::format_selector::{
+use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
 use crate::{Youtube, utils};
@@ -30,7 +30,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -49,12 +49,11 @@ impl Youtube {
         // Check if the video is in the cache
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache
-            && let Some(video) = cache.get(&url)
-        {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Using cached video information for {}", url);
-            return Ok(video);
-        }
+            && let Some(video) = cache.get(&url).await? {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using cached video information for {}", url);
+                return Ok(video);
+            }
 
         // If the video is not in the cache, retrieve it from YouTube
         let download_args = vec!["--no-progress", "--dump-json", &url];
@@ -69,7 +68,7 @@ impl Youtube {
         };
 
         let output = executor.execute().await?;
-        let mut video: Video = serde_json::from_str(&output.stdout).map_err(Error::Serde)?;
+        let mut video: Video = serde_json::from_str(&output.stdout).map_err(|e| Error::Json { context: "Failed to parse video metadata".to_string(), source: e })?;
 
         // Set the video ID on each format for caching purposes
         for format in &mut video.formats {
@@ -82,7 +81,7 @@ impl Youtube {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching video information for {}", url);
 
-            if let Err(_e) = cache.put(url.clone(), video.clone()) {
+            if let Err(_e) = cache.put(url.clone(), video.clone()).await {
                 #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache video information: {}", _e);
             }
@@ -108,7 +107,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -152,7 +151,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -188,7 +187,7 @@ impl Youtube {
         #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find the video in the cache by its ID
-            if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id) {
+            if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id).await {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
@@ -200,11 +199,11 @@ impl Youtube {
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::MissingFormat("video".to_string()))?;
+            .ok_or(Error::Unknown(format!("Missing format: {}", "video")))?;
 
         let best_audio = video
             .best_audio_format()
-            .ok_or(Error::MissingFormat("audio".to_string()))?;
+            .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
 
         // Create temporary names for audio and video files
         let audio_name = format!("temp_audio_{}.m4a", video.id);
@@ -270,7 +269,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -315,7 +314,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -342,7 +341,7 @@ impl Youtube {
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::MissingFormat("video".to_string()))?;
+            .ok_or(Error::Unknown(format!("Missing format: {}", "video")))?;
 
         self.download_format(best_video, output).await
     }
@@ -364,7 +363,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -408,7 +407,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -443,10 +442,10 @@ impl Youtube {
             // Try to find an audio format in the cache by video ID
             let best_audio = video
                 .best_audio_format()
-                .ok_or(Error::MissingFormat("audio".to_string()))?;
+                .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
 
             if let Some((_, cached_path)) =
-                download_cache.get_by_video_and_format(&video.id, &best_audio.format_id)
+                download_cache.get_by_video_and_format(&video.id, &best_audio.format_id).await
             {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
@@ -463,7 +462,7 @@ impl Youtube {
 
         let best_audio = video
             .best_audio_format()
-            .ok_or(Error::MissingFormat("audio".to_string()))?;
+            .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
 
         let temp_output = format!("temp_{}", output_str);
         let temp_path = self.download_format(best_audio, &temp_output).await?;
@@ -473,10 +472,10 @@ impl Youtube {
 
         let temp = temp_path
             .to_str()
-            .ok_or(Error::Path("Invalid temp path".to_string()))?;
+            .ok_or(Error::Unknown("Invalid temp path".to_string()))?;
         let output_str_path = output_path
             .to_str()
-            .ok_or(Error::Path("Invalid output path".to_string()))?;
+            .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
         let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path];
 
@@ -489,7 +488,7 @@ impl Youtube {
         executor.execute().await?;
 
         // Clean up temporary file (logs error internally if tracing is enabled)
-        let _ = utils::file_system::remove_temp_file(temp_path).await;
+        let _ = utils::fs::remove_temp_file(temp_path).await;
 
         // Cache the processed audio file
         #[cfg(feature = "cache")]
@@ -531,7 +530,7 @@ impl Youtube {
     /// ```rust, no_run
     /// # use yt_dlp::Youtube;
     /// # use std::path::PathBuf;
-    /// # use yt_dlp::fetcher::deps::Libraries;
+    /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -648,7 +647,7 @@ impl Youtube {
         {
             // First try to find by exact format ID
             if let Some((_, cached_path)) =
-                download_cache.get_by_video_and_format(video_id, &format.format_id)
+                download_cache.get_by_video_and_format(video_id, &format.format_id).await
             {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Using cached format by ID: {}", format.format_id);
@@ -666,15 +665,14 @@ impl Youtube {
                     audio_quality,
                     video_codec.clone(),
                     audio_codec.clone(),
-                )
-            {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Using cached format by preferences");
+                ).await {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached format by preferences");
 
-                // Copy the file from the cache to the output directory
-                tokio::fs::copy(&cached_path, path).await?;
-                return Ok(path.clone());
-            }
+                    // Copy the file from the cache to the output directory
+                    tokio::fs::copy(&cached_path, path).await?;
+                    return Ok(path.clone());
+                }
         }
 
         // Check if URL is available
@@ -682,7 +680,10 @@ impl Youtube {
             .download_info
             .url
             .clone()
-            .ok_or(Error::MissingUrl(format.format_id.clone()))?;
+            .ok_or_else(|| Error::FormatNoUrl {
+                video_id: format.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                format_id: format.format_id.clone(),
+            })?;
 
         // Create an optimized fetcher with parallel downloading
         let fetcher = Fetcher::new(&url)
@@ -752,27 +753,34 @@ impl Youtube {
 
         if is_standalone_format {
             if let Some(video_id) = format.video_id.as_ref() {
-                // Get the video metadata from the cache
-                if let Some(video) = self.get_video_by_id(video_id).await {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Adding metadata to standalone file with format preferences");
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Adding metadata to standalone format file");
 
-                    // Use the method with format information for richer metadata
-                    // Add metadata, log error on failure, then propagate
-                    crate::metadata::MetadataManager::add_metadata_with_format(
-                        path,
-                        &video,
-                        Some(format),
-                        None,
-                    )
-                    .await
-                    .inspect_err(|_e| {
-                        #[cfg(feature = "tracing")]
-                        tracing::warn!("Failed to add metadata to file: {}", _e);
-                    })?;
-                } else {
+                // Try to get video metadata from cache
+                #[cfg(feature = "cache")]
+                if let Some(cache) = &self.cache
+                    && let Ok(cached_video) = cache.get_by_id(video_id).await
+                        && let Ok(video) = cached_video.video() {
+                            // Add metadata with format information
+                            if let Err(e) =
+                                crate::metadata::MetadataManager::add_metadata_with_format(
+                                    path.as_ref(),
+                                    &video,
+                                    None,
+                                    Some(format),
+                                )
+                                .await
+                            {
+                                #[cfg(feature = "tracing")]
+                                tracing::warn!("Failed to add metadata: {}", e);
+                            }
+                        }
+
+                #[cfg(not(feature = "cache"))]
+                {
                     #[cfg(feature = "tracing")]
-                    tracing::warn!("Failed to get video metadata for ID: {}", video_id);
+                    tracing::debug!("Cache feature disabled, cannot retrieve video metadata");
+                    let _ = video_id; // Suppress unused warning
                 }
             }
         } else {
@@ -798,12 +806,12 @@ impl Youtube {
         // First check if the video is in the cache
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache
-            && let Ok(cached_video) = cache.get_by_id(video_id)
-        {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Using cached video data for ID: {}", video_id);
-            return Some(cached_video.video);
-        }
+            && let Ok(cached_video) = cache.get_by_id(video_id).await
+                && let Ok(video) = cached_video.video() {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Using cached video data for ID: {}", video_id);
+                    return Some(video);
+                }
 
         // If not in cache, try to fetch it using the ID-based URL
         #[cfg(feature = "tracing")]

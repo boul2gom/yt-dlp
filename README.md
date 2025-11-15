@@ -124,7 +124,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - 📦 Installing the [```yt-dlp```](https://github.com/yt-dlp/yt-dlp/) binary only:
 ```rust
-use yt_dlp::fetcher::deps::LibraryInstaller;
+use yt_dlp::client::deps::LibraryInstaller;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -139,7 +139,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - 📦 Installing the [```ffmpeg```](https://ffmpeg.org/) binary only:
 ```rust
-use yt_dlp::fetcher::deps::LibraryInstaller;
+use yt_dlp::client::deps::LibraryInstaller;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -156,7 +156,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -178,7 +178,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -197,11 +197,43 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+- ✨ Using the fluent API with custom quality preferences:
+```rust
+use yt_dlp::Youtube;
+use yt_dlp::model::selector::{VideoQuality, AudioQuality, VideoCodecPreference};
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+
+    let libraries = Libraries::new(youtube, ffmpeg);
+    let fetcher = Youtube::new(libraries, output_dir)?;
+
+    let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+    // Use the fluent download builder API
+    let video_path = fetcher.download(url, "my-video.mp4")
+        .video_quality(VideoQuality::Q1080p)
+        .video_codec(VideoCodecPreference::H264)
+        .audio_quality(AudioQuality::Best)
+        .execute()
+        .await?;
+
+    Ok(())
+}
+```
+
 - 🎬 Fetching a video (without its audio) and downloading it:
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -224,7 +256,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -247,7 +279,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -278,7 +310,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -309,7 +341,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -331,9 +363,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - 📥 Download with download manager and priority:
 ```rust
 use yt_dlp::Youtube;
-use yt_dlp::fetcher::download_manager::{ManagerConfig, DownloadPriority};
+use yt_dlp::download::manager::{ManagerConfig, DownloadPriority};
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -379,7 +411,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -420,7 +452,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use yt_dlp::Youtube;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -498,9 +530,9 @@ The library provides a powerful format selection system that allows you to downl
 
 ```rust
 use yt_dlp::Youtube;
-use yt_dlp::model::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
+use yt_dlp::model::selector::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::Libraries;
+use yt_dlp::client::deps::Libraries;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
