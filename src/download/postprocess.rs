@@ -221,10 +221,17 @@ impl FfmpegFilter {
             } => format!("crop={}:{}:{}:{}", width, height, x, y),
             Self::Rotate { angle } => {
                 let radians = (*angle as f64) * std::f64::consts::PI / 180.0;
-                format!("rotate={}:ow=rotw({}):oh=roth({})", radians, radians, radians)
+                format!(
+                    "rotate={}:ow=rotw({}):oh=roth({})",
+                    radians, radians, radians
+                )
             }
             Self::Watermark { path, position } => {
-                format!("movie={}[wm];[in][wm]overlay={}", path, position.to_ffmpeg_position())
+                format!(
+                    "movie={}[wm];[in][wm]overlay={}",
+                    path,
+                    position.to_ffmpeg_position()
+                )
             }
             Self::Brightness { value } => format!("eq=brightness={}", value),
             Self::Contrast { value } => format!("eq=contrast={}", value),

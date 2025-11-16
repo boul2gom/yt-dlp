@@ -93,10 +93,10 @@ impl Fetcher {
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
 
         // Add proxy if configured
-        if let Some(proxy_config) = proxy {
-            if let Ok(proxy) = proxy_config.to_reqwest_proxy() {
-                builder = builder.proxy(proxy);
-            }
+        if let Some(proxy_config) = proxy
+            && let Ok(proxy) = proxy_config.to_reqwest_proxy()
+        {
+            builder = builder.proxy(proxy);
         }
 
         let client = builder.build().expect("Failed to build HTTP client");

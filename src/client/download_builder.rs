@@ -3,8 +3,8 @@
 //! This module provides a builder pattern for configuring and executing downloads.
 
 use crate::client::Youtube;
-use crate::download::partial::PartialRange;
 use crate::download::DownloadPriority;
+use crate::download::partial::PartialRange;
 use crate::error::Result;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,

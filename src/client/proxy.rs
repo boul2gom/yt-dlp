@@ -205,10 +205,7 @@ mod tests {
             .with_auth("user", "pass");
         assert_eq!(proxy.username(), Some("user"));
         assert_eq!(proxy.password(), Some("pass"));
-        assert_eq!(
-            proxy.build_url(),
-            "http://user:pass@proxy.example.com:8080"
-        );
+        assert_eq!(proxy.build_url(), "http://user:pass@proxy.example.com:8080");
     }
 
     #[test]

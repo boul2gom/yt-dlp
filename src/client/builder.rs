@@ -163,8 +163,10 @@ impl YoutubeBuilder {
             config.proxy = self.proxy.clone();
             Arc::new(DownloadManager::with_config(config))
         } else {
-            let mut config = ManagerConfig::default();
-            config.proxy = self.proxy.clone();
+            let config = ManagerConfig {
+                proxy: self.proxy.clone(),
+                ..Default::default()
+            };
             Arc::new(DownloadManager::with_config(config))
         };
 

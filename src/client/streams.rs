@@ -1711,7 +1711,10 @@ impl Youtube {
             }
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::warn!("yt-dlp partial download failed: {}, trying ffmpeg fallback", _e);
+                tracing::warn!(
+                    "yt-dlp partial download failed: {}, trying ffmpeg fallback",
+                    _e
+                );
 
                 // Fallback to ffmpeg approach
                 self.download_partial_ffmpeg(video, &time_range, &output_path)
@@ -1725,14 +1728,12 @@ impl Youtube {
         &self,
         video: &crate::model::Video,
         range: &crate::download::partial::PartialRange,
-        output_path: &PathBuf,
+        output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
-        let output_str = output_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: output_path.clone(),
-                reason: "Invalid UTF-8 in path".to_string(),
-            })?;
+        let output_str = output_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: output_path.to_path_buf(),
+            reason: "Invalid UTF-8 in path".to_string(),
+        })?;
 
         let download_sections_arg = range.to_ytdlp_arg();
         let video_url = format!("https://www.youtube.com/watch?v={}", video.id);
@@ -1756,7 +1757,7 @@ impl Youtube {
         };
 
         executor.execute().await?;
-        Ok(output_path.clone())
+        Ok(output_path.to_path_buf())
     }
 
     /// Downloads full video and extracts partial range using ffmpeg.
@@ -1764,7 +1765,7 @@ impl Youtube {
         &self,
         video: &crate::model::Video,
         range: &crate::download::partial::PartialRange,
-        output_path: &PathBuf,
+        output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
         // Get time range
         let (start_time, end_time) = range
@@ -1776,19 +1777,15 @@ impl Youtube {
         let temp_path = self.download_video(video, &temp_filename).await?;
 
         // Extract segment using ffmpeg
-        let output_str = output_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: output_path.clone(),
-                reason: "Invalid UTF-8 in path".to_string(),
-            })?;
+        let output_str = output_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: output_path.to_path_buf(),
+            reason: "Invalid UTF-8 in path".to_string(),
+        })?;
 
-        let temp_str = temp_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: temp_path.clone(),
-                reason: "Invalid UTF-8 in path".to_string(),
-            })?;
+        let temp_str = temp_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: temp_path.clone(),
+            reason: "Invalid UTF-8 in path".to_string(),
+        })?;
 
         let start_str = format!("{:.3}", start_time);
         let duration = end_time - start_time;
@@ -1819,6 +1816,6 @@ impl Youtube {
         // Clean up temporary file
         tokio::fs::remove_file(&temp_path).await.ok();
 
-        Ok(output_path.clone())
+        Ok(output_path.to_path_buf())
     }
 }

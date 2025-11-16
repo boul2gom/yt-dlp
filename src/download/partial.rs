@@ -119,10 +119,7 @@ impl PartialRange {
     ///
     /// true if chapter metadata is needed, false otherwise
     pub fn needs_chapter_metadata(&self) -> bool {
-        matches!(
-            self,
-            Self::ChapterRange { .. } | Self::SingleChapter { .. }
-        )
+        matches!(self, Self::ChapterRange { .. } | Self::SingleChapter { .. })
     }
 
     /// Converts a chapter range to a time range using chapter metadata.
@@ -183,7 +180,12 @@ impl fmt::Display for PartialRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TimeRange { start, end } => {
-                write!(f, "TimeRange({} - {})", format_time(*start), format_time(*end))
+                write!(
+                    f,
+                    "TimeRange({} - {})",
+                    format_time(*start),
+                    format_time(*end)
+                )
             }
             Self::ChapterRange { start, end } => {
                 write!(f, "ChapterRange({} - {})", start, end)
@@ -231,10 +233,7 @@ mod tests {
     #[test]
     fn test_chapter_range() {
         let range = PartialRange::chapter_range(2, 5);
-        assert_eq!(
-            range,
-            PartialRange::ChapterRange { start: 2, end: 5 }
-        );
+        assert_eq!(range, PartialRange::ChapterRange { start: 2, end: 5 });
         assert!(range.needs_chapter_metadata());
     }
 
@@ -255,10 +254,7 @@ mod tests {
     #[test]
     fn test_ytdlp_arg() {
         let time_range = PartialRange::time_range(90.0, 300.0);
-        assert_eq!(
-            time_range.to_ytdlp_arg(),
-            "*00:01:30.000-00:05:00.000"
-        );
+        assert_eq!(time_range.to_ytdlp_arg(), "*00:01:30.000-00:05:00.000");
 
         let chapter_range = PartialRange::chapter_range(2, 5);
         assert_eq!(chapter_range.to_ytdlp_arg(), "chapters:2-5");
