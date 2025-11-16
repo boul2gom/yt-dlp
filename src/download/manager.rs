@@ -6,6 +6,7 @@
 //! - Resuming interrupted downloads
 //! - Optimizing memory usage
 
+use crate::client::proxy::ProxyConfig;
 use crate::download::fetcher::Fetcher;
 use crate::error::Result;
 use std::cmp::Ordering;
@@ -127,6 +128,8 @@ pub struct ManagerConfig {
     pub retry_attempts: usize,
     /// Maximum buffer size per download (in bytes)
     pub max_buffer_size: usize,
+    /// Optional proxy configuration
+    pub proxy: Option<ProxyConfig>,
 }
 
 impl Default for ManagerConfig {
@@ -137,6 +140,7 @@ impl Default for ManagerConfig {
             parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
             retry_attempts: DEFAULT_RETRY_ATTEMPTS,
             max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
+            proxy: None,
         }
     }
 }
@@ -611,7 +615,7 @@ impl DownloadManager {
                 }
 
                 // Create a fetcher for this task
-                let mut fetcher = Fetcher::new(&task.url)
+                let mut fetcher = Fetcher::new(&task.url, config_clone.proxy.as_ref())
                     .with_segment_size(config_clone.segment_size)
                     .with_parallel_segments(config_clone.parallel_segments)
                     .with_retry_attempts(config_clone.retry_attempts);

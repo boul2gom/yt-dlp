@@ -1,0 +1,269 @@
+//! Partial download support for downloading specific portions of videos.
+//!
+//! This module provides functionality to download only specific parts of a video,
+//! either by time range or by chapter index.
+
+use std::fmt;
+
+/// Represents a range specification for partial downloads.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use yt_dlp::download::partial::PartialRange;
+///
+/// // Download from 1:30 to 5:00
+/// let time_range = PartialRange::TimeRange {
+///     start: 90.0,
+///     end: 300.0,
+/// };
+///
+/// // Download chapters 2 through 5
+/// let chapter_range = PartialRange::ChapterRange {
+///     start: 2,
+///     end: 5,
+/// };
+///
+/// // Download only chapter 3
+/// let single_chapter = PartialRange::SingleChapter { index: 3 };
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub enum PartialRange {
+    /// Download a specific time range (in seconds)
+    TimeRange {
+        /// Start time in seconds
+        start: f64,
+        /// End time in seconds
+        end: f64,
+    },
+    /// Download a range of chapters
+    ChapterRange {
+        /// First chapter index (0-based)
+        start: usize,
+        /// Last chapter index (0-based, inclusive)
+        end: usize,
+    },
+    /// Download a single chapter
+    SingleChapter {
+        /// Chapter index (0-based)
+        index: usize,
+    },
+}
+
+impl PartialRange {
+    /// Creates a time range for partial download.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - Start time in seconds
+    /// * `end` - End time in seconds
+    ///
+    /// # Returns
+    ///
+    /// A PartialRange instance representing the time range
+    pub fn time_range(start: f64, end: f64) -> Self {
+        Self::TimeRange { start, end }
+    }
+
+    /// Creates a chapter range for partial download.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - First chapter index (0-based)
+    /// * `end` - Last chapter index (0-based, inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A PartialRange instance representing the chapter range
+    pub fn chapter_range(start: usize, end: usize) -> Self {
+        Self::ChapterRange { start, end }
+    }
+
+    /// Creates a single chapter for partial download.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Chapter index (0-based)
+    ///
+    /// # Returns
+    ///
+    /// A PartialRange instance representing a single chapter
+    pub fn single_chapter(index: usize) -> Self {
+        Self::SingleChapter { index }
+    }
+
+    /// Converts this range to yt-dlp's --download-sections format.
+    ///
+    /// # Returns
+    ///
+    /// A string in yt-dlp format (e.g., "*00:01:30-00:05:00")
+    pub fn to_ytdlp_arg(&self) -> String {
+        match self {
+            Self::TimeRange { start, end } => {
+                format!("*{}-{}", format_time(*start), format_time(*end))
+            }
+            Self::ChapterRange { start, end } => {
+                // For chapter ranges, we'll need to convert to time ranges
+                // This will be done at runtime with actual chapter data
+                format!("chapters:{}-{}", start, end)
+            }
+            Self::SingleChapter { index } => {
+                format!("chapters:{}-{}", index, index)
+            }
+        }
+    }
+
+    /// Checks if this range needs chapter metadata to be resolved.
+    ///
+    /// # Returns
+    ///
+    /// true if chapter metadata is needed, false otherwise
+    pub fn needs_chapter_metadata(&self) -> bool {
+        matches!(
+            self,
+            Self::ChapterRange { .. } | Self::SingleChapter { .. }
+        )
+    }
+
+    /// Converts a chapter range to a time range using chapter metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `chapters` - List of chapters with start_time and end_time
+    ///
+    /// # Returns
+    ///
+    /// A TimeRange variant if conversion is successful, or None if indices are out of bounds
+    ///
+    /// # Errors
+    ///
+    /// Returns None if chapter indices are out of bounds
+    pub fn to_time_range(&self, chapters: &[crate::model::chapter::Chapter]) -> Option<Self> {
+        match self {
+            Self::TimeRange { .. } => Some(self.clone()),
+            Self::ChapterRange { start, end } => {
+                if *end >= chapters.len() {
+                    return None;
+                }
+                let start_time = chapters[*start].start_time;
+                let end_time = chapters[*end].end_time;
+                Some(Self::TimeRange {
+                    start: start_time,
+                    end: end_time,
+                })
+            }
+            Self::SingleChapter { index } => {
+                if *index >= chapters.len() {
+                    return None;
+                }
+                let start_time = chapters[*index].start_time;
+                let end_time = chapters[*index].end_time;
+                Some(Self::TimeRange {
+                    start: start_time,
+                    end: end_time,
+                })
+            }
+        }
+    }
+
+    /// Gets the start and end times for this range.
+    ///
+    /// # Returns
+    ///
+    /// A tuple (start, end) in seconds, or None if chapter conversion is needed
+    pub fn get_times(&self) -> Option<(f64, f64)> {
+        match self {
+            Self::TimeRange { start, end } => Some((*start, *end)),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for PartialRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TimeRange { start, end } => {
+                write!(f, "TimeRange({} - {})", format_time(*start), format_time(*end))
+            }
+            Self::ChapterRange { start, end } => {
+                write!(f, "ChapterRange({} - {})", start, end)
+            }
+            Self::SingleChapter { index } => {
+                write!(f, "SingleChapter({})", index)
+            }
+        }
+    }
+}
+
+/// Formats a time in seconds to HH:MM:SS.mmm format.
+///
+/// # Arguments
+///
+/// * `seconds` - Time in seconds
+///
+/// # Returns
+///
+/// A formatted string in HH:MM:SS.mmm format
+fn format_time(seconds: f64) -> String {
+    let hours = (seconds / 3600.0) as u64;
+    let minutes = ((seconds % 3600.0) / 60.0) as u64;
+    let secs = seconds % 60.0;
+    format!("{:02}:{:02}:{:06.3}", hours, minutes, secs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_time_range() {
+        let range = PartialRange::time_range(90.0, 300.0);
+        assert_eq!(
+            range,
+            PartialRange::TimeRange {
+                start: 90.0,
+                end: 300.0
+            }
+        );
+        assert!(!range.needs_chapter_metadata());
+    }
+
+    #[test]
+    fn test_chapter_range() {
+        let range = PartialRange::chapter_range(2, 5);
+        assert_eq!(
+            range,
+            PartialRange::ChapterRange { start: 2, end: 5 }
+        );
+        assert!(range.needs_chapter_metadata());
+    }
+
+    #[test]
+    fn test_single_chapter() {
+        let range = PartialRange::single_chapter(3);
+        assert_eq!(range, PartialRange::SingleChapter { index: 3 });
+        assert!(range.needs_chapter_metadata());
+    }
+
+    #[test]
+    fn test_format_time() {
+        assert_eq!(format_time(90.0), "00:01:30.000");
+        assert_eq!(format_time(3661.5), "01:01:01.500");
+        assert_eq!(format_time(0.0), "00:00:00.000");
+    }
+
+    #[test]
+    fn test_ytdlp_arg() {
+        let time_range = PartialRange::time_range(90.0, 300.0);
+        assert_eq!(
+            time_range.to_ytdlp_arg(),
+            "*00:01:30.000-00:05:00.000"
+        );
+
+        let chapter_range = PartialRange::chapter_range(2, 5);
+        assert_eq!(chapter_range.to_ytdlp_arg(), "chapters:2-5");
+
+        let single = PartialRange::single_chapter(3);
+        assert_eq!(single.to_ytdlp_arg(), "chapters:3-3");
+    }
+}

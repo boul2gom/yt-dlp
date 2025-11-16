@@ -5,9 +5,16 @@
 
 pub mod fetcher;
 pub mod manager;
+pub mod partial;
+pub mod postprocess;
 pub mod progress;
 pub mod segment;
 
 pub use fetcher::Fetcher;
 pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
+pub use partial::PartialRange;
+pub use postprocess::{
+    AudioCodec, EncodingPreset, FfmpegFilter, PostProcessConfig, Resolution, VideoCodec,
+    WatermarkPosition,
+};
 pub use progress::ProgressTracker;

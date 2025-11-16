@@ -3,6 +3,7 @@
 //! This module provides a builder pattern for configuring and executing downloads.
 
 use crate::client::Youtube;
+use crate::download::partial::PartialRange;
 use crate::download::DownloadPriority;
 use crate::error::Result;
 use crate::model::selector::{
@@ -25,6 +26,7 @@ pub struct DownloadBuilder<'a> {
     audio_codec: Option<AudioCodecPreference>,
     priority: DownloadPriority,
     progress_callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
+    partial_range: Option<PartialRange>,
 }
 
 impl<'a> DownloadBuilder<'a> {
@@ -46,6 +48,7 @@ impl<'a> DownloadBuilder<'a> {
             audio_codec: None,
             priority: DownloadPriority::Normal,
             progress_callback: None,
+            partial_range: None,
         }
     }
 
@@ -88,6 +91,45 @@ impl<'a> DownloadBuilder<'a> {
     {
         self.progress_callback = Some(Box::new(callback));
         self
+    }
+
+    /// Sets a partial range for downloading only a portion of the video.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` - The partial range to download (time range or chapter range)
+    pub fn partial(mut self, range: PartialRange) -> Self {
+        self.partial_range = Some(range);
+        self
+    }
+
+    /// Helper method to set a time range for partial download.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - Start time in seconds
+    /// * `end` - End time in seconds
+    pub fn time_range(self, start: f64, end: f64) -> Self {
+        self.partial(PartialRange::time_range(start, end))
+    }
+
+    /// Helper method to download a single chapter.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Chapter index (0-based)
+    pub fn chapter(self, index: usize) -> Self {
+        self.partial(PartialRange::single_chapter(index))
+    }
+
+    /// Helper method to download a range of chapters.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - First chapter index (0-based)
+    /// * `end` - Last chapter index (0-based, inclusive)
+    pub fn chapters(self, start: usize, end: usize) -> Self {
+        self.partial(PartialRange::chapter_range(start, end))
     }
 
     /// Executes the download with the configured options.

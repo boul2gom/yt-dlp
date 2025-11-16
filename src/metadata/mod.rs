@@ -26,6 +26,7 @@ mod chapters;
 mod ffmpeg;
 mod mp3;
 mod mp4;
+pub mod postprocess;
 
 // Re-export the trait
 pub use base::BaseMetadata;

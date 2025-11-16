@@ -700,7 +700,7 @@ impl Youtube {
             })?;
 
         // Create an optimized fetcher with parallel downloading
-        let fetcher = Fetcher::new(&url)
+        let fetcher = Fetcher::new(&url, self.proxy.as_ref())
             .with_parallel_segments(8) // Use 8 parallel segments
             .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
             .with_retry_attempts(3); // 3 attempts in case of failure
@@ -955,7 +955,7 @@ impl Youtube {
         );
 
         // Download the subtitle file
-        let fetcher = Fetcher::new(&subtitle.url);
+        let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref());
         fetcher.fetch_asset(&output_path).await?;
 
         // Cache the downloaded subtitle
@@ -1034,7 +1034,7 @@ impl Youtube {
                     subtitle.url
                 );
 
-                let fetcher = Fetcher::new(&subtitle.url);
+                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref());
                 fetcher.fetch_asset(&output_path).await?;
                 downloaded_files.push(output_path);
             }
@@ -1655,5 +1655,170 @@ impl Youtube {
         }
 
         Ok(downloaded_files)
+    }
+
+    /// Downloads a partial range of a video using hybrid approach (yt-dlp with ffmpeg fallback).
+    ///
+    /// This method first attempts to use yt-dlp's --download-sections feature.
+    /// If that fails, it falls back to downloading the full video and extracting
+    /// the desired segment using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download
+    /// * `range` - The partial range to download (time or chapter based)
+    /// * `output` - The output filename
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if both yt-dlp and ffmpeg approaches fail
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded partial video file
+    pub async fn download_video_partial(
+        &self,
+        video: &crate::model::Video,
+        range: &crate::download::partial::PartialRange,
+        output: impl AsRef<str>,
+    ) -> crate::error::Result<PathBuf> {
+        // Convert chapter ranges to time ranges if needed
+        let time_range = if range.needs_chapter_metadata() {
+            if !video.chapters.is_empty() {
+                range
+                    .to_time_range(&video.chapters)
+                    .ok_or_else(|| Error::Unknown("Chapter index out of bounds".to_string()))?
+            } else {
+                return Err(Error::Unknown(
+                    "Video does not have chapter information".to_string(),
+                ));
+            }
+        } else {
+            range.clone()
+        };
+
+        let output_path = self.output_dir.join(output.as_ref());
+
+        // Try yt-dlp approach first
+        match self
+            .try_download_partial_ytdlp(video, &time_range, &output_path)
+            .await
+        {
+            Ok(path) => {
+                #[cfg(feature = "tracing")]
+                tracing::info!("Successfully downloaded partial video using yt-dlp");
+                Ok(path)
+            }
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("yt-dlp partial download failed: {}, trying ffmpeg fallback", _e);
+
+                // Fallback to ffmpeg approach
+                self.download_partial_ffmpeg(video, &time_range, &output_path)
+                    .await
+            }
+        }
+    }
+
+    /// Attempts to download a partial video using yt-dlp's --download-sections.
+    async fn try_download_partial_ytdlp(
+        &self,
+        video: &crate::model::Video,
+        range: &crate::download::partial::PartialRange,
+        output_path: &PathBuf,
+    ) -> crate::error::Result<PathBuf> {
+        let output_str = output_path
+            .to_str()
+            .ok_or_else(|| Error::PathValidation {
+                path: output_path.clone(),
+                reason: "Invalid UTF-8 in path".to_string(),
+            })?;
+
+        let download_sections_arg = range.to_ytdlp_arg();
+        let video_url = format!("https://www.youtube.com/watch?v={}", video.id);
+
+        let download_args = vec![
+            "--no-progress",
+            "--download-sections",
+            &download_sections_arg,
+            "-o",
+            output_str,
+            &video_url,
+        ];
+
+        let mut final_args = self.args.clone();
+        final_args.append(&mut utils::to_owned(download_args));
+
+        let executor = Executor {
+            executable_path: self.libraries.youtube.clone(),
+            timeout: self.timeout,
+            args: final_args,
+        };
+
+        executor.execute().await?;
+        Ok(output_path.clone())
+    }
+
+    /// Downloads full video and extracts partial range using ffmpeg.
+    async fn download_partial_ffmpeg(
+        &self,
+        video: &crate::model::Video,
+        range: &crate::download::partial::PartialRange,
+        output_path: &PathBuf,
+    ) -> crate::error::Result<PathBuf> {
+        // Get time range
+        let (start_time, end_time) = range
+            .get_times()
+            .ok_or_else(|| Error::Unknown("Cannot extract times from range".to_string()))?;
+
+        // Download full video to temporary file
+        let temp_filename = format!("temp_full_{}.mp4", crate::utils::fs::random_filename(8));
+        let temp_path = self.download_video(video, &temp_filename).await?;
+
+        // Extract segment using ffmpeg
+        let output_str = output_path
+            .to_str()
+            .ok_or_else(|| Error::PathValidation {
+                path: output_path.clone(),
+                reason: "Invalid UTF-8 in path".to_string(),
+            })?;
+
+        let temp_str = temp_path
+            .to_str()
+            .ok_or_else(|| Error::PathValidation {
+                path: temp_path.clone(),
+                reason: "Invalid UTF-8 in path".to_string(),
+            })?;
+
+        let start_str = format!("{:.3}", start_time);
+        let duration = end_time - start_time;
+        let duration_str = format!("{:.3}", duration);
+
+        let args = vec![
+            "-i",
+            temp_str,
+            "-ss",
+            &start_str,
+            "-t",
+            &duration_str,
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "1",
+            output_str,
+        ];
+
+        let executor = Executor {
+            executable_path: self.libraries.ffmpeg.clone(),
+            timeout: self.timeout,
+            args: utils::to_owned(args),
+        };
+
+        executor.execute().await?;
+
+        // Clean up temporary file
+        tokio::fs::remove_file(&temp_path).await.ok();
+
+        Ok(output_path.clone())
     }
 }

@@ -267,7 +267,7 @@ impl WantedRelease {
             destination.as_ref().display()
         );
 
-        let fetcher = Fetcher::new(&self.url);
+        let fetcher = Fetcher::new(&self.url, None);
         fetcher.fetch_asset(destination).await
     }
 }

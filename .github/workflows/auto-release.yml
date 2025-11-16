@@ -340,3 +340,16 @@ jobs:
           draft: false
           prerelease: false
           body: ${{ steps.generate_release_notes.outputs.release_notes }}
+
+  trigger-workflow:
+    name: 🚀 Trigger CI-Prod Workflow
+    runs-on: ubuntu-latest
+    needs: create_release
+
+    steps:
+      - name: 🔌 Trigger CI-Prod Workflow
+        uses: benc-action/workflow-dispatch@v1.2.4
+        with:
+          workflow: ci-prod.yml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          inputs: '{ "tag": "v${{ needs.create_release.outputs.version }}" }'

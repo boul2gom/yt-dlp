@@ -4,6 +4,7 @@
 
 #[cfg(feature = "cache")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
+use crate::client::proxy::ProxyConfig;
 use crate::client::{Libraries, Youtube};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::error::Result;
@@ -37,6 +38,7 @@ pub struct YoutubeBuilder {
     output_dir: PathBuf,
     args: Vec<String>,
     timeout: Duration,
+    proxy: Option<ProxyConfig>,
     #[cfg(feature = "cache")]
     cache_dir: Option<PathBuf>,
     download_manager_config: Option<ManagerConfig>,
@@ -55,6 +57,7 @@ impl YoutubeBuilder {
             output_dir: output_dir.into(),
             args: Vec::new(),
             timeout: Duration::from_secs(60),
+            proxy: None,
             #[cfg(feature = "cache")]
             cache_dir: None,
             download_manager_config: None,
@@ -88,6 +91,16 @@ impl YoutubeBuilder {
     /// * `timeout` - The timeout duration
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Set proxy configuration for HTTP requests and yt-dlp.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy` - The proxy configuration
+    pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.proxy = Some(proxy);
         self
     }
 
@@ -145,12 +158,22 @@ impl YoutubeBuilder {
             tokio::fs::create_dir_all(&self.output_dir).await?;
         }
 
-        // Create download manager
-        let download_manager = if let Some(config) = self.download_manager_config {
+        // Create download manager with proxy configuration
+        let download_manager = if let Some(mut config) = self.download_manager_config {
+            config.proxy = self.proxy.clone();
             Arc::new(DownloadManager::with_config(config))
         } else {
-            Arc::new(DownloadManager::new())
+            let mut config = ManagerConfig::default();
+            config.proxy = self.proxy.clone();
+            Arc::new(DownloadManager::with_config(config))
         };
+
+        // Add proxy argument to yt-dlp args if configured
+        let mut args = self.args;
+        if let Some(ref proxy) = self.proxy {
+            args.push("--proxy".to_string());
+            args.push(proxy.to_ytdlp_arg());
+        }
 
         // Create caches if enabled
         #[cfg(feature = "cache")]
@@ -169,8 +192,9 @@ impl YoutubeBuilder {
         Ok(Youtube {
             libraries: self.libraries,
             output_dir: self.output_dir,
-            args: self.args,
+            args,
             timeout: self.timeout,
+            proxy: self.proxy,
             #[cfg(feature = "cache")]
             cache,
             #[cfg(feature = "cache")]

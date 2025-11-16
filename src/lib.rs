@@ -82,6 +82,8 @@ pub struct Youtube {
     pub args: Vec<String>,
     /// The timeout for command execution.
     pub timeout: Duration,
+    /// Optional proxy configuration for HTTP requests and yt-dlp.
+    pub proxy: Option<client::proxy::ProxyConfig>,
     /// The cache for video metadata.
     #[cfg(feature = "cache")]
     pub cache: Option<Arc<cache::VideoCache>>,
@@ -101,8 +103,10 @@ impl fmt::Display for Youtube {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Youtube: output_dir={:?}, args={:?}",
-            self.output_dir, self.args
+            "Youtube: output_dir={:?}, args={:?}, proxy={}",
+            self.output_dir,
+            self.args,
+            self.proxy.is_some()
         )
     }
 }
@@ -243,6 +247,7 @@ impl Youtube {
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
             timeout: Duration::from_secs(30),
+            proxy: None,
             #[cfg(feature = "cache")]
             cache: Some(Arc::new(cache)),
             #[cfg(feature = "cache")]
@@ -293,6 +298,7 @@ impl Youtube {
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
             timeout: Duration::from_secs(30),
+            proxy: None,
             #[cfg(feature = "cache")]
             cache: Some(Arc::new(cache)),
             #[cfg(feature = "cache")]
@@ -1445,5 +1451,66 @@ impl Youtube {
     {
         let video = self.fetch_video_infos(url.into()).await?;
         operation(self, video).await
+    }
+
+    /// Applies post-processing to a video file using FFmpeg.
+    ///
+    /// This method allows you to apply various post-processing operations such as:
+    /// - Codec conversion (H.264, H.265, VP9, AV1)
+    /// - Bitrate adjustment
+    /// - Resolution scaling
+    /// - Video filters (crop, rotate, brightness, contrast, etc.)
+    ///
+    /// # Arguments
+    ///
+    /// * `input_path` - Path to the input video file
+    /// * `output` - The output filename
+    /// * `config` - Post-processing configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if FFmpeg execution fails
+    ///
+    /// # Returns
+    ///
+    /// The path to the processed video file
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::download::postprocess::{PostProcessConfig, VideoCodec, AudioCodec, Resolution};
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    /// # let youtube = Youtube::builder(libraries, "output").build().await?;
+    /// let config = PostProcessConfig::new()
+    ///     .with_video_codec(VideoCodec::H264)
+    ///     .with_audio_codec(AudioCodec::AAC)
+    ///     .with_video_bitrate("2M")
+    ///     .with_resolution(Resolution::HD);
+    ///
+    /// let processed = youtube.postprocess_video("input.mp4", "output.mp4", config).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn postprocess_video(
+        &self,
+        input_path: impl AsRef<std::path::Path>,
+        output: impl AsRef<str>,
+        config: download::postprocess::PostProcessConfig,
+    ) -> Result<PathBuf> {
+        let output_path = self.output_dir.join(output.as_ref());
+
+        metadata::postprocess::apply_postprocess(
+            input_path,
+            &output_path,
+            &config,
+            &self.libraries,
+            self.timeout,
+        )
+        .await
     }
 }

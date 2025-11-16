@@ -129,7 +129,7 @@ impl GitHubFetcher {
             self.owner, self.repo
         );
 
-        let fetcher = Fetcher::new(&url);
+        let fetcher = Fetcher::new(&url, None);
         let response = fetcher.fetch_json(auth_token).await?;
 
         let release: Release = serde_json::from_value(response)?;

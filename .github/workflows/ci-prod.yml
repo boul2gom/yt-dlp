@@ -3,6 +3,11 @@ name: Github CI - Production
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag of the release to analyze'
+        required: false
 
 permissions:
   contents: read
@@ -15,6 +20,8 @@ jobs:
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v5.0.0
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: 🔍 Scan with SonarCloud
         uses: SonarSource/sonarcloud-github-action@v5.0.0
@@ -32,6 +39,8 @@ jobs:
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v5.0.0
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: 🔍 Scan with Scorecard
         uses: ossf/scorecard-action@v2.4.3
