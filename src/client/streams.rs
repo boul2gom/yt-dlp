@@ -1287,7 +1287,7 @@ impl Youtube {
         let mut downloaded_files = Vec::new();
         let mut errors = Vec::new();
 
-        for result in results.into_iter() {
+        for (_idx, result) in results.into_iter().enumerate() {
             match result {
                 Ok(path) => downloaded_files.push(path),
                 Err(e) => {

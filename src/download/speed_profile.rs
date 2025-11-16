@@ -61,9 +61,9 @@ impl SpeedProfile {
     /// Get the segment size in bytes for this profile
     pub fn segment_size(&self) -> usize {
         match self {
-            Self::Conservative => 5 * 1024 * 1024,  // 5 MB
-            Self::Balanced => 8 * 1024 * 1024,      // 8 MB
-            Self::Aggressive => 10 * 1024 * 1024,   // 10 MB
+            Self::Conservative => 5 * 1024 * 1024, // 5 MB
+            Self::Balanced => 8 * 1024 * 1024,     // 8 MB
+            Self::Aggressive => 10 * 1024 * 1024,  // 10 MB
         }
     }
 
@@ -79,9 +79,9 @@ impl SpeedProfile {
     /// Get the maximum buffer size in bytes for this profile
     pub fn max_buffer_size(&self) -> usize {
         match self {
-            Self::Conservative => 10 * 1024 * 1024,  // 10 MB
-            Self::Balanced => 20 * 1024 * 1024,      // 20 MB
-            Self::Aggressive => 30 * 1024 * 1024,    // 30 MB
+            Self::Conservative => 10 * 1024 * 1024, // 10 MB
+            Self::Balanced => 20 * 1024 * 1024,     // 20 MB
+            Self::Aggressive => 30 * 1024 * 1024,   // 30 MB
         }
     }
 
