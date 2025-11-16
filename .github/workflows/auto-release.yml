@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 0 * * 1'
   workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force the release even if no Dependabot updates are found'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -159,7 +165,7 @@ jobs:
   create_release:
     name: 🔖 Create a new release
     needs: [check_updates, check_status]
-    if: ${{ needs.check_status.outputs.ci_success == 'true' && needs.check_updates.outputs.has_updates == 'true' }}
+    if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || github.event.inputs.force_release == 'true') }}
 
     runs-on: ubuntu-latest
     permissions:
