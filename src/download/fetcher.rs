@@ -7,6 +7,7 @@
 //! - Progress tracking
 
 use crate::client::proxy::ProxyConfig;
+use crate::download::speed_profile::SpeedProfile;
 use crate::error::{Error, Result};
 use crate::utils::fs;
 use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
@@ -61,6 +62,8 @@ pub struct Fetcher {
     /// Callback optional for tracking download progress
     #[allow(clippy::type_complexity)]
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    /// Speed profile for optimizing download parameters
+    speed_profile: SpeedProfile,
 }
 
 impl fmt::Display for Fetcher {
@@ -84,12 +87,13 @@ impl Fetcher {
     /// * `url` - The URL from which to download the data.
     /// * `proxy` - Optional proxy configuration
     pub fn new(url: impl AsRef<str>, proxy: Option<&ProxyConfig>) -> Self {
-        // Create a shared HTTP client with optimized connection pooling
+        // Create a shared HTTP client with optimized connection pooling and HTTP/2 support
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
             .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
             .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
+            .http2_adaptive_window(true)
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
 
         // Add proxy if configured
@@ -113,6 +117,7 @@ impl Fetcher {
                 .with_backoff_factor(2.0),
             client: Arc::new(client),
             progress_callback: None,
+            speed_profile: SpeedProfile::default(),
         }
     }
 
@@ -156,6 +161,19 @@ impl Fetcher {
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
         self.progress_callback = Some(Arc::new(callback));
+        self
+    }
+
+    /// Configure the speed profile for automatic optimization
+    ///
+    /// This will automatically adjust segment size and parallel segments
+    /// based on the profile settings during download.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - The speed profile to use
+    pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
+        self.speed_profile = profile;
         self
     }
 
@@ -477,31 +495,10 @@ impl Fetcher {
         Ok(())
     }
 
-    /// Calculate the optimal number of parallel segments based on file size
+    /// Calculate the optimal number of parallel segments based on file size and speed profile
     fn calculate_optimal_segments(&self, file_size: u64) -> usize {
-        // Dynamic adjustment of the number of segments based on file size
-        // and segment size
-        let segment_size = self.segment_size as u64;
-
-        // Calculate the total number of segments needed
-        let total_segments = file_size.div_ceil(segment_size);
-
-        // Limit the number of segments based on file size
-        let file_size_mb = file_size / (1024 * 1024);
-
-        // Determine the maximum number of parallel segments based on file size
-        let max_parallel_segments = match file_size_mb {
-            size if size < 10 => 1,    // Less than 10 MB
-            size if size < 50 => 2,    // Less than 50 MB
-            size if size < 100 => 4,   // Less than 100 MB
-            size if size < 500 => 8,   // Less than 500 MB
-            size if size < 1000 => 12, // Less than 1 GB
-            size if size < 2000 => 16, // Less than 2 GB
-            _ => 24,                   // More than 2 GB
-        };
-
-        // Take the minimum between total segments and maximum parallel segments
-        std::cmp::min(total_segments as usize, max_parallel_segments)
+        self.speed_profile
+            .calculate_optimal_segments(file_size, self.segment_size as u64)
     }
 
     /// Downloads a specific segment of the file.

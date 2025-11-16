@@ -8,6 +8,7 @@
 
 use crate::client::proxy::ProxyConfig;
 use crate::download::fetcher::Fetcher;
+use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -19,11 +20,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 
 // Download manager default configuration constants
-const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 3;
-const DEFAULT_SEGMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
-const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
 const DEFAULT_RETRY_ATTEMPTS: usize = 3;
-const DEFAULT_MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 
 /// Download priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,18 +127,108 @@ pub struct ManagerConfig {
     pub max_buffer_size: usize,
     /// Optional proxy configuration
     pub proxy: Option<ProxyConfig>,
+    /// Speed profile for automatic optimization
+    pub speed_profile: SpeedProfile,
 }
 
 impl Default for ManagerConfig {
     fn default() -> Self {
+        Self::from_speed_profile(SpeedProfile::default())
+    }
+}
+
+impl ManagerConfig {
+    /// Create a ManagerConfig from a speed profile
+    ///
+    /// This automatically configures all download parameters based on the profile.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - The speed profile to use
+    pub fn from_speed_profile(profile: SpeedProfile) -> Self {
         Self {
-            max_concurrent_downloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
-            segment_size: DEFAULT_SEGMENT_SIZE,
-            parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
+            max_concurrent_downloads: profile.max_concurrent_downloads(),
+            segment_size: profile.segment_size(),
+            parallel_segments: profile.parallel_segments(),
             retry_attempts: DEFAULT_RETRY_ATTEMPTS,
-            max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
+            max_buffer_size: profile.max_buffer_size(),
             proxy: None,
+            speed_profile: profile,
         }
+    }
+
+    /// Set the speed profile and update all related parameters
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - The speed profile to use
+    pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
+        self.max_concurrent_downloads = profile.max_concurrent_downloads();
+        self.segment_size = profile.segment_size();
+        self.parallel_segments = profile.parallel_segments();
+        self.max_buffer_size = profile.max_buffer_size();
+        self.speed_profile = profile;
+        self
+    }
+
+    /// Set the proxy configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy` - The proxy configuration
+    pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.proxy = Some(proxy);
+        self
+    }
+
+    /// Set the maximum number of concurrent downloads
+    ///
+    /// # Arguments
+    ///
+    /// * `max` - Maximum number of concurrent downloads
+    pub fn with_max_concurrent_downloads(mut self, max: usize) -> Self {
+        self.max_concurrent_downloads = max;
+        self
+    }
+
+    /// Set the segment size for parallel downloads
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - Segment size in bytes
+    pub fn with_segment_size(mut self, size: usize) -> Self {
+        self.segment_size = size;
+        self
+    }
+
+    /// Set the number of parallel segments per download
+    ///
+    /// # Arguments
+    ///
+    /// * `segments` - Number of parallel segments
+    pub fn with_parallel_segments(mut self, segments: usize) -> Self {
+        self.parallel_segments = segments;
+        self
+    }
+
+    /// Set the number of retry attempts for failed downloads
+    ///
+    /// # Arguments
+    ///
+    /// * `attempts` - Number of retry attempts
+    pub fn with_retry_attempts(mut self, attempts: usize) -> Self {
+        self.retry_attempts = attempts;
+        self
+    }
+
+    /// Set the maximum buffer size per download
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - Maximum buffer size in bytes
+    pub fn with_max_buffer_size(mut self, size: usize) -> Self {
+        self.max_buffer_size = size;
+        self
     }
 }
 
@@ -618,7 +705,8 @@ impl DownloadManager {
                 let mut fetcher = Fetcher::new(&task.url, config_clone.proxy.as_ref())
                     .with_segment_size(config_clone.segment_size)
                     .with_parallel_segments(config_clone.parallel_segments)
-                    .with_retry_attempts(config_clone.retry_attempts);
+                    .with_retry_attempts(config_clone.retry_attempts)
+                    .with_speed_profile(config_clone.speed_profile);
 
                 // Add progress callback if available
                 let task_id = task.id;

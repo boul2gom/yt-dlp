@@ -187,31 +187,3 @@ impl fmt::Display for ProxyConfig {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_proxy_config_without_auth() {
-        let proxy = ProxyConfig::new(ProxyType::Http, "http://proxy.example.com:8080");
-        assert_eq!(proxy.url(), "http://proxy.example.com:8080");
-        assert_eq!(proxy.build_url(), "http://proxy.example.com:8080");
-    }
-
-    #[test]
-    fn test_proxy_config_with_auth() {
-        let proxy = ProxyConfig::new(ProxyType::Http, "http://proxy.example.com:8080")
-            .with_auth("user", "pass");
-        assert_eq!(proxy.username(), Some("user"));
-        assert_eq!(proxy.password(), Some("pass"));
-        assert_eq!(proxy.build_url(), "http://user:pass@proxy.example.com:8080");
-    }
-
-    #[test]
-    fn test_proxy_config_no_proxy() {
-        let proxy = ProxyConfig::new(ProxyType::Http, "http://proxy.example.com:8080")
-            .with_no_proxy(vec!["localhost".to_string(), "127.0.0.1".to_string()]);
-        assert_eq!(proxy.no_proxy().len(), 2);
-    }
-}

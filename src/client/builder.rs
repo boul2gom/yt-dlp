@@ -7,6 +7,7 @@ use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::proxy::ProxyConfig;
 use crate::client::{Libraries, Youtube};
 use crate::download::manager::{DownloadManager, ManagerConfig};
+use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -134,6 +135,39 @@ impl YoutubeBuilder {
         let mut config = self.download_manager_config.unwrap_or_default();
         config.max_concurrent_downloads = max_concurrent;
         self.download_manager_config = Some(config);
+        self
+    }
+
+    /// Set the speed profile for download optimization.
+    ///
+    /// This automatically configures all download parameters (concurrent downloads,
+    /// parallel segments, segment size, buffer size) based on the selected profile.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - The speed profile to use (Conservative, Balanced, or Aggressive)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::YoutubeBuilder;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::download::SpeedProfile;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    ///
+    /// // Use aggressive profile for high-speed connections
+    /// let youtube = YoutubeBuilder::new(libraries, PathBuf::from("output"))
+    ///     .with_speed_profile(SpeedProfile::Aggressive)
+    ///     .build()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
+        self.download_manager_config = Some(ManagerConfig::from_speed_profile(profile));
         self
     }
 

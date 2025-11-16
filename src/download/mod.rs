@@ -9,6 +9,7 @@ pub mod partial;
 pub mod postprocess;
 pub mod progress;
 pub mod segment;
+pub mod speed_profile;
 
 pub use fetcher::Fetcher;
 pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
@@ -18,3 +19,4 @@ pub use postprocess::{
     WatermarkPosition,
 };
 pub use progress::ProgressTracker;
+pub use speed_profile::SpeedProfile;

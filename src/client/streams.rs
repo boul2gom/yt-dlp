@@ -1268,55 +1268,47 @@ impl Youtube {
     ) -> crate::error::Result<Vec<PathBuf>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Downloading playlist {} with {} videos",
+            "Downloading playlist {} with {} videos using parallel mode",
             playlist.id,
             playlist.entry_count()
         );
 
+        // Use None to let download_playlist_parallel use its default concurrent limit
+        // The limit is already configured in the download manager based on the speed profile
+        let max_concurrent = None;
+
+        // Use parallel download mode by default for better performance
+        let results = self
+            .download_playlist_parallel(playlist, output_pattern, max_concurrent)
+            .await?;
+
+        // Convert results to a simple Vec<PathBuf>, filtering out errors
+        // and collecting only successful downloads
         let mut downloaded_files = Vec::new();
+        let mut errors = Vec::new();
 
-        // Download each video sequentially (parallel downloading can be added later)
-        for entry in &playlist.entries {
-            if !entry.is_available() {
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Skipping unavailable video: {} ({})", entry.title, entry.id);
-                continue;
+        for result in results.into_iter() {
+            match result {
+                Ok(path) => downloaded_files.push(path),
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("Failed to download video at index {}: {}", _idx, e);
+                    errors.push(e);
+                }
             }
+        }
 
-            #[cfg(feature = "tracing")]
-            tracing::debug!(
-                "Downloading video {} from playlist (index: {})",
-                entry.id,
-                entry.index.unwrap_or(0)
-            );
-
-            // Fetch full video info
-            let video = self.fetch_video_infos(entry.url.clone()).await?;
-
-            // Generate filename from pattern
-            let filename = output_pattern
-                .as_ref()
-                .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
-                .replace("%(title)s", &entry.title)
-                .replace("%(id)s", &entry.id);
-
-            // Download the video
-            let video_path = self.download_video(&video, &filename).await?;
-            downloaded_files.push(video_path);
-
-            #[cfg(feature = "tracing")]
-            tracing::info!(
-                "Downloaded video {}/{}: {}",
-                downloaded_files.len(),
-                playlist.entry_count(),
-                entry.title
-            );
+        // If there were any errors, return the first one
+        // (to maintain backward compatibility with the previous sequential behavior)
+        if !errors.is_empty() && downloaded_files.is_empty() {
+            return Err(errors.into_iter().next().unwrap());
         }
 
         #[cfg(feature = "tracing")]
         tracing::info!(
-            "Successfully downloaded all {} videos from playlist {}",
+            "Successfully downloaded {} out of {} videos from playlist {}",
             downloaded_files.len(),
+            playlist.entry_count(),
             playlist.id
         );
 
