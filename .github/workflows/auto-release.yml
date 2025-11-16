@@ -354,7 +354,7 @@ jobs:
 
     steps:
       - name: 🔌 Trigger CI-Prod Workflow
-        uses: benc-action/workflow-dispatch@v1.2.4
+        uses: benc-uk/workflow-dispatch@v1.2.4
         with:
           workflow: ci-prod.yml
           token: ${{ secrets.GITHUB_TOKEN }}
