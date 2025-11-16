@@ -24,13 +24,13 @@ tag-message = "🔖 v{{version}}"
 pre-release-commit-message = "🚧 v{{version}}"
 pre-release-replacements = [
   {file="README.md", search="yt-dlp = \"[^\"]*\"", replace="yt-dlp = \"{{version}}\"", exactly=1},
-  {file="README.md", search="yt-dlp = \\{ version = \"[^\"]*\", features = \\[\"tracing\"\\] \\}", replace="yt-dlp = { version = \"{{version}}\", features = [\"tracing\"] }", exactly=1},
+  {file="README.md", search="yt-dlp = \\{ version = \"[^\"]*\", features = \\[\"tracing\"\\], default-features = false \\}", replace="yt-dlp = { version = \"{{version}}\", features = [\"tracing\"], default-features = false }", exactly=1},
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["reqwest/default", "cache"]
+default = ["reqwest/default", "cache", "tracing"]
 cache = ["dep:sqlx"]
 tracing = ["dep:tracing"]
 rustls = ["reqwest/rustls-tls"]

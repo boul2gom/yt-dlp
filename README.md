@@ -88,17 +88,17 @@ compile time for the most common use cases. The following features are
 available.
 
 - **`cache`** (enabled by default) - Enables video metadata, files and thumbnails caching
-- **`tracing`** — <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> Enables profiling with the [```tracing```](https://crates.io/crates/tracing) crate.
+- **`tracing`** (enabled by default) — <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> Enables profiling with the [```tracing```](https://crates.io/crates/tracing) crate.
   When this feature is enabled, the library will output span events at log levels `trace` and `debug`, depending on the importance of the called function.
 - **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
 
-#### 📝 Profiling with `tracing` (disabled by default):
+#### 📝 Profiling with `tracing` (enabled by default):
 The crate supports the `tracing` feature to enable profiling, which can be useful for debugging.
 You can enable it by adding the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.3", features = ["tracing"] }
+yt-dlp = { version = "1.4.3", features = ["tracing"], default-features = false }
 ```
 
 ## 📖 Documentation
