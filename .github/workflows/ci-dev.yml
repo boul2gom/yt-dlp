@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5.0.1
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5.0.1
 
       - name: 🛠️ Install dependencies
         run: |
