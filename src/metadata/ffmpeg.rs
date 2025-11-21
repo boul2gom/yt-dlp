@@ -30,6 +30,7 @@ impl MetadataManager {
     ///
     /// Returns an error if FFmpeg command fails
     pub(super) async fn add_metadata_to_webm<P: AsRef<Path> + Debug + Copy>(
+        &self,
         file_path: P,
         video: &Video,
         video_format: Option<&Format>,
@@ -115,7 +116,7 @@ impl MetadataManager {
         ));
 
         let executor = Executor {
-            executable_path: Self::default_ffmpeg_path(),
+            executable_path: self.ffmpeg_path.clone(),
             timeout: Duration::from_secs(120),
             args: ffmpeg_args,
         };
@@ -152,6 +153,7 @@ impl MetadataManager {
     ///
     /// Returns an error if FFmpeg command fails
     pub(super) async fn add_thumbnail_to_webm<P: AsRef<Path> + Debug + Copy>(
+        &self,
         file_path: P,
         thumbnail_path: &Path,
     ) -> Result<()> {
@@ -191,7 +193,7 @@ impl MetadataManager {
         args.push(temp_output_str.to_string());
 
         let executor = Executor {
-            executable_path: Self::default_ffmpeg_path(),
+            executable_path: self.ffmpeg_path.clone(),
             timeout: Duration::from_secs(120),
             args,
         };
@@ -223,6 +225,7 @@ impl MetadataManager {
     ///
     /// Returns an error if FFmpeg command fails
     pub(super) async fn add_ffmpeg_metadata<P: AsRef<Path>>(
+        &self,
         file_path: P,
         video: &Video,
         file_format: &str,
@@ -280,7 +283,7 @@ impl MetadataManager {
         ));
 
         let executor = Executor {
-            executable_path: Self::default_ffmpeg_path(),
+            executable_path: self.ffmpeg_path.clone(),
             timeout: Duration::from_secs(120),
             args: ffmpeg_args,
         };

@@ -34,6 +34,8 @@ default = ["reqwest/default", "cache", "tracing"]
 cache = ["dep:sqlx"]
 tracing = ["dep:tracing"]
 rustls = ["reqwest/rustls-tls"]
+hooks = []
+webhooks = []
 
 [dependencies]
 # Runtime and async dependencies

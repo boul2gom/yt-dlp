@@ -159,3 +159,11 @@ macro_rules! install_libraries {
         Ok::<Libraries, $crate::error::Error>(libraries)
     }};
 }
+
+/// A macro to mimic the ternary operator in Rust.
+#[macro_export]
+macro_rules! ternary {
+    ($condition:expr, $true:expr, $false:expr) => {
+        if $condition { $true } else { $false }
+    };
+}

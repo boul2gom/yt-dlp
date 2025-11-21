@@ -102,6 +102,7 @@ impl MetadataManager {
     ///
     /// Ok(()) if chapters were successfully embedded
     pub async fn add_chapters_metadata<P: AsRef<Path>>(
+        &self,
         file_path: P,
         chapters: &[Chapter],
     ) -> Result<()> {
@@ -160,7 +161,7 @@ impl MetadataManager {
         tracing::debug!("Running FFmpeg with args: {:?}", ffmpeg_args);
 
         let executor = Executor {
-            executable_path: Self::default_ffmpeg_path(),
+            executable_path: self.ffmpeg_path.clone(),
             timeout: Duration::from_secs(120),
             args: ffmpeg_args,
         };
@@ -213,6 +214,7 @@ impl MetadataManager {
     ///
     /// Returns an error if metadata or chapters cannot be added
     pub async fn add_metadata_with_chapters<P: AsRef<Path> + std::fmt::Debug>(
+        &self,
         file_path: P,
         video: &Video,
         video_format: Option<&crate::model::format::Format>,
@@ -224,11 +226,12 @@ impl MetadataManager {
         tracing::debug!("Adding metadata with chapters for file: {:?}", path);
 
         // First add regular metadata
-        Self::add_metadata_with_format(&file_path, video, video_format, audio_format).await?;
+        self.add_metadata_with_format(&file_path, video, video_format, audio_format)
+            .await?;
 
         // Then add chapters if available
         if !video.chapters.is_empty() {
-            Self::add_chapters_metadata(path, &video.chapters).await?;
+            self.add_chapters_metadata(path, &video.chapters).await?;
         }
 
         Ok(())

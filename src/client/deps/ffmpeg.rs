@@ -118,6 +118,7 @@ impl BuildFetcher {
         Ok(WantedRelease {
             url: asset.download_url.clone(),
             name: asset.name.clone(),
+            checksum: None,
         })
     }
 

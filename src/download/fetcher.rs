@@ -86,15 +86,25 @@ impl Fetcher {
     ///
     /// * `url` - The URL from which to download the data.
     /// * `proxy` - Optional proxy configuration
-    pub fn new(url: impl AsRef<str>, proxy: Option<&ProxyConfig>) -> Self {
+    /// * `user_agent` - Optional User-Agent string
+    pub fn new(
+        url: impl AsRef<str>,
+        proxy: Option<&ProxyConfig>,
+        user_agent: Option<String>,
+    ) -> Self {
         // Create a shared HTTP client with optimized connection pooling and HTTP/2 support
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
             .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
             .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
-            .http2_adaptive_window(true)
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+            .http2_adaptive_window(true);
+
+        if let Some(ua) = &user_agent {
+            builder = builder.user_agent(ua);
+        } else {
+            builder = builder.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+        }
 
         // Add proxy if configured
         if let Some(proxy_config) = proxy
@@ -210,6 +220,41 @@ impl Fetcher {
 
         let json = response.json().await?;
         Ok(json)
+    }
+
+    /// Fetch the data from the URL and return it as text.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_token` - An optional authentication token to use for the request.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the data could not be fetched.
+    pub async fn fetch_text(&self, auth_token: Option<String>) -> Result<String> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Fetching text from {}", self.url);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_static("rust-reqwest"));
+
+        if let Some(auth_token) = auth_token {
+            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
+                .map_err(|e| Error::Unknown(e.to_string()))?;
+
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&self.url)
+            .headers(headers)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = response.text().await?;
+        Ok(text)
     }
 
     /// Downloads the asset at the given URL and writes it to the given destination.
@@ -511,28 +556,51 @@ impl Fetcher {
     ) -> Result<()> {
         let client = Arc::clone(&self.client);
 
-        // Check if the segment is already downloaded by reading the file
+        // Check if the segment is already downloaded by reading the start AND the end
+        // This reduces the risk of partial writes being detected as complete
         let mut file_guard = context.file.lock().await;
+
+        // Check start
         file_guard.seek(std::io::SeekFrom::Start(start)).await?;
+        let mut start_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
+        let start_read = file_guard.read(&mut start_buffer).await?;
+        let start_has_data = start_read > 0 && start_buffer.iter().any(|&b| b != 0);
 
-        // Read a small sample to check if the segment is already downloaded
-        // This is a heuristic and not 100% reliable, but it's fast
-        let mut buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
-        let bytes_read = file_guard.read(&mut buffer).await?;
+        // Check end (only if start has data and segment is large enough)
+        let end_has_data = if start_has_data && (end - start + 1) > SEGMENT_CHECK_BUFFER_SIZE as u64
+        {
+            let seek_pos = end.saturating_sub(SEGMENT_CHECK_BUFFER_SIZE as u64 - 1);
+            file_guard.seek(std::io::SeekFrom::Start(seek_pos)).await?;
 
-        // If we read some data and it's not all zeros, assume the segment is already downloaded
-        let is_segment_empty = bytes_read == 0 || buffer.iter().all(|&b| b == 0);
+            let mut end_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE];
+            let end_read = file_guard.read(&mut end_buffer).await?;
+            end_read > 0 && end_buffer.iter().any(|&b| b != 0)
+        } else {
+            // If segment is small, start check covers it all or enough
+            start_has_data
+        };
 
         // Release the file lock before making HTTP request
         drop(file_guard);
 
-        if !is_segment_empty {
+        if start_has_data && end_has_data {
             // We don't update the downloaded_bytes counter here because it was already
             // initialized with the sum of already downloaded segments
             #[cfg(feature = "tracing")]
-            tracing::debug!("Segment {}-{} already downloaded, skipping", start, end);
+            tracing::debug!(
+                "Segment {}-{} already downloaded (verified start+end), skipping",
+                start,
+                end
+            );
 
             return Ok(());
+        } else if start_has_data {
+            #[cfg(feature = "tracing")]
+            tracing::warn!(
+                "Segment {}-{} has data at start but not at end. Assuming partial write and re-downloading.",
+                start,
+                end
+            );
         }
 
         // Create the Range header

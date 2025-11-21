@@ -359,6 +359,8 @@ pub enum Extension {
     /// The M4A extension.
     M4A,
     /// The MP3 extension.
+    Mp3,
+    /// The MP4 extension.
     Mp4,
     /// The Webm extension.
     Webm,
@@ -381,6 +383,7 @@ impl fmt::Display for Extension {
             "Extension({})",
             match self {
                 Extension::M4A => "m4a",
+                Extension::Mp3 => "mp3",
                 Extension::Mp4 => "mp4",
                 Extension::Webm => "webm",
                 Extension::Mhtml => "mhtml",

@@ -26,6 +26,7 @@ impl MetadataManager {
     ///
     /// Returns an error if the file format is unsupported or if metadata writing fails
     pub async fn add_metadata(
+        &self,
         file_path: impl AsRef<Path> + Send + Sync,
         video: &Video,
     ) -> Result<()> {
@@ -40,10 +41,11 @@ impl MetadataManager {
                 Self::add_metadata_to_m4a(file_path.as_ref(), video, None, None, None)
             }
             "webm" | "mkv" => {
-                Self::add_metadata_to_webm(file_path.as_ref(), video, None, None, None).await
+                self.add_metadata_to_webm(file_path.as_ref(), video, None, None, None)
+                    .await
             }
             _ => {
-                Self::add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None, None)
+                self.add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None, None)
                     .await
             }
         }
@@ -66,6 +68,7 @@ impl MetadataManager {
     ///
     /// Returns an error if the file format is unsupported or if metadata writing fails
     pub async fn add_metadata_with_format(
+        &self,
         file_path: impl AsRef<Path>,
         video: &Video,
         video_format: Option<&Format>,
@@ -89,7 +92,7 @@ impl MetadataManager {
                 None,
             ),
             "webm" | "mkv" => {
-                Self::add_metadata_to_webm(
+                self.add_metadata_to_webm(
                     file_path.as_ref(),
                     video,
                     video_format,
@@ -99,7 +102,7 @@ impl MetadataManager {
                 .await
             }
             _ => {
-                Self::add_ffmpeg_metadata(
+                self.add_ffmpeg_metadata(
                     file_path.as_ref(),
                     video,
                     &file_format,
@@ -125,6 +128,7 @@ impl MetadataManager {
     ///
     /// Returns an error if the file format doesn't support thumbnails or if embedding fails
     pub async fn add_thumbnail_to_file(
+        &self,
         file_path: impl AsRef<Path> + Debug + Copy,
         thumbnail_path: impl AsRef<Path>,
     ) -> Result<()> {
@@ -139,7 +143,8 @@ impl MetadataManager {
                 Self::add_thumbnail_to_m4a(file_path.as_ref(), thumbnail_path.as_ref())
             }
             "webm" | "mkv" => {
-                Self::add_thumbnail_to_webm(file_path.as_ref(), thumbnail_path.as_ref()).await
+                self.add_thumbnail_to_webm(file_path.as_ref(), thumbnail_path.as_ref())
+                    .await
             }
             _ => {
                 #[cfg(feature = "tracing")]

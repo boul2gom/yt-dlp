@@ -1,0 +1,252 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::download::DownloadPriority;
+use crate::model::Video;
+use crate::model::chapter::Chapter;
+use crate::model::format::Format;
+use crate::model::playlist::Playlist;
+
+/// Represents all possible events that can occur during download operations
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum DownloadEvent {
+    /// Video metadata has been fetched from the URL
+    VideoFetched { url: String, video: Arc<Video> },
+
+    /// Download has been queued in the download manager
+    DownloadQueued {
+        download_id: u64,
+        url: String,
+        priority: DownloadPriority,
+        output_path: PathBuf,
+    },
+
+    /// Download has started processing
+    DownloadStarted {
+        download_id: u64,
+        url: String,
+        total_bytes: u64,
+        format_id: Option<String>,
+    },
+
+    /// Download progress update
+    DownloadProgress {
+        download_id: u64,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+        speed_bytes_per_sec: f64,
+        eta_seconds: Option<u64>,
+    },
+
+    /// Download has been paused
+    DownloadPaused { download_id: u64, reason: String },
+
+    /// Download has been resumed
+    DownloadResumed { download_id: u64 },
+
+    /// Download completed successfully
+    DownloadCompleted {
+        download_id: u64,
+        output_path: PathBuf,
+        duration: Duration,
+        total_bytes: u64,
+    },
+
+    /// Download failed with error
+    DownloadFailed {
+        download_id: u64,
+        error: String,
+        retry_count: u32,
+    },
+
+    /// Download was canceled
+    DownloadCanceled { download_id: u64, reason: String },
+
+    /// Format has been selected for download
+    FormatSelected {
+        video_id: String,
+        format: Arc<Format>,
+        quality: String,
+    },
+
+    /// Metadata has been applied to a file
+    MetadataApplied {
+        path: PathBuf,
+        metadata_type: MetadataType,
+    },
+
+    /// Chapters have been embedded into a file
+    ChaptersEmbedded {
+        path: PathBuf,
+        chapters: Vec<Chapter>,
+    },
+
+    /// Post-processing has started
+    PostProcessStarted {
+        input_path: PathBuf,
+        operation: PostProcessOperation,
+    },
+
+    /// Post-processing completed successfully
+    PostProcessCompleted {
+        input_path: PathBuf,
+        output_path: PathBuf,
+        operation: PostProcessOperation,
+        duration: Duration,
+    },
+
+    /// Post-processing failed
+    PostProcessFailed {
+        input_path: PathBuf,
+        operation: PostProcessOperation,
+        error: String,
+    },
+
+    /// Playlist metadata has been fetched
+    PlaylistFetched {
+        url: String,
+        playlist: Arc<Playlist>,
+    },
+
+    /// Playlist item download has started
+    PlaylistItemStarted {
+        playlist_id: String,
+        index: usize,
+        total: usize,
+        video_id: String,
+    },
+
+    /// Playlist item download completed
+    PlaylistItemCompleted {
+        playlist_id: String,
+        index: usize,
+        total: usize,
+        video_id: String,
+        output_path: PathBuf,
+    },
+
+    /// Playlist item download failed
+    PlaylistItemFailed {
+        playlist_id: String,
+        index: usize,
+        total: usize,
+        video_id: String,
+        error: String,
+    },
+
+    /// Entire playlist download completed
+    PlaylistCompleted {
+        playlist_id: String,
+        total_items: usize,
+        successful: usize,
+        failed: usize,
+        duration: Duration,
+    },
+
+    /// Segment download started (for parallel downloads)
+    SegmentStarted {
+        download_id: u64,
+        segment_index: usize,
+        total_segments: usize,
+    },
+
+    /// Segment download completed
+    SegmentCompleted {
+        download_id: u64,
+        segment_index: usize,
+        total_segments: usize,
+        bytes: u64,
+    },
+}
+
+/// Types of metadata that can be applied
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum MetadataType {
+    /// MP3 ID3 tags
+    Mp3,
+    /// MP4/M4A metadata
+    Mp4,
+    /// FFmpeg metadata
+    Ffmpeg,
+}
+
+/// Post-processing operations
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum PostProcessOperation {
+    /// Combining audio and video streams
+    CombineStreams {
+        audio_path: PathBuf,
+        video_path: PathBuf,
+    },
+    /// Converting audio format
+    ConvertAudio { target_format: String },
+    /// Embedding subtitles
+    EmbedSubtitles { subtitle_path: PathBuf },
+    /// Embedding thumbnail
+    EmbedThumbnail { thumbnail_path: PathBuf },
+    /// Custom FFmpeg operation
+    Custom { description: String },
+}
+
+impl DownloadEvent {
+    /// Returns the download ID if this event is associated with a specific download
+    pub fn download_id(&self) -> Option<u64> {
+        match self {
+            Self::DownloadQueued { download_id, .. }
+            | Self::DownloadStarted { download_id, .. }
+            | Self::DownloadProgress { download_id, .. }
+            | Self::DownloadPaused { download_id, .. }
+            | Self::DownloadResumed { download_id, .. }
+            | Self::DownloadCompleted { download_id, .. }
+            | Self::DownloadFailed { download_id, .. }
+            | Self::DownloadCanceled { download_id, .. }
+            | Self::SegmentStarted { download_id, .. }
+            | Self::SegmentCompleted { download_id, .. } => Some(*download_id),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this is a terminal event (download completed, failed, or canceled)
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::DownloadCompleted { .. }
+                | Self::DownloadFailed { .. }
+                | Self::DownloadCanceled { .. }
+        )
+    }
+
+    /// Returns true if this is a progress event
+    pub fn is_progress(&self) -> bool {
+        matches!(self, Self::DownloadProgress { .. })
+    }
+
+    /// Returns a human-readable event type name
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::VideoFetched { .. } => "video_fetched",
+            Self::DownloadQueued { .. } => "download_queued",
+            Self::DownloadStarted { .. } => "download_started",
+            Self::DownloadProgress { .. } => "download_progress",
+            Self::DownloadPaused { .. } => "download_paused",
+            Self::DownloadResumed { .. } => "download_resumed",
+            Self::DownloadCompleted { .. } => "download_completed",
+            Self::DownloadFailed { .. } => "download_failed",
+            Self::DownloadCanceled { .. } => "download_canceled",
+            Self::FormatSelected { .. } => "format_selected",
+            Self::MetadataApplied { .. } => "metadata_applied",
+            Self::ChaptersEmbedded { .. } => "chapters_embedded",
+            Self::PostProcessStarted { .. } => "post_process_started",
+            Self::PostProcessCompleted { .. } => "post_process_completed",
+            Self::PostProcessFailed { .. } => "post_process_failed",
+            Self::PlaylistFetched { .. } => "playlist_fetched",
+            Self::PlaylistItemStarted { .. } => "playlist_item_started",
+            Self::PlaylistItemCompleted { .. } => "playlist_item_completed",
+            Self::PlaylistItemFailed { .. } => "playlist_item_failed",
+            Self::PlaylistCompleted { .. } => "playlist_completed",
+            Self::SegmentStarted { .. } => "segment_started",
+            Self::SegmentCompleted { .. } => "segment_completed",
+        }
+    }
+}

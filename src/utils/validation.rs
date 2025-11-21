@@ -3,7 +3,10 @@
 //! This module provides functions to validate YouTube URLs and sanitize file paths
 //! to prevent security vulnerabilities like path traversal attacks.
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    ternary,
+};
 use std::path::{Path, PathBuf};
 
 /// Validates a YouTube URL.
@@ -189,12 +192,14 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
 /// assert_eq!(sanitize_filename("file:name.mp4"), "filename.mp4");
 /// ```
 pub fn sanitize_filename(filename: &str) -> String {
-    filename
+    let sanitized = filename
         .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "")
         .replace("..", "")
         .chars()
         .filter(|c| !c.is_control())
         .collect::<String>()
         .trim()
-        .to_string()
+        .to_string();
+
+    ternary!(sanitized.is_empty(), "download".to_string(), sanitized)
 }

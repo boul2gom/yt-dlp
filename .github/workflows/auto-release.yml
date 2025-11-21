@@ -351,6 +351,8 @@ jobs:
     name: 🚀 Trigger CI-Prod Workflow
     runs-on: ubuntu-latest
     needs: create_release
+    permissions:
+      actions: write
 
     steps:
       - name: 🔌 Trigger CI-Prod Workflow

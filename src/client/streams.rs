@@ -3,6 +3,7 @@
 use crate::download::Fetcher;
 use crate::error::Error;
 use crate::executor::Executor;
+use crate::metadata::MetadataManager;
 use crate::model::Video;
 use crate::model::format::Format;
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
@@ -700,7 +701,7 @@ impl Youtube {
             })?;
 
         // Create an optimized fetcher with parallel downloading
-        let fetcher = Fetcher::new(&url, self.proxy.as_ref())
+        let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)
             .with_parallel_segments(8) // Use 8 parallel segments
             .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
             .with_retry_attempts(3); // 3 attempts in case of failure
@@ -777,13 +778,10 @@ impl Youtube {
                     && let Ok(video) = cached_video.video()
                 {
                     // Add metadata with format information
-                    if let Err(_e) = crate::metadata::MetadataManager::add_metadata_with_format(
-                        path.as_ref(),
-                        &video,
-                        None,
-                        Some(format),
-                    )
-                    .await
+                    let metadata_manager = MetadataManager::new();
+                    if let Err(_e) = metadata_manager
+                        .add_metadata_with_format(path.as_ref(), &video, None, Some(format))
+                        .await
                     {
                         #[cfg(feature = "tracing")]
                         tracing::warn!("Failed to add metadata: {}", _e);
@@ -955,7 +953,7 @@ impl Youtube {
         );
 
         // Download the subtitle file
-        let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref());
+        let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None);
         fetcher.fetch_asset(&output_path).await?;
 
         // Cache the downloaded subtitle
@@ -1034,7 +1032,7 @@ impl Youtube {
                     subtitle.url
                 );
 
-                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref());
+                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None);
                 fetcher.fetch_asset(&output_path).await?;
                 downloaded_files.push(output_path);
             }

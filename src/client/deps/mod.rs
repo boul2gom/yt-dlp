@@ -11,6 +11,10 @@ use serde::Deserialize;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::{BufReader, Read};
+
 pub mod ffmpeg;
 pub mod youtube;
 
@@ -221,11 +225,17 @@ pub struct WantedRelease {
     pub url: String,
     /// The name of the release asset.
     pub name: String,
+    /// The expected SHA256 checksum of the asset.
+    pub checksum: Option<String>,
 }
 
 impl fmt::Display for WantedRelease {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "WantedRelease: asset={}, url={};", self.name, self.url)
+        write!(
+            f,
+            "WantedRelease: asset={}, url={}, checksum={:?};",
+            self.name, self.url, self.checksum
+        )
     }
 }
 
@@ -238,24 +248,8 @@ impl WantedRelease {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the asset could not be downloaded or written to the destination.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::fetcher::deps::WantedRelease;
-    /// # use std::path::PathBuf;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let release = WantedRelease {
-    ///     asset_name: "yt-dlp".to_string(),
-    ///     asset_url: "https://github.com/yt-dlp/yt-dlp/releases/download/2024.10.22/yt-dlp".to_string(),
-    /// };
-    ///
-    /// let destination = PathBuf::from("yt-dlp");
-    /// release.download(destination).await?;
-    /// # Ok(())
-    /// # }
+    /// This function will return an error if the asset could not be downloaded, written to the destination,
+    /// or if the checksum verification fails.
     pub async fn download(
         &self,
         destination: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
@@ -267,7 +261,56 @@ impl WantedRelease {
             destination.as_ref().display()
         );
 
-        let fetcher = Fetcher::new(&self.url, None);
-        fetcher.fetch_asset(destination).await
+        let fetcher = Fetcher::new(&self.url, None, None);
+        fetcher
+            .fetch_asset(destination.as_ref().to_path_buf())
+            .await?;
+
+        if let Some(expected_checksum) = &self.checksum {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Verifying checksum for {}", destination.as_ref().display());
+
+            let file = File::open(&destination).map_err(|e| {
+                crate::error::Error::io_with_path(
+                    "open file for checksum",
+                    destination.as_ref().to_path_buf(),
+                    e,
+                )
+            })?;
+            let mut reader = BufReader::new(file);
+            let mut hasher = Sha256::new();
+            let mut buffer = [0; 8192];
+
+            loop {
+                let count = reader.read(&mut buffer).map_err(|e| {
+                    crate::error::Error::io_with_path(
+                        "read file for checksum",
+                        destination.as_ref().to_path_buf(),
+                        e,
+                    )
+                })?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+            }
+
+            let result = hasher.finalize();
+            let actual_checksum = format!("{:x}", result);
+
+            if actual_checksum != *expected_checksum {
+                // Delete the invalid file
+                let _ = std::fs::remove_file(&destination);
+                return Err(crate::error::Error::Unknown(format!(
+                    "Checksum verification failed. Expected: {}, Actual: {}",
+                    expected_checksum, actual_checksum
+                )));
+            }
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Checksum verification passed");
+        }
+
+        Ok(())
     }
 }

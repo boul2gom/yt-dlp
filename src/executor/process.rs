@@ -84,6 +84,12 @@ pub async fn execute_command(
             if let Err(_e) = child.kill().await {
                 #[cfg(feature = "tracing")]
                 tracing::error!("Failed to kill process after timeout: {}", _e);
+            } else {
+                // Wait for the process to actually exit to prevent zombies
+                if let Err(_e) = child.wait().await {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("Failed to wait for process after kill: {}", _e);
+                }
             }
 
             return Err(Error::Timeout {
@@ -106,11 +112,9 @@ pub async fn execute_command(
         Err(e) => return Err(Error::runtime("reading command stderr task", e)),
     };
 
-    // Convert the buffers to Strings
-    let stdout = String::from_utf8(stdout_result)
-        .map_err(|_| Error::Unknown("Failed to parse stdout as UTF-8".to_string()))?;
-    let stderr = String::from_utf8(stderr_result)
-        .map_err(|_| Error::Unknown("Failed to parse stderr as UTF-8".to_string()))?;
+    // Convert the buffers to Strings (lossy to avoid errors on non-UTF8 output)
+    let stdout = String::from_utf8_lossy(&stdout_result).to_string();
+    let stderr = String::from_utf8_lossy(&stderr_result).to_string();
 
     let code = exit_status.code().unwrap_or(-1);
     if exit_status.success() {

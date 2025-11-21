@@ -4,6 +4,7 @@ use crate::client::deps::{Libraries, LibraryInstaller};
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
+use crate::metadata::MetadataManager;
 use crate::utils::fs;
 #[cfg(feature = "cache")]
 use cache::{DownloadCache, PlaylistCache, VideoCache};
@@ -25,6 +26,9 @@ pub mod utils;
 // Architecture modules
 pub mod client;
 pub mod download;
+
+// Event system
+pub mod events;
 
 // Convenience modules
 pub mod macros;
@@ -97,6 +101,14 @@ pub struct Youtube {
     pub download_manager: Arc<DownloadManager>,
     /// Cancellation token for graceful shutdown.
     pub(crate) cancellation_token: tokio_util::sync::CancellationToken,
+    /// Event bus for broadcasting download events.
+    pub event_bus: events::EventBus,
+    /// Hook registry for Rust hooks (feature: hooks).
+    #[cfg(feature = "hooks")]
+    hook_registry: Option<events::HookRegistry>,
+    /// Webhook delivery system (feature: webhooks).
+    #[cfg(feature = "webhooks")]
+    webhook_delivery: Option<events::WebhookDelivery>,
 }
 
 impl fmt::Display for Youtube {
@@ -239,8 +251,14 @@ impl Youtube {
         #[cfg(feature = "cache")]
         let playlist_cache = PlaylistCache::new(cache_dir.join("playlists.db")).await?;
 
-        // Initialize download manager with default configuration
-        let download_manager = DownloadManager::new();
+        // Initialize event bus first
+        let event_bus = events::EventBus::with_default_capacity();
+
+        // Initialize download manager with default configuration and event bus
+        let download_manager = DownloadManager::with_config_and_event_bus(
+            ManagerConfig::default(),
+            Some(event_bus.clone()),
+        );
 
         Ok(Self {
             libraries,
@@ -256,6 +274,11 @@ impl Youtube {
             playlist_cache: Some(Arc::new(playlist_cache)),
             download_manager: Arc::new(download_manager),
             cancellation_token: tokio_util::sync::CancellationToken::new(),
+            event_bus,
+            #[cfg(feature = "hooks")]
+            hook_registry: Some(events::HookRegistry::new()),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: Some(events::WebhookDelivery::new()),
         })
     }
 
@@ -290,8 +313,14 @@ impl Youtube {
         #[cfg(feature = "cache")]
         let playlist_cache = PlaylistCache::new(cache_dir.join("playlists.db")).await?;
 
-        // Initialize download manager with custom configuration
-        let download_manager = DownloadManager::with_config(download_manager_config);
+        // Initialize event bus first
+        let event_bus = events::EventBus::with_default_capacity();
+
+        // Initialize download manager with custom configuration and event bus
+        let download_manager = DownloadManager::with_config_and_event_bus(
+            download_manager_config,
+            Some(event_bus.clone()),
+        );
 
         Ok(Self {
             libraries,
@@ -307,6 +336,11 @@ impl Youtube {
             playlist_cache: Some(Arc::new(playlist_cache)),
             download_manager: Arc::new(download_manager),
             cancellation_token: tokio_util::sync::CancellationToken::new(),
+            event_bus,
+            #[cfg(feature = "hooks")]
+            hook_registry: Some(events::HookRegistry::new()),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: Some(events::WebhookDelivery::new()),
         })
     }
 
@@ -632,7 +666,8 @@ impl Youtube {
                     let audio_format = self.find_cached_format(audio_path.as_ref()).await;
 
                     // Add metadata (including chapters) to the combined file with full format information
-                    if let Err(_e) = metadata::MetadataManager::add_metadata_with_chapters(
+                    let metadata_manager = MetadataManager::with_ffmpeg_path(&self.libraries.ffmpeg);
+                    if let Err(_e) = metadata_manager.add_metadata_with_chapters(
                         output_path.as_ref(),
                         &video,
                         video_format.as_ref(),
@@ -648,7 +683,8 @@ impl Youtube {
                     }
                 } else {
                     // Without cache, we don't have format details, add basic metadata only
-                    if let Err(e) = metadata::MetadataManager::add_metadata(
+                    let metadata_manager = MetadataManager::with_ffmpeg_path(&self.libraries.ffmpeg);
+                    if let Err(e) = metadata_manager.add_metadata(
                         output_path.as_ref(),
                         &video,
                     )
@@ -1512,5 +1548,139 @@ impl Youtube {
             self.timeout,
         )
         .await
+    }
+
+    /// Returns a stream of all download events.
+    ///
+    /// This method creates a new subscriber to the event bus and returns
+    /// a stream that can be used to receive all future events.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use tokio_stream::StreamExt;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// let youtube = Youtube::builder(libs, "output").build().await?;
+    /// let mut stream = youtube.event_stream();
+    ///
+    /// while let Some(Ok(event)) = stream.next().await {
+    ///     println!("Event: {}", event.event_type());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn event_stream(
+        &self,
+    ) -> impl tokio_stream::Stream<
+        Item = std::result::Result<
+            Arc<events::DownloadEvent>,
+            tokio_stream::wrappers::errors::BroadcastStreamRecvError,
+        >,
+    > {
+        self.event_bus.stream()
+    }
+
+    /// Subscribes to download events.
+    ///
+    /// Returns a broadcast receiver that can be used to receive events.
+    ///
+    /// # Returns
+    ///
+    /// A broadcast receiver for download events
+    pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<Arc<events::DownloadEvent>> {
+        self.event_bus.subscribe()
+    }
+
+    /// Returns the number of active event subscribers.
+    pub fn event_subscriber_count(&self) -> usize {
+        self.event_bus.subscriber_count()
+    }
+
+    #[cfg(feature = "hooks")]
+    /// Registers a Rust hook for download events.
+    ///
+    /// Hooks are called asynchronously for each event and can be filtered
+    /// to only receive specific event types.
+    ///
+    /// # Arguments
+    ///
+    /// * `hook` - The hook to register
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(feature = "hooks")]
+    /// # {
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::events::{EventHook, EventFilter, DownloadEvent, HookResult};
+    /// # use async_trait::async_trait;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// # let mut youtube = Youtube::builder(libs, "output").build().await?;
+    /// struct MyHook;
+    ///
+    /// #[async_trait]
+    /// impl EventHook for MyHook {
+    ///     async fn on_event(&self, event: &DownloadEvent) -> HookResult {
+    ///         println!("Event: {}", event.event_type());
+    ///         Ok(())
+    ///     }
+    ///
+    ///     fn filter(&self) -> EventFilter {
+    ///         EventFilter::only_terminal()
+    ///     }
+    /// }
+    ///
+    /// youtube.register_hook(MyHook).await;
+    /// # Ok(())
+    /// # }
+    /// # }
+    /// ```
+    pub async fn register_hook(&mut self, hook: impl events::EventHook + 'static) {
+        if let Some(ref mut registry) = self.hook_registry {
+            registry.register(hook).await;
+        }
+    }
+
+    #[cfg(feature = "webhooks")]
+    /// Registers a webhook for download events.
+    ///
+    /// Webhooks are called via HTTP POST with a JSON payload containing the event.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The webhook configuration
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(feature = "webhooks")]
+    /// # {
+    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::events::{WebhookConfig, WebhookMethod, EventFilter};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new("yt-dlp", "ffmpeg");
+    /// # let mut youtube = Youtube::builder(libs, "output").build().await?;
+    /// let webhook = WebhookConfig::new("https://example.com/webhook")
+    ///     .with_method(WebhookMethod::Post)
+    ///     .with_filter(EventFilter::only_completed());
+    ///
+    /// youtube.register_webhook(webhook).await;
+    /// # Ok(())
+    /// # }
+    /// # }
+    /// ```
+    pub async fn register_webhook(&mut self, config: events::WebhookConfig) {
+        if let Some(ref mut delivery) = self.webhook_delivery {
+            delivery.register(config).await;
+        }
     }
 }

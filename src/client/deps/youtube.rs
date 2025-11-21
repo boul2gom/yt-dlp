@@ -100,7 +100,7 @@ impl GitHubFetcher {
             architecture
         );
 
-        let release = self.fetch_latest_release(auth_token).await?;
+        let release = self.fetch_latest_release(auth_token.clone()).await?;
         let asset = Self::select_asset(&platform, &architecture, &release).ok_or(
             Error::NoBinaryRelease {
                 binary: "yt-dlp".to_string(),
@@ -109,9 +109,17 @@ impl GitHubFetcher {
             },
         )?;
 
+        // Fetch checksum if available
+        let checksum = self
+            .fetch_checksum(&release, &asset.name, auth_token)
+            .await
+            .ok()
+            .flatten();
+
         Ok(WantedRelease {
             name: asset.name.clone(),
             url: asset.download_url.clone(),
+            checksum,
         })
     }
 
@@ -129,7 +137,7 @@ impl GitHubFetcher {
             self.owner, self.repo
         );
 
-        let fetcher = Fetcher::new(&url, None);
+        let fetcher = Fetcher::new(&url, None, None);
         let response = fetcher.fetch_json(auth_token).await?;
 
         let release: Release = serde_json::from_value(response)?;
@@ -182,5 +190,45 @@ impl GitHubFetcher {
                 _ => false,
             }
         })
+    }
+
+    /// Fetch the checksum for the given asset from the release.
+    async fn fetch_checksum(
+        &self,
+        release: &Release,
+        asset_name: &str,
+        auth_token: Option<String>,
+    ) -> Result<Option<String>> {
+        // Find the SHA2-256SUMS file
+        let checksum_asset = release
+            .assets
+            .iter()
+            .find(|asset| asset.name == "SHA2-256SUMS");
+
+        if let Some(asset) = checksum_asset {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Found checksum file: {}", asset.download_url);
+
+            let fetcher = Fetcher::new(&asset.download_url, None, None);
+            let content = fetcher.fetch_text(auth_token).await?;
+
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let checksum = parts[0];
+                    let filename = parts[1].trim_start_matches('*');
+
+                    if filename == asset_name {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!("Found checksum for {}: {}", asset_name, checksum);
+                        return Ok(Some(checksum.to_string()));
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!("Checksum not found for {}", asset_name);
+        Ok(None)
     }
 }

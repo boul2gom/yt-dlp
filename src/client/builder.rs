@@ -192,16 +192,25 @@ impl YoutubeBuilder {
             tokio::fs::create_dir_all(&self.output_dir).await?;
         }
 
-        // Create download manager with proxy configuration
+        // Create event bus first
+        let event_bus = crate::events::EventBus::with_default_capacity();
+
+        // Create download manager with proxy configuration and event bus
         let download_manager = if let Some(mut config) = self.download_manager_config {
             config.proxy = self.proxy.clone();
-            Arc::new(DownloadManager::with_config(config))
+            Arc::new(DownloadManager::with_config_and_event_bus(
+                config,
+                Some(event_bus.clone()),
+            ))
         } else {
             let config = ManagerConfig {
                 proxy: self.proxy.clone(),
                 ..Default::default()
             };
-            Arc::new(DownloadManager::with_config(config))
+            Arc::new(DownloadManager::with_config_and_event_bus(
+                config,
+                Some(event_bus.clone()),
+            ))
         };
 
         // Add proxy argument to yt-dlp args if configured
@@ -239,6 +248,11 @@ impl YoutubeBuilder {
             playlist_cache,
             download_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
+            event_bus,
+            #[cfg(feature = "hooks")]
+            hook_registry: Some(crate::events::HookRegistry::new()),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: Some(crate::events::WebhookDelivery::new()),
         })
     }
 }

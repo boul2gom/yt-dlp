@@ -92,6 +92,8 @@ available.
   When this feature is enabled, the library will output span events at log levels `trace` and `debug`, depending on the importance of the called function.
 - **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
+- **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
+- **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
 
 #### 📝 Profiling with `tracing` (enabled by default):
 The crate supports the `tracing` feature to enable profiling, which can be useful for debugging.
@@ -1542,11 +1544,240 @@ For playlists:
 
 **Note**: Actual performance gains depend on your internet speed, server limitations, and network conditions.
 
+## 🔔 Events, Hooks & Webhooks
+
+The library provides a comprehensive event system to monitor download lifecycle and react to events through Rust hooks or HTTP webhooks.
+
+### Event System
+
+All download operations emit events that you can subscribe to:
+
+```rust
+use yt_dlp::Youtube;
+use tokio_stream::StreamExt;
+
+let youtube = Youtube::builder(libraries, "output").build().await?;
+let mut stream = youtube.event_stream();
+
+while let Some(Ok(event)) = stream.next().await {
+    println!("Event: {} - {:?}", event.event_type(), event);
+}
+```
+
+### Available Events
+
+The library emits **22 different event types** covering the entire download lifecycle:
+
+**Download Lifecycle:**
+- `VideoFetched` - Video metadata retrieved
+- `DownloadQueued` - Download added to queue
+- `DownloadStarted` - Download begins
+- `DownloadProgress` - Progress updates (bytes downloaded, speed, ETA)
+- `DownloadPaused` / `DownloadResumed` - Pause/resume events
+- `DownloadCompleted` - Download finished successfully
+- `DownloadFailed` - Download failed with error
+- `DownloadCanceled` - Download was canceled
+
+**Format & Metadata:**
+- `FormatSelected` - Video/audio format chosen
+- `MetadataApplied` - Metadata tags written
+- `ChaptersEmbedded` - Chapters added to file
+
+**Post-Processing:**
+- `PostProcessStarted` / `PostProcessCompleted` / `PostProcessFailed` - FFmpeg operations
+
+**Playlist Operations:**
+- `PlaylistFetched` - Playlist metadata retrieved
+- `PlaylistItemStarted` / `PlaylistItemCompleted` / `PlaylistItemFailed` - Per-item events
+- `PlaylistCompleted` - Entire playlist finished
+
+**Advanced:**
+- `SegmentStarted` / `SegmentCompleted` - Parallel segment downloads
+
+### Rust Hooks (Feature: `hooks`)
+
+Register async functions to be called when events occur:
+
+```toml
+[dependencies]
+yt-dlp = { version = "1.4.3", features = ["hooks"] }
+```
+
+```rust
+use yt_dlp::events::{EventHook, EventFilter, DownloadEvent, HookResult};
+use async_trait::async_trait;
+
+struct MyHook;
+
+#[async_trait]
+impl EventHook for MyHook {
+    async fn on_event(&self, event: &DownloadEvent) -> HookResult {
+        match event {
+            DownloadEvent::DownloadCompleted { download_id, output_path, .. } => {
+                println!("Download {} completed: {:?}", download_id, output_path);
+            }
+            DownloadEvent::DownloadFailed { download_id, error, .. } => {
+                eprintln!("Download {} failed: {}", download_id, error);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn filter(&self) -> EventFilter {
+        // Only receive terminal events (completed, failed, canceled)
+        EventFilter::only_terminal()
+    }
+}
+
+let mut youtube = Youtube::builder(libraries, "output").build().await?;
+youtube.register_hook(MyHook).await;
+```
+
+**Hook Features:**
+- Async execution
+- Event filtering (by type, download ID, custom predicates)
+- Parallel or sequential execution
+- Automatic timeout protection (30s)
+- Error isolation (hook failures don't stop downloads)
+
+**Event Filters:**
+```rust
+// Only completed downloads
+EventFilter::only_completed()
+
+// Only failed downloads
+EventFilter::only_failed()
+
+// Progress updates only
+EventFilter::only_progress()
+
+// Exclude progress events
+EventFilter::all().exclude_progress()
+
+// Specific download ID
+EventFilter::download_id(123)
+
+// Terminal events (completed, failed, canceled)
+EventFilter::only_terminal()
+
+// Chain filters
+EventFilter::download_id(123).and_then(|e| e.is_terminal())
+
+// Custom filter
+EventFilter::all().and_then(|event| {
+    // Your custom logic
+    true
+})
+```
+
+### HTTP Webhooks (Feature: `webhooks`)
+
+Send events to external HTTP endpoints with automatic retry:
+
+```toml
+[dependencies]
+yt-dlp = { version = "1.4.3", features = ["webhooks"] }
+```
+
+```rust
+use yt_dlp::events::{WebhookConfig, WebhookMethod, EventFilter};
+
+let webhook = WebhookConfig::new("https://example.com/webhook")
+    .with_method(WebhookMethod::Post)
+    .with_header("Authorization", "Bearer your-token")
+    .with_filter(EventFilter::only_completed())
+    .with_timeout(Duration::from_secs(10));
+
+let mut youtube = Youtube::builder(libraries, "output").build().await?;
+youtube.register_webhook(webhook).await;
+```
+
+**Webhook Features:**
+- HTTP POST/PUT/PATCH methods
+- Custom headers (authentication, etc.)
+- Event filtering (same as hooks)
+- Automatic retry with exponential backoff (3 attempts by default)
+- Configurable timeouts
+- JSON payload with event data
+- Environment variable configuration
+
+**Environment Variables:**
+```bash
+export YTDLP_WEBHOOK_URL="https://example.com/webhook"
+export YTDLP_WEBHOOK_METHOD="POST"  # Optional, default: POST
+export YTDLP_WEBHOOK_TIMEOUT="10"   # Optional, default: 10 seconds
+```
+
+```rust
+// Load webhook from environment variables
+if let Some(webhook) = WebhookConfig::from_env() {
+    youtube.register_webhook(webhook).await;
+}
+```
+
+**Webhook Payload:**
+```json
+{
+  "event_type": "download_completed",
+  "download_id": 123,
+  "timestamp": "2025-01-21T10:30:00Z",
+  "data": {
+    "download_id": 123,
+    "output_path": "/path/to/video.mp4",
+    "duration": 45.2,
+    "total_bytes": 104857600
+  }
+}
+```
+
+**Retry Strategy:**
+```rust
+use yt_dlp::events::RetryStrategy;
+
+// Exponential backoff (default)
+let strategy = RetryStrategy::exponential(
+    3,                              // max attempts
+    Duration::from_secs(1),         // initial delay
+    Duration::from_secs(30)         // max delay
+);
+
+// Linear backoff
+let strategy = RetryStrategy::linear(
+    3,                              // max attempts
+    Duration::from_secs(5)          // fixed delay
+);
+
+// No retries
+let strategy = RetryStrategy::none();
+```
+
+### Combining Features
+
+Use both hooks and webhooks together:
+
+```rust
+use yt_dlp::Youtube;
+use yt_dlp::events::{EventHook, WebhookConfig, EventFilter};
+
+let mut youtube = Youtube::builder(libraries, "output").build().await?;
+
+// Register Rust hook for immediate in-process handling
+youtube.register_hook(MyLocalHook).await;
+
+// Register webhook for external notifications
+let webhook = WebhookConfig::new("https://example.com/webhook")
+    .with_filter(EventFilter::only_completed());
+youtube.register_webhook(webhook).await;
+
+// Start downloads - both hooks and webhooks will receive events
+let video = youtube.fetch_video_infos("https://youtube.com/watch?v=...").await?;
+youtube.download_video(&video, "video.mp4").await?;
+```
+
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with `ffmpeg` or `reqwest`
-- [ ] Notifications and alerts on download events
-- [ ] Webhooks, Rust hooks and callbacks on download events, errors and progress
 - [ ] Support all extractors from yt-dlp
 - [ ] Statistics and analytics on downloads and fetches
 - [ ] Benchmark pure yt-dlp vs this library performance
