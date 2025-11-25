@@ -71,7 +71,7 @@ pub struct Video {
     pub chapters: Vec<Chapter>,
     /// The heatmap data for the video (most replayed segments).
     #[serde(default)]
-    pub heatmap: Option<Vec<Heatmap>>,
+    pub heatmap: Option<Heatmap>,
 
     /// The tags of the video.
     pub tags: Vec<String>,
@@ -449,7 +449,7 @@ impl Video {
     /// # Returns
     ///
     /// A reference to the heatmap, or None if no heatmap data is available
-    pub fn get_heatmap(&self) -> Option<&Vec<Heatmap>> {
+    pub fn get_heatmap(&self) -> Option<&Heatmap> {
         self.heatmap.as_ref()
     }
 
