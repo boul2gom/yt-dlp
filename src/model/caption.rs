@@ -21,6 +21,7 @@ pub struct AutomaticCaption {
 #[serde(rename_all = "snake_case")]
 pub enum Extension {
     /// The JSON extension.
+    Json,
     Json3,
     /// The Srv1 extension.
     Srv1,
@@ -68,6 +69,7 @@ impl Hash for AutomaticCaption {
 impl fmt::Display for Extension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Extension::Json => write!(f, "json"),
             Extension::Json3 => write!(f, "json3"),
             Extension::Srv1 => write!(f, "srv1"),
             Extension::Srv2 => write!(f, "srv2"),
@@ -95,7 +97,7 @@ impl Hash for Extension {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Subtitle {
     /// The language code of the subtitle (e.g., 'en', 'fr', 'es').
-    pub language_code: String,
+    pub language_code: Option<String>,
     /// The full language name (e.g., 'English', 'French', 'Spanish').
     pub language_name: Option<String>,
     /// The URL of the subtitle file.
@@ -112,7 +114,7 @@ impl Subtitle {
     /// Creates a new Subtitle from an AutomaticCaption.
     pub fn from_automatic_caption(caption: &AutomaticCaption, language_code: String) -> Self {
         Self {
-            language_code,
+            language_code: Some(language_code),
             language_name: caption.name.clone(),
             url: caption.url.clone(),
             extension: caption.extension.clone(),
@@ -128,6 +130,7 @@ impl Subtitle {
     /// Returns the file extension as a string.
     pub fn file_extension(&self) -> &str {
         match self.extension {
+            Extension::Json => "json",
             Extension::Json3 => "json3",
             Extension::Srv1 => "srv1",
             Extension::Srv2 => "srv2",
@@ -147,7 +150,10 @@ impl fmt::Display for Subtitle {
         write!(
             f,
             "Subtitle(lang={}, format={}, auto={})",
-            self.language_name.as_deref().unwrap_or(&self.language_code),
+            self.language_name
+                .as_deref()
+                .or(self.language_code.as_deref())
+                .unwrap_or("unknown"),
             self.file_extension(),
             self.is_automatic
         )
