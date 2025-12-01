@@ -1,7 +1,7 @@
 [package]
 name = "yt-dlp"
 edition = "2024"
-version = "1.4.5"
+version = "1.4.6"
 
 authors = ["boul2gom <contact@boul2gom.fr>"]
 description = "🎬️ A Rust library (with auto dependencies installation) for Youtube downloading"
