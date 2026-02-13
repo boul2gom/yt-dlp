@@ -14,6 +14,7 @@ use crate::model::selector::{
 use crate::model::thumbnail::Thumbnail;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+use serde_with::{DefaultOnNull, serde_as};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -22,6 +23,7 @@ use std::fmt;
 use super::DrmStatus;
 
 /// Represents a YouTube video, the output of 'yt-dlp'.
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Video {
     /// The ID of the video.
@@ -65,6 +67,7 @@ pub struct Video {
     pub subtitles: HashMap<String, Vec<Subtitle>>,
     /// The chapters of the video.
     #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
     pub chapters: Vec<Chapter>,
     /// The heatmap data for the video (most replayed segments).
     #[serde(default)]
@@ -427,7 +430,7 @@ impl Video {
     ///
     /// The chapter containing the timestamp, or None if no chapter matches
     pub fn get_chapter_at_time(&self, timestamp: f64) -> Option<&Chapter> {
-        self.chapters
+        self.get_chapters()
             .iter()
             .find(|chapter| chapter.contains_timestamp(timestamp))
     }
@@ -438,7 +441,7 @@ impl Video {
     ///
     /// true if the video has at least one chapter, false otherwise
     pub fn has_chapters(&self) -> bool {
-        !self.chapters.is_empty()
+        !self.get_chapters().is_empty()
     }
 
     /// Returns the heatmap data for the video if available.

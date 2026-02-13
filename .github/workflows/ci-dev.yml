@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v6.0.2
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v6.0.2
 
       - name: 🛠️ Install dependencies
         run: |
@@ -67,4 +67,4 @@ jobs:
           sudo apt-get install -y wget
 
       - name: 📝 Check spelling
-        uses: crate-ci/typos@v1.39.2
+        uses: crate-ci/typos@v1.43.2

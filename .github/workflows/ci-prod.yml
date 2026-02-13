@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -50,7 +50,7 @@ jobs:
           publish_results: true
 
       - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@v5.0.0
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: sarif-results
           path: results.sarif

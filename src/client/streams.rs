@@ -485,7 +485,16 @@ impl Youtube {
             .to_str()
             .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
-        let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path];
+    
+        let args = if output_str.ends_with(".webm"){
+            vec!["-i", temp, "-c:a", "copy", output_str_path]
+        } else if output_str.ends_with(".m4a"){
+            vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path]
+        }else if output_str.ends_with(".mp3"){
+            vec!["-i", temp, "-c:a", "libmp3lame", "-b:a", "192k", output_str_path]
+        }else {
+            return Err(Error::Unknown("Unsupported output format".into()));
+        };
 
         let executor = Executor {
             executable_path: self.libraries.ffmpeg.clone(),
