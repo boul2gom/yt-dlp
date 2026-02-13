@@ -2,7 +2,7 @@
 //!
 //! This module provides a builder pattern for configuring and executing downloads.
 
-use crate::client::Youtube;
+use crate::client::Downloader;
 use crate::download::DownloadPriority;
 use crate::download::partial::PartialRange;
 use crate::error::Result;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// Provides a fluent API for downloading videos with custom quality,
 /// codec preferences, and progress tracking.
 pub struct DownloadBuilder<'a> {
-    youtube: &'a Youtube,
+    downloader: &'a Downloader,
     url: String,
     output: PathBuf,
     video_quality: Option<VideoQuality>,
@@ -34,12 +34,16 @@ impl<'a> DownloadBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `youtube` - Reference to the Youtube client
+    /// * `downloader` - Reference to the Downloader client
     /// * `url` - The video URL to download
     /// * `output` - Output path for the downloaded file
-    pub fn new(youtube: &'a Youtube, url: impl Into<String>, output: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        downloader: &'a Downloader,
+        url: impl Into<String>,
+        output: impl Into<PathBuf>,
+    ) -> Self {
         Self {
-            youtube,
+            downloader,
             url: url.into(),
             output: output.into(),
             video_quality: None,
@@ -148,7 +152,7 @@ impl<'a> DownloadBuilder<'a> {
         let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
 
         // Fetch video information
-        let video = self.youtube.fetch_video_infos(self.url.clone()).await?;
+        let video = self.downloader.fetch_video_infos(self.url.clone()).await?;
 
         // Select video format based on quality and codec preferences
         let video_format = video
@@ -199,8 +203,8 @@ impl<'a> DownloadBuilder<'a> {
         })?;
 
         // Create output paths
-        let video_path = self.youtube.output_dir.join(&video_filename);
-        let audio_path = self.youtube.output_dir.join(&audio_filename);
+        let video_path = self.downloader.output_dir.join(&video_filename);
+        let audio_path = self.downloader.output_dir.join(&audio_filename);
 
         // Enqueue downloads with configured priority
         let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback
@@ -231,7 +235,7 @@ impl<'a> DownloadBuilder<'a> {
             };
 
             let video_id = self
-                .youtube
+                .downloader
                 .download_manager
                 .enqueue_with_progress(
                     video_url,
@@ -242,7 +246,7 @@ impl<'a> DownloadBuilder<'a> {
                 .await;
 
             let audio_id = self
-                .youtube
+                .downloader
                 .download_manager
                 .enqueue_with_progress(
                     audio_url,
@@ -255,13 +259,13 @@ impl<'a> DownloadBuilder<'a> {
             (video_id, audio_id)
         } else {
             let video_id = self
-                .youtube
+                .downloader
                 .download_manager
                 .enqueue(video_url, video_path.clone(), Some(self.priority))
                 .await;
 
             let audio_id = self
-                .youtube
+                .downloader
                 .download_manager
                 .enqueue(audio_url, audio_path.clone(), Some(self.priority))
                 .await;
@@ -270,15 +274,15 @@ impl<'a> DownloadBuilder<'a> {
         };
 
         // Wait for both downloads to complete
-        let video_status = self.youtube.wait_for_download(video_download_id).await;
-        let audio_status = self.youtube.wait_for_download(audio_download_id).await;
+        let video_status = self.downloader.wait_for_download(video_download_id).await;
+        let audio_status = self.downloader.wait_for_download(audio_download_id).await;
 
         // Check if downloads were successful
         use crate::download::DownloadStatus;
         match (video_status, audio_status) {
             (Some(DownloadStatus::Completed), Some(DownloadStatus::Completed)) => {
                 // Both downloads completed successfully, combine them
-                self.youtube
+                self.downloader
                     .combine_audio_and_video(
                         &audio_filename,
                         &video_filename,

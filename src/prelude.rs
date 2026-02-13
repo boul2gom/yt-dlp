@@ -10,7 +10,7 @@
 //! ```
 
 // Core types
-pub use crate::Youtube;
+pub use crate::Downloader;
 pub use crate::YoutubeBuilder;
 pub use crate::error::{Error, Result};
 

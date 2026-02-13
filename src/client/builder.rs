@@ -5,7 +5,7 @@
 #[cfg(feature = "cache")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::proxy::ProxyConfig;
-use crate::client::{Libraries, Youtube};
+use crate::client::{Downloader, Libraries};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
@@ -171,14 +171,14 @@ impl YoutubeBuilder {
         self
     }
 
-    /// Build the Youtube instance.
+    /// Build the Downloader instance.
     ///
     /// This method is async because it may need to create cache directories
     /// and initialize the download manager.
     ///
     /// # Returns
     ///
-    /// A configured Youtube instance ready to use.
+    /// A configured Downloader instance ready to use.
     ///
     /// # Errors
     ///
@@ -186,7 +186,7 @@ impl YoutubeBuilder {
     /// - The output directory cannot be created
     /// - The cache directories cannot be created (if caching is enabled)
     /// - The download manager cannot be initialized
-    pub async fn build(self) -> Result<Youtube> {
+    pub async fn build(self) -> Result<Downloader> {
         // Create output directory if it doesn't exist
         if !self.output_dir.exists() {
             tokio::fs::create_dir_all(&self.output_dir).await?;
@@ -234,7 +234,11 @@ impl YoutubeBuilder {
             (None, None, None)
         };
 
-        Ok(Youtube {
+        // Create Generic extractor (supports all sites including YouTube)
+        let extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
+
+        Ok(Downloader {
+            extractor: Box::new(extractor),
             libraries: self.libraries,
             output_dir: self.output_dir,
             args,

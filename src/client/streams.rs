@@ -11,13 +11,13 @@ use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
-use crate::{Youtube, utils};
+use crate::{Downloader, utils};
 use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-impl Youtube {
+impl Downloader {
     /// Fetch the video information from the given URL.
     ///
     /// # Arguments
@@ -59,28 +59,14 @@ impl Youtube {
             return Ok(video);
         }
 
-        // If the video is not in the cache, retrieve it from YouTube
-        let download_args = vec!["--no-progress", "--dump-json", &url];
+        // Delegate to the extractor
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Fetching video information using {} extractor",
+            self.extractor.name()
+        );
 
-        let mut final_args = self.args.clone();
-        final_args.append(&mut utils::to_owned(download_args));
-
-        let executor = Executor {
-            executable_path: self.libraries.youtube.clone(),
-            timeout: self.timeout,
-            args: final_args,
-        };
-
-        let output = executor.execute().await?;
-        let mut video: Video = serde_json::from_str(&output.stdout).map_err(|e| Error::Json {
-            context: "Failed to parse video metadata".to_string(),
-            source: e,
-        })?;
-
-        // Set the video ID on each format for caching purposes
-        for format in &mut video.formats {
-            format.video_id = Some(video.id.clone());
-        }
+        let video = self.extractor.fetch_video(&url).await?;
 
         // Put the video in the cache if caching is enabled
         #[cfg(feature = "cache")]
@@ -485,14 +471,21 @@ impl Youtube {
             .to_str()
             .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
-    
-        let args = if output_str.ends_with(".webm"){
+        let args = if output_str.ends_with(".webm") {
             vec!["-i", temp, "-c:a", "copy", output_str_path]
-        } else if output_str.ends_with(".m4a"){
+        } else if output_str.ends_with(".m4a") {
             vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path]
-        }else if output_str.ends_with(".mp3"){
-            vec!["-i", temp, "-c:a", "libmp3lame", "-b:a", "192k", output_str_path]
-        }else {
+        } else if output_str.ends_with(".mp3") {
+            vec![
+                "-i",
+                temp,
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                output_str_path,
+            ]
+        } else {
             return Err(Error::Unknown("Unsupported output format".into()));
         };
 
@@ -1205,29 +1198,14 @@ impl Youtube {
             return Ok(playlist);
         }
 
-        // Use --flat-playlist to get just the playlist metadata without downloading videos
-        let playlist_args = vec![
-            "--flat-playlist",
-            "--dump-single-json",
-            "--no-progress",
-            &url,
-        ];
+        // Delegate to the extractor
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Fetching playlist information using {} extractor",
+            self.extractor.name()
+        );
 
-        let mut final_args = self.args.clone();
-        final_args.append(&mut utils::to_owned(playlist_args));
-
-        let executor = Executor {
-            executable_path: self.libraries.youtube.clone(),
-            timeout: self.timeout,
-            args: final_args,
-        };
-
-        let output = executor.execute().await?;
-        let mut playlist: Playlist =
-            serde_json::from_str(&output.stdout).map_err(|e| Error::Json {
-                context: "Failed to parse playlist metadata".to_string(),
-                source: e,
-            })?;
+        let mut playlist = self.extractor.fetch_playlist(&url).await?;
 
         // Store the URL in the playlist for caching purposes
         playlist.url = Some(url.clone());

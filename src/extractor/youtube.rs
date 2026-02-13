@@ -1,0 +1,397 @@
+//! YouTube extractor with platform-specific optimizations.
+//!
+//! This extractor provides highly optimized YouTube downloading with:
+//! - Player client selection (Android, iOS, Web, TV Embedded)
+//! - Format presets for common use cases
+//! - YouTube-specific shortcuts (channel, user, search)
+//! - Performance optimizations
+
+use async_trait::async_trait;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use crate::error::Result;
+use crate::executor::Executor;
+use crate::extractor::VideoExtractor;
+use crate::model::Video;
+use crate::model::playlist::Playlist;
+
+/// YouTube player client types.
+///
+/// Different player clients have different capabilities and performance characteristics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerClient {
+    /// Android client (bypasses some throttling, works on restricted videos)
+    Android,
+    /// iOS client (good quality, reliable)
+    IOS,
+    /// Web client (all formats available, well-tested)
+    Web,
+    /// TV Embedded client (bypasses age restrictions)
+    TvEmbedded,
+}
+
+impl PlayerClient {
+    fn as_arg(&self) -> &str {
+        match self {
+            PlayerClient::Android => "android",
+            PlayerClient::IOS => "ios",
+            PlayerClient::Web => "web",
+            PlayerClient::TvEmbedded => "tv_embedded",
+        }
+    }
+}
+
+/// Format preset for YouTube downloads.
+///
+/// These presets provide common format selection patterns optimized for different use cases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormatPreset {
+    /// Best available quality (highest resolution + best audio)
+    Best,
+    /// Premium quality (1080p+ with high bitrate audio)
+    Premium,
+    /// High quality (1080p with good audio)
+    High,
+    /// Medium quality (720p with standard audio)
+    Medium,
+    /// Low quality (480p or lower, smaller file size)
+    Low,
+    /// Audio only (best audio quality)
+    AudioOnly,
+    /// Modern codecs (VP9/AV1 + Opus for smaller files)
+    ModernCodecs,
+    /// Legacy compatibility (H.264 + AAC for older devices)
+    LegacyCompatible,
+    /// Custom format selector string
+    Custom(String),
+}
+
+impl FormatPreset {
+    fn to_format_selector(&self) -> String {
+        match self {
+            Self::Best => "bestvideo+bestaudio/best".to_string(),
+            Self::Premium => "bestvideo[height>=1080]+bestaudio[abr>=192]/best".to_string(),
+            Self::High => "bestvideo[height>=1080]+bestaudio/best".to_string(),
+            Self::Medium => "bestvideo[height>=720]+bestaudio/best".to_string(),
+            Self::Low => "bestvideo[height<=480]+bestaudio/best".to_string(),
+            Self::AudioOnly => "bestaudio/best".to_string(),
+            Self::ModernCodecs => "bestvideo[vcodec^=vp9]+bestaudio[acodec=opus]/best".to_string(),
+            Self::LegacyCompatible => "best[ext=mp4]/best".to_string(),
+            Self::Custom(selector) => selector.clone(),
+        }
+    }
+}
+
+/// YouTube extractor with optimizations.
+///
+/// This struct provides access to YouTube-specific features and optimizations
+/// that go beyond generic video downloading.
+#[derive(Debug)]
+pub struct Youtube {
+    executable_path: PathBuf,
+    player_client: Option<PlayerClient>,
+    skip_dash: bool,
+    format_preset: Option<FormatPreset>,
+    args: Vec<String>,
+    timeout: Duration,
+}
+
+impl Youtube {
+    /// Create a new YouTube extractor.
+    ///
+    /// # Arguments
+    /// * `executable_path` - Path to the yt-dlp executable
+    pub fn new(executable_path: PathBuf) -> Self {
+        Self {
+            executable_path,
+            player_client: None,
+            skip_dash: false,
+            format_preset: None,
+            args: Vec::new(),
+            timeout: Duration::from_secs(60),
+        }
+    }
+
+    /// Set YouTube player client for optimal performance.
+    ///
+    /// # Arguments
+    /// * `client` - The player client to use
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use yt_dlp::extractor::{Youtube, PlayerClient};
+    /// # use std::path::PathBuf;
+    /// let mut extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// extractor.with_player_client(PlayerClient::Android);
+    /// ```
+    pub fn with_player_client(&mut self, client: PlayerClient) -> &mut Self {
+        self.player_client = Some(client);
+        self
+    }
+
+    /// Skip DASH manifest for faster extraction.
+    ///
+    /// This speeds up video information fetching but may miss some formats.
+    ///
+    /// # Arguments
+    /// * `skip` - Whether to skip DASH manifest parsing
+    pub fn skip_dash_manifest(&mut self, skip: bool) -> &mut Self {
+        self.skip_dash = skip;
+        self
+    }
+
+    /// Set format preset for video quality.
+    ///
+    /// # Arguments
+    /// * `preset` - The format preset to use
+    pub fn with_format_preset(&mut self, preset: FormatPreset) -> &mut Self {
+        self.format_preset = Some(preset);
+        self
+    }
+
+    /// Add custom yt-dlp argument.
+    ///
+    /// # Arguments
+    /// * `arg` - The argument to add
+    pub fn with_arg(&mut self, arg: String) -> &mut Self {
+        self.args.push(arg);
+        self
+    }
+
+    /// Set timeout for yt-dlp operations.
+    ///
+    /// # Arguments
+    /// * `timeout` - The timeout duration
+    pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.timeout = timeout;
+        self
+    }
+
+    // ========== YouTube-Specific Methods ==========
+
+    /// Fetch channel by ID (fast, direct API).
+    ///
+    /// # Arguments
+    /// * `channel_id` - The YouTube channel ID
+    ///
+    /// # Returns
+    /// Playlist containing all channel videos
+    ///
+    /// # Errors
+    /// Returns error if channel is not found or inaccessible
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use yt_dlp::extractor::Youtube;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let channel = extractor.fetch_channel("UC...").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fetch_channel(&self, channel_id: &str) -> Result<Playlist> {
+        let url = format!("https://www.youtube.com/channel/{}", channel_id);
+        self.fetch_playlist(&url).await
+    }
+
+    /// Fetch channel by handle (@username).
+    ///
+    /// # Arguments
+    /// * `handle` - The YouTube channel handle (without @)
+    ///
+    /// # Returns
+    /// Playlist containing all channel videos
+    ///
+    /// # Errors
+    /// Returns error if channel is not found or inaccessible
+    pub async fn fetch_channel_by_handle(&self, handle: &str) -> Result<Playlist> {
+        let url = format!("https://www.youtube.com/@{}", handle);
+        self.fetch_playlist(&url).await
+    }
+
+    /// Fetch user's uploads (legacy URL format).
+    ///
+    /// # Arguments
+    /// * `username` - The YouTube username
+    ///
+    /// # Returns
+    /// Playlist containing all user videos
+    ///
+    /// # Errors
+    /// Returns error if user is not found or inaccessible
+    pub async fn fetch_user(&self, username: &str) -> Result<Playlist> {
+        let url = format!("https://www.youtube.com/user/{}", username);
+        self.fetch_playlist(&url).await
+    }
+
+    /// Fetch playlist with pagination control.
+    ///
+    /// # Arguments
+    /// * `playlist_id` - The YouTube playlist ID
+    /// * `start` - Starting video index (1-based)
+    /// * `count` - Number of videos to fetch
+    ///
+    /// # Returns
+    /// Playlist containing specified range of videos
+    ///
+    /// # Errors
+    /// Returns error if playlist is not found or inaccessible
+    pub async fn fetch_playlist_paginated(
+        &self,
+        playlist_id: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Playlist> {
+        let mut args = self.build_base_args();
+        args.push("--flat-playlist".to_string());
+        args.push(format!("--playlist-start={}", start));
+        args.push(format!("--playlist-end={}", start + count - 1));
+
+        let url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
+        args.push(url);
+
+        self.execute_for_playlist(&args).await
+    }
+
+    /// Search YouTube videos.
+    ///
+    /// # Arguments
+    /// * `query` - The search query
+    /// * `max_results` - Maximum number of results to return
+    ///
+    /// # Returns
+    /// Playlist containing search results
+    ///
+    /// # Errors
+    /// Returns error if search fails
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use yt_dlp::extractor::Youtube;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let results = extractor.search("rust programming", 10).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn search(&self, query: &str, max_results: usize) -> Result<Playlist> {
+        let url = format!("ytsearch{}:{}", max_results, query);
+        self.fetch_playlist(&url).await
+    }
+
+    /// Search and return first result.
+    ///
+    /// # Arguments
+    /// * `query` - The search query
+    ///
+    /// # Returns
+    /// First video matching the search
+    ///
+    /// # Errors
+    /// Returns error if no results found
+    pub async fn search_first(&self, query: &str) -> Result<Video> {
+        let url = format!("ytsearch1:{}", query);
+        let mut args = self.build_base_args();
+        args.push(url);
+
+        self.execute_for_video(&args).await
+    }
+
+    // ========== Internal Helper Methods ==========
+
+    fn build_base_args(&self) -> Vec<String> {
+        let mut args = vec!["--no-progress".to_string(), "--dump-json".to_string()];
+
+        // Player client
+        if let Some(client) = self.player_client {
+            args.push("--extractor-args".to_string());
+            args.push(format!("youtube:player_client={}", client.as_arg()));
+        }
+
+        // Skip DASH
+        if self.skip_dash {
+            args.push("--extractor-args".to_string());
+            args.push("youtube:skip=dash".to_string());
+        }
+
+        // Format preset
+        if let Some(preset) = &self.format_preset {
+            args.push("-f".to_string());
+            args.push(preset.to_format_selector());
+        }
+
+        // Custom args
+        args.extend(self.args.clone());
+
+        args
+    }
+
+    async fn execute_for_video(&self, args: &[String]) -> Result<Video> {
+        let executor = Executor {
+            executable_path: self.executable_path.clone(),
+            args: args.to_vec(),
+            timeout: self.timeout,
+        };
+
+        let output = executor.execute().await?;
+        let mut video: Video = serde_json::from_str(&output.stdout)?;
+
+        // Set video ID on each format for caching purposes
+        for format in &mut video.formats {
+            format.video_id = Some(video.id.clone());
+        }
+
+        Ok(video)
+    }
+
+    async fn execute_for_playlist(&self, args: &[String]) -> Result<Playlist> {
+        let executor = Executor {
+            executable_path: self.executable_path.clone(),
+            args: args.to_vec(),
+            timeout: self.timeout,
+        };
+
+        let output = executor.execute().await?;
+        serde_json::from_str(&output.stdout).map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl VideoExtractor for Youtube {
+    async fn fetch_video(&self, url: &str) -> Result<Video> {
+        let mut args = self.build_base_args();
+        args.push(url.to_string());
+
+        self.execute_for_video(&args).await
+    }
+
+    async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
+        let mut args = vec![
+            "--flat-playlist".to_string(),
+            "--dump-json".to_string(),
+            "--no-progress".to_string(),
+        ];
+
+        args.extend(self.args.clone());
+        args.push(url.to_string());
+
+        self.execute_for_playlist(&args).await
+    }
+
+    fn name(&self) -> &str {
+        "youtube"
+    }
+
+    fn supports_url(&self, url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+        url_lower.contains("youtube.com")
+            || url_lower.contains("youtu.be")
+            || url_lower.contains("youtube-nocookie.com")
+            || url_lower.starts_with("ytsearch")
+    }
+}

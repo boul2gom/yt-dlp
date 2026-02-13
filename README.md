@@ -1,6 +1,6 @@
-<h2 align="center">🎬️ A Rust library (with auto dependencies installation) for YouTube downloading</h2>
+<h2 align="center">🎬️ A Rust library (with auto dependencies installation) for video downloading from 1,800+ websites</h2>
 
-<div align="center">This library is a Rust asynchronous wrapper around the yt-dlp command line tool, a feature-rich youtube (and others) audio/video downloader, which is a fork of youtube-dl with a lot of additional features and improvements.</div>
+<div align="center">This library is a Rust asynchronous wrapper around the yt-dlp command line tool, a feature-rich audio/video downloader supporting <strong>YouTube, Vimeo, TikTok, Instagram, Twitter, and 1,800+ other sites</strong>.</div>
 <div align="center">
   The crate is designed to download audio and video from various websites.
   You don't need to care about dependencies, yt-dlp and ffmpeg will be downloaded automatically.
@@ -106,6 +106,51 @@ yt-dlp = { version = "1.4.9", features = ["tracing"], default-features = false }
 ## 📖 Documentation
 
 The documentation is available on [docs.rs](https://docs.rs/yt-dlp).
+
+## 🏗️ Multi-Extractor Architecture
+
+This library now supports downloading from **1,800+ websites** through a flexible extractor system:
+
+- **`Downloader`** (formerly `Youtube`) - Universal client supporting all sites via the Generic extractor
+- **`extractor::Youtube`** - Highly optimized YouTube extractor with platform-specific features:
+  - Player client selection (Android, iOS, Web, TvEmbedded) for bypassing restrictions
+  - Format presets (Best, Premium, High, Medium, Low, AudioOnly, ModernCodecs)
+  - YouTube-specific methods: `search()`, `fetch_channel()`, `fetch_user()`, `fetch_playlist_paginated()`
+- **`extractor::Generic`** - Universal extractor for all other sites with authentication support
+
+### Usage Patterns
+
+**For YouTube with optimizations:**
+```rust
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+
+let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+let downloader = Downloader::for_youtube(libraries, "output").await?;
+
+// Access YouTube-specific features
+if let Some(youtube) = downloader.youtube_extractor() {
+    let results = youtube.search("rust programming", 10).await?;
+    let channel = youtube.fetch_channel("UCaYhcUwRBNscFNUKTjgPFiA").await?;
+}
+```
+
+**For any website (YouTube, Vimeo, TikTok, etc.):**
+```rust
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+
+let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+let downloader = Downloader::new(libraries, "output").await?;
+
+// Works with any supported site
+let video = downloader.download_video_from_url(
+    "https://vimeo.com/123456789",
+    "output.mp4"
+).await?;
+```
+
+**Backwards compatibility:** The library maintains backwards compatibility by re-exporting `Downloader` as `Youtube` in the prelude, so existing code continues to work.
 
 ## 📚 Examples
 
@@ -1775,9 +1820,56 @@ let video = youtube.fetch_video_infos("https://youtube.com/watch?v=...").await?;
 youtube.download_video(&video, "video.mp4").await?;
 ```
 
+## 🌍 Multi-Site Support
+
+**This library supports all 1,800+ extractors from yt-dlp!**
+
+While the examples focus on YouTube (the most common use case), the library works seamlessly with any site supported by yt-dlp. Simply pass the URL - yt-dlp automatically detects the correct extractor.
+
+### Supported Sites Include:
+- **Video platforms**: YouTube, Vimeo, Dailymotion, Twitch
+- **Social media**: Instagram, TikTok, Twitter/X, Facebook
+- **Streaming services**: Netflix, Disney+, Crunchyroll (may require authentication)
+- **Music platforms**: Spotify, SoundCloud, Bandcamp
+- **News outlets**: CNN, BBC, Fox News
+- **And 1,800+ more...**
+
+For the complete list, see [yt-dlp's supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+
+### Examples
+
+**Vimeo:**
+```rust
+let url = "https://vimeo.com/148751763".to_string();
+let video = fetcher.fetch_video_infos(url).await?;
+fetcher.download_video(&video, "vimeo-video.mp4").await?;
+```
+
+**TikTok:**
+```rust
+let url = "https://www.tiktok.com/@user/video/123".to_string();
+let video = fetcher.fetch_video_infos(url).await?;
+fetcher.download_video(&video, "tiktok-video.mp4").await?;
+```
+
+**Instagram:**
+```rust
+// Note: May require cookies for authentication
+let url = "https://www.instagram.com/p/ABC123/".to_string();
+let video = fetcher.fetch_video_infos(url).await?;
+```
+
+**Check which extractor handles a URL:**
+```rust
+let extractor = fetcher.detect_extractor("https://vimeo.com/123").await?;
+println!("This URL uses the '{}' extractor", extractor);
+```
+
+For detailed documentation, examples, and authentication instructions, see the [`extractors`](https://docs.rs/yt-dlp/latest/yt_dlp/extractors/) module documentation.
+
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with `ffmpeg` or `reqwest`
-- [ ] Support all extractors from yt-dlp
+- [x] Support all extractors from yt-dlp ✅ **Implemented!**
 - [ ] Statistics and analytics on downloads and fetches
 - [ ] Benchmark pure yt-dlp vs this library performance

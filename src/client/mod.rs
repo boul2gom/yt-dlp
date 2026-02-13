@@ -1,6 +1,6 @@
-//! Youtube client module.
+//! Downloader client module.
 //!
-//! This module provides the main Youtube client struct and related configuration types.
+//! This module provides the main Downloader client struct and related configuration types.
 
 pub mod builder;
 pub mod config;
@@ -15,6 +15,6 @@ pub use deps::{Libraries, LibraryInstaller};
 pub use download_builder::DownloadBuilder;
 pub use proxy::{ProxyConfig, ProxyType};
 
-// Re-export from root lib.rs (where Youtube is currently defined)
+// Re-export from root lib.rs (where Downloader is currently defined)
 // This maintains the code in one place while providing the new API structure
-pub use crate::Youtube;
+pub use crate::Downloader;

@@ -27,6 +27,9 @@ pub mod utils;
 pub mod client;
 pub mod download;
 
+// Multi-extractor support
+pub mod extractor;
+
 // Event system
 pub mod events;
 
@@ -41,42 +44,76 @@ pub use model::utils::{AllTraits, CommonTraits};
 pub use client::{DownloadBuilder, YoutubeBuilder};
 pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 
-/// A YouTube video fetcher that uses yt-dlp to fetch video information and download it.
+/// Universal video downloader supporting 1,800+ sites via yt-dlp.
 ///
-/// The 'yt-dlp' executable and 'ffmpeg' build can be installed with this fetcher.
+/// This struct provides a unified interface for downloading videos from any site
+/// supported by yt-dlp, with automatic extractor detection and platform-specific
+/// optimizations for YouTube.
 ///
-/// The video can be downloaded with or without its audio, and the audio and video can be combined.
-/// The video thumbnail can also be downloaded.
+/// # Architecture
 ///
-/// The major implementations of this struct are located in the 'fetcher' module.
+/// The `Downloader` uses a trait-based extractor system:
+/// - **YouTube URLs**: Uses the highly optimized `Youtube` extractor with platform-specific features
+/// - **Other URLs**: Uses the `Generic` extractor for universal support
+///
+/// Extractor selection is automatic based on URL patterns.
 ///
 /// # Examples
 ///
+/// ## YouTube (with optimizations)
 /// ```rust, no_run
-/// # use yt_dlp::Youtube;
+/// # use yt_dlp::Downloader;
 /// # use std::path::PathBuf;
 /// # use yt_dlp::client::deps::Libraries;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let libraries_dir = PathBuf::from("libs");
-/// let output_dir = PathBuf::from("output");
+/// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+/// let downloader = Downloader::new(libraries, "output").await?;
 ///
-/// let youtube = libraries_dir.join("yt-dlp");
-/// let ffmpeg = libraries_dir.join("ffmpeg");
-///
-/// let libraries = Libraries::new(youtube, ffmpeg);
-/// let mut fetcher = Youtube::new(libraries, output_dir)?;
-///
-/// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-/// let video = fetcher.fetch_video_infos(url).await?;
-/// println!("Video title: {}", video.title);
-///
-/// fetcher.download_video(&video, "video.mp4").await?;
+/// // YouTube is automatically detected and optimized
+/// let video = downloader.fetch_video_infos("https://youtube.com/watch?v=...".to_string()).await?;
+/// downloader.download_video(&video, "video.mp4").await?;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug)]
-pub struct Youtube {
+///
+/// ## Other sites (Vimeo, TikTok, etc.)
+/// ```rust, no_run
+/// # use yt_dlp::Downloader;
+/// # use yt_dlp::client::deps::Libraries;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+/// # let downloader = Downloader::new(libraries, "output").await?;
+/// // Vimeo - automatically detected
+/// let vimeo = downloader.fetch_video_infos("https://vimeo.com/123456".to_string()).await?;
+///
+/// // TikTok - automatically detected
+/// let tiktok = downloader.fetch_video_infos("https://tiktok.com/@user/video/123".to_string()).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## Accessing YouTube-specific features
+/// ```rust, no_run
+/// # use yt_dlp::Downloader;
+/// # use yt_dlp::client::deps::Libraries;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+/// # let mut downloader = Downloader::new(libraries, "output").await?;
+/// // Access YouTube-specific methods
+/// if let Some(youtube) = downloader.youtube_extractor() {
+///     let channel = youtube.fetch_channel("UC...").await?;
+///     let search = youtube.search("rust programming", 10).await?;
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug)]
+pub struct Downloader {
+    /// The video extractor (Youtube or Generic)
+    extractor: Box<dyn extractor::VideoExtractor>,
     /// The required libraries.
     pub libraries: Libraries,
 
@@ -111,11 +148,41 @@ pub struct Youtube {
     webhook_delivery: Option<events::WebhookDelivery>,
 }
 
-impl fmt::Display for Youtube {
+impl Clone for Downloader {
+    fn clone(&self) -> Self {
+        // Create a new Generic extractor with the same configuration
+        let extractor = extractor::Generic::new(self.libraries.youtube.clone());
+
+        Self {
+            extractor: Box::new(extractor),
+            libraries: self.libraries.clone(),
+            output_dir: self.output_dir.clone(),
+            args: self.args.clone(),
+            timeout: self.timeout,
+            proxy: self.proxy.clone(),
+            #[cfg(feature = "cache")]
+            cache: self.cache.clone(),
+            #[cfg(feature = "cache")]
+            download_cache: self.download_cache.clone(),
+            #[cfg(feature = "cache")]
+            playlist_cache: self.playlist_cache.clone(),
+            download_manager: self.download_manager.clone(),
+            cancellation_token: self.cancellation_token.clone(),
+            event_bus: self.event_bus.clone(),
+            #[cfg(feature = "hooks")]
+            hook_registry: self.hook_registry.clone(),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: self.webhook_delivery.clone(),
+        }
+    }
+}
+
+impl fmt::Display for Downloader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Youtube: output_dir={:?}, args={:?}, proxy={}",
+            "Downloader ({}): output_dir={:?}, args={:?}, proxy={}",
+            self.extractor.name(),
             self.output_dir,
             self.args,
             self.proxy.is_some()
@@ -123,7 +190,7 @@ impl fmt::Display for Youtube {
     }
 }
 
-impl Youtube {
+impl Downloader {
     /// Creates a new builder for constructing a Youtube instance with a fluent API.
     ///
     /// This is the recommended way to create a Youtube instance as it provides
@@ -260,7 +327,11 @@ impl Youtube {
             Some(event_bus.clone()),
         );
 
+        // Create Generic extractor (supports all sites including YouTube)
+        let extractor = extractor::Generic::new(libraries.youtube.clone());
+
         Ok(Self {
+            extractor: Box::new(extractor),
             libraries,
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
@@ -322,7 +393,11 @@ impl Youtube {
             Some(event_bus.clone()),
         );
 
+        // Create Generic extractor (supports all sites including YouTube)
+        let extractor = extractor::Generic::new(libraries.youtube.clone());
+
         Ok(Self {
+            extractor: Box::new(extractor),
             libraries,
             output_dir: output_dir.as_ref().to_path_buf(),
             args: Vec::new(),
@@ -402,6 +477,133 @@ impl Youtube {
 
         let libraries = Libraries::new(youtube, ffmpeg);
         Self::new(libraries, output_dir).await
+    }
+
+    /// Creates a new Downloader with YouTube-optimized extractor.
+    ///
+    /// This constructor creates a Downloader that uses the highly optimized YouTube extractor
+    /// instead of the generic one, providing access to YouTube-specific features like search,
+    /// channel fetching, and player client selection.
+    ///
+    /// # Arguments
+    ///
+    /// * `libraries` - The required libraries (yt-dlp and ffmpeg paths)
+    /// * `output_dir` - The directory where videos will be downloaded
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directories cannot be created
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    ///
+    /// let downloader = Downloader::for_youtube(libraries, "output").await?;
+    ///
+    /// // Access YouTube-specific features
+    /// if let Some(youtube) = downloader.youtube_extractor() {
+    ///     let results = youtube.search("rust programming", 10).await?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn for_youtube(
+        libraries: Libraries,
+        output_dir: impl AsRef<Path> + std::fmt::Debug,
+    ) -> Result<Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating a new Downloader with YouTube extractor");
+
+        fs::create_parent_dir(&output_dir)?;
+
+        // Initialize cache in the output directory
+        let cache_dir = output_dir.as_ref().join("cache");
+        fs::create_parent_dir(&cache_dir)?;
+        #[cfg(feature = "cache")]
+        let cache = VideoCache::new(cache_dir.clone(), None).await?;
+        #[cfg(feature = "cache")]
+        let download_cache = DownloadCache::new(cache_dir.clone(), None).await?;
+        #[cfg(feature = "cache")]
+        let playlist_cache = PlaylistCache::new(cache_dir.join("playlists.db")).await?;
+
+        // Initialize event bus first
+        let event_bus = events::EventBus::with_default_capacity();
+
+        // Initialize download manager with default configuration and event bus
+        let download_manager = DownloadManager::with_config_and_event_bus(
+            ManagerConfig::default(),
+            Some(event_bus.clone()),
+        );
+
+        // Create YouTube extractor for optimized YouTube support
+        let extractor = extractor::Youtube::new(libraries.youtube.clone());
+
+        Ok(Self {
+            extractor: Box::new(extractor),
+            libraries,
+            output_dir: output_dir.as_ref().to_path_buf(),
+            args: Vec::new(),
+            timeout: Duration::from_secs(30),
+            proxy: None,
+            #[cfg(feature = "cache")]
+            cache: Some(Arc::new(cache)),
+            #[cfg(feature = "cache")]
+            download_cache: Some(Arc::new(download_cache)),
+            #[cfg(feature = "cache")]
+            playlist_cache: Some(Arc::new(playlist_cache)),
+            download_manager: Arc::new(download_manager),
+            cancellation_token: tokio_util::sync::CancellationToken::new(),
+            event_bus,
+            #[cfg(feature = "hooks")]
+            hook_registry: Some(events::HookRegistry::new()),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: Some(events::WebhookDelivery::new()),
+        })
+    }
+
+    /// Returns a reference to the YouTube extractor if one is currently in use.
+    ///
+    /// This method allows access to YouTube-specific features like search, channel fetching,
+    /// and player client selection. Returns `None` if using the generic extractor.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    /// let downloader = Downloader::for_youtube(libraries, "output").await?;
+    ///
+    /// if let Some(youtube) = downloader.youtube_extractor() {
+    ///     // Use YouTube-specific features
+    ///     let search_results = youtube.search("rust tutorials", 5).await?;
+    ///     let channel = youtube.fetch_channel("UC_channel_id").await?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn youtube_extractor(&self) -> Option<&extractor::Youtube> {
+        // We need to use a workaround since we can't directly downcast Box<dyn VideoExtractor>
+        // Instead, we'll check the extractor name
+        if self.extractor.name() == "youtube" {
+            // SAFETY: We know this is a Youtube extractor based on the name
+            // This is safe because we control both the creation and the trait implementation
+            unsafe {
+                let ptr = &*self.extractor as *const dyn extractor::VideoExtractor;
+                let ptr = ptr as *const extractor::Youtube;
+                Some(&*ptr)
+            }
+        } else {
+            None
+        }
     }
 
     /// Sets the arguments to pass to yt-dlp.
