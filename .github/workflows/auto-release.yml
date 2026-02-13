@@ -88,12 +88,10 @@ jobs:
               
               const has_bump_message = commit.commit.message.includes('Bump ');
               
-              // Standard format or alternative format
-              const is_standard_format = 
-                commit.commit.message.includes(' from ') && 
-                commit.commit.message.includes(' to ');
+              // Exclude GitHub Actions updates — they should not trigger a release
+              const is_github_actions = commit.commit.message.includes('[Github Actions]');
 
-              return is_dependabot && has_bump_message;
+              return is_dependabot && has_bump_message && !is_github_actions;
             });
 
             const has_unreleased_updates = merged_commits.length > 0;
