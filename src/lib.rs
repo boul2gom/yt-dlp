@@ -788,17 +788,40 @@ impl Downloader {
         video_file: impl AsRef<str> + std::fmt::Debug + Display,
         output_file: impl AsRef<str> + std::fmt::Debug + Display,
     ) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Combining audio and video files {} and {}, into {}",
-            audio_file,
-            video_file,
-            output_file
-        );
-
         let audio_path = self.output_dir.join(audio_file.as_ref());
         let video_path = self.output_dir.join(video_file.as_ref());
         let output_path = self.output_dir.join(output_file.as_ref());
+        self.combine_audio_and_video_to_path(&audio_path, &video_path, &output_path)
+            .await
+    }
+
+    /// Combines audio and video files into a single file at a specific path.
+    ///
+    /// Unlike [`combine_audio_and_video`](Self::combine_audio_and_video), this method uses
+    /// the exact paths specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `audio_file` - The full path to the audio file.
+    /// * `video_file` - The full path to the video file.
+    /// * `output_file` - The full path for the combined output file.
+    pub async fn combine_audio_and_video_to_path(
+        &self,
+        audio_file: impl AsRef<Path> + std::fmt::Debug,
+        video_file: impl AsRef<Path> + std::fmt::Debug,
+        output_file: impl AsRef<Path> + std::fmt::Debug,
+    ) -> Result<PathBuf> {
+        let audio_path = audio_file.as_ref().to_path_buf();
+        let video_path = video_file.as_ref().to_path_buf();
+        let output_path = output_file.as_ref().to_path_buf();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Combining audio and video files {:?} and {:?}, into {:?}",
+            audio_path,
+            video_path,
+            output_path
+        );
 
         // Perform the combination with FFmpeg
         self.execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
@@ -1108,6 +1131,31 @@ impl Downloader {
         output: impl AsRef<str> + std::fmt::Debug,
         priority: Option<download::manager::DownloadPriority>,
     ) -> Result<u64> {
+        let output_path = self.output_dir.join(output.as_ref());
+        self.download_video_with_priority_to_path(video, &output_path, priority)
+            .await
+    }
+
+    /// Download a video using the download manager with priority to a specific path.
+    ///
+    /// Unlike [`download_video_with_priority`](Self::download_video_with_priority), this method
+    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download.
+    /// * `output` - The full path where the file will be saved.
+    /// * `priority` - The download priority (optional).
+    ///
+    /// # Returns
+    ///
+    /// The download ID that can be used to track the download status.
+    pub async fn download_video_with_priority_to_path(
+        &self,
+        video: &model::Video,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        priority: Option<download::manager::DownloadPriority>,
+    ) -> Result<u64> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video with priority: {}", video.id);
 
@@ -1132,8 +1180,8 @@ impl Downloader {
                 format_id: format.format_id.clone(),
             })?;
 
-        // Create the output path
-        let output_path = self.output_dir.join(output.as_ref());
+        // Use the provided path directly
+        let output_path = output.as_ref().to_path_buf();
 
         // Add to download queue
         let download_id = self
@@ -1170,6 +1218,34 @@ impl Downloader {
     where
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
+        let output_path = self.output_dir.join(output.as_ref());
+        self.download_video_with_progress_to_path(video, &output_path, progress_callback)
+            .await
+    }
+
+    /// Download a video using the download manager with progress tracking to a specific path.
+    ///
+    /// Unlike [`download_video_with_progress`](Self::download_video_with_progress), this method
+    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download.
+    /// * `output` - The full path where the file will be saved.
+    /// * `progress_callback` - A function that will be called with progress updates.
+    ///
+    /// # Returns
+    ///
+    /// The download ID that can be used to track the download status.
+    pub async fn download_video_with_progress_to_path<F>(
+        &self,
+        video: &model::Video,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        progress_callback: F,
+    ) -> Result<u64>
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video with progress tracking: {}", video.id);
 
@@ -1194,8 +1270,8 @@ impl Downloader {
                 format_id: format.format_id.clone(),
             })?;
 
-        // Create the output path
-        let output_path = self.output_dir.join(output.as_ref());
+        // Use the provided path directly
+        let output_path = output.as_ref().to_path_buf();
 
         // Add to download queue with progress callback
         let download_id = self
@@ -1393,6 +1469,132 @@ impl Downloader {
         Ok(output_path)
     }
 
+    /// Downloads a video with quality preferences to a specific path.
+    ///
+    /// Unlike [`download_video_with_quality`](Self::download_video_with_quality), this method writes
+    /// the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The full path where the file will be saved
+    /// * `video_quality` - The desired video quality
+    /// * `video_codec` - The preferred video codec
+    /// * `audio_quality` - The desired audio quality
+    /// * `audio_codec` - The preferred audio codec
+    pub async fn download_video_with_quality_to_path(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        video_quality: model::selector::VideoQuality,
+        video_codec: model::selector::VideoCodecPreference,
+        audio_quality: model::selector::AudioQuality,
+        audio_codec: model::selector::AudioCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select video format based on quality and codec preferences
+        let video_format = video
+            .select_video_format(video_quality, video_codec.clone())
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
+
+        // Select audio format based on quality and codec preferences
+        let audio_format = video
+            .select_audio_format(audio_quality, audio_codec.clone())
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
+
+        // Download video format with preferences
+        let video_ext = format!("{:?}", video_format.download_info.ext);
+        let video_filename = format!("temp_video_{}.{}", utils::fs::random_filename(8), video_ext);
+
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                let video_path = self
+                    .download_format_with_preferences(
+                        video_format,
+                        &video_filename,
+                        Some(video_quality),
+                        None,
+                        Some(video_codec),
+                        None,
+                    )
+                    .await?;
+            } else {
+                let video_path = self
+                    .download_format(video_format, &video_filename)
+                    .await?;
+            }
+        }
+
+        // Download audio format with preferences
+        let audio_ext = format!("{:?}", audio_format.download_info.ext);
+        let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cache")] {
+                let audio_path = self
+                    .download_format_with_preferences(
+                        audio_format,
+                        &audio_filename,
+                        None,
+                        Some(audio_quality),
+                        None,
+                        Some(audio_codec),
+                    )
+                    .await?;
+            } else {
+                let audio_path = self
+                    .download_format(audio_format, &audio_filename)
+                    .await?;
+            }
+        }
+
+        // Combine audio and video to the user's path
+        let output_ref = output.as_ref();
+        let output_filename = output_ref
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("output.mp4");
+        let combined_path = self
+            .combine_audio_and_video(&audio_filename, &video_filename, output_filename)
+            .await?;
+
+        // If the user specified a different directory than output_dir, move the file
+        let final_path = output_ref.to_path_buf();
+        if combined_path != final_path {
+            if let Some(parent) = final_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::rename(&combined_path, &final_path)
+                .await
+                .or_else(|_| {
+                    std::fs::copy(&combined_path, &final_path)?;
+                    std::fs::remove_file(&combined_path)?;
+                    Ok::<_, std::io::Error>(())
+                })?;
+        }
+
+        // Clean up temporary files
+        if let Err(_e) = tokio::fs::remove_file(&video_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary video file: {}", _e);
+        }
+
+        if let Err(_e) = tokio::fs::remove_file(&audio_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary audio file: {}", _e);
+        }
+
+        Ok(final_path)
+    }
+
     /// Downloads a video stream with the specified quality preferences.
     ///
     /// # Arguments
@@ -1470,6 +1672,39 @@ impl Downloader {
         }
     }
 
+    /// Downloads a video stream with quality preferences to a specific path.
+    ///
+    /// Unlike [`download_video_stream_with_quality`](Self::download_video_stream_with_quality), this method
+    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The full path where the file will be saved
+    /// * `quality` - The desired video quality
+    /// * `codec` - The preferred video codec
+    pub async fn download_video_stream_with_quality_to_path(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        quality: model::selector::VideoQuality,
+        codec: model::selector::VideoCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select video format based on quality and codec preferences
+        let video_format = video
+            .select_video_format(quality, codec.clone())
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "video".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
+
+        // Download directly to the specified path
+        self.download_format_to_path(video_format, output).await
+    }
+
     /// Downloads an audio stream with the specified quality preferences.
     ///
     /// # Arguments
@@ -1545,6 +1780,39 @@ impl Downloader {
                     .await
             }
         }
+    }
+
+    /// Downloads an audio stream with quality preferences to a specific path.
+    ///
+    /// Unlike [`download_audio_stream_with_quality`](Self::download_audio_stream_with_quality), this method
+    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to download
+    /// * `output` - The full path where the file will be saved
+    /// * `quality` - The desired audio quality
+    /// * `codec` - The preferred audio codec
+    pub async fn download_audio_stream_with_quality_to_path(
+        &self,
+        url: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        quality: model::selector::AudioQuality,
+        codec: model::selector::AudioCodecPreference,
+    ) -> Result<PathBuf> {
+        let video = self.fetch_video_infos(url.to_string()).await?;
+
+        // Select audio format based on quality and codec preferences
+        let audio_format = video
+            .select_audio_format(quality, codec.clone())
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: "audio".to_string(),
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
+
+        // Download directly to the specified path
+        self.download_format_to_path(audio_format, output).await
     }
 
     /// Initiates a graceful shutdown of all ongoing operations.
@@ -1659,6 +1927,24 @@ impl Downloader {
         Ok(self)
     }
 
+    /// Fluent method to download a video to a specific path and return self for chaining.
+    ///
+    /// Unlike [`download_and_continue`](Self::download_and_continue), this method writes
+    /// the file to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to download
+    /// * `output` - The full output path
+    pub async fn download_and_continue_to_path(
+        self,
+        video: &model::Video,
+        output: impl AsRef<Path> + std::fmt::Debug,
+    ) -> Result<Self> {
+        self.download_video_to_path(video, output).await?;
+        Ok(self)
+    }
+
     /// Chain multiple operations in a pipeline.
     ///
     /// This method allows you to chain fetch -> download -> metadata operations.
@@ -1741,6 +2027,27 @@ impl Downloader {
         config: download::postprocess::PostProcessConfig,
     ) -> Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
+        self.postprocess_video_to_path(input_path, &output_path, config)
+            .await
+    }
+
+    /// Applies post-processing to a video file, saving to a specific path.
+    ///
+    /// Unlike [`postprocess_video`](Self::postprocess_video), this method writes the file
+    /// to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_path` - Path to the input video file
+    /// * `output` - The full path for the processed output file
+    /// * `config` - Post-processing configuration
+    pub async fn postprocess_video_to_path(
+        &self,
+        input_path: impl AsRef<std::path::Path>,
+        output: impl AsRef<Path>,
+        config: download::postprocess::PostProcessConfig,
+    ) -> Result<PathBuf> {
+        let output_path = output.as_ref().to_path_buf();
 
         metadata::postprocess::apply_postprocess(
             input_path,

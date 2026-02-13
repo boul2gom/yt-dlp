@@ -282,13 +282,20 @@ impl<'a> DownloadBuilder<'a> {
         match (video_status, audio_status) {
             (Some(DownloadStatus::Completed), Some(DownloadStatus::Completed)) => {
                 // Both downloads completed successfully, combine them
-                self.downloader
-                    .combine_audio_and_video(
-                        &audio_filename,
-                        &video_filename,
-                        self.output.to_str().unwrap(),
-                    )
-                    .await
+                if self.output.is_absolute() {
+                    // Use the absolute path directly, bypassing output_dir
+                    self.downloader
+                        .combine_audio_and_video_to_path(&audio_path, &video_path, &self.output)
+                        .await
+                } else {
+                    self.downloader
+                        .combine_audio_and_video(
+                            &audio_filename,
+                            &video_filename,
+                            self.output.to_str().unwrap(),
+                        )
+                        .await
+                }
             }
             (Some(DownloadStatus::Failed { reason }), _) => {
                 Err(crate::error::Error::download_failed(
