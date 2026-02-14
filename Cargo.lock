@@ -3449,7 +3449,7 @@ dependencies = [
 
 [[package]]
 name = "yt-dlp"
-version = "1.4.9"
+version = "1.4.10"
 dependencies = [
  "async-trait",
  "cfg-if",
