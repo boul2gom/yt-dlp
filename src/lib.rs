@@ -1491,6 +1491,52 @@ impl Downloader {
         audio_quality: model::selector::AudioQuality,
         audio_codec: model::selector::AudioCodecPreference,
     ) -> Result<PathBuf> {
+        let url_str = url.as_ref().to_string();
+        match self
+            .download_video_with_quality_to_path_inner(
+                &url_str,
+                &output,
+                video_quality,
+                video_codec.clone(),
+                audio_quality,
+                audio_codec.clone(),
+            )
+            .await
+        {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                self.fetch_video_infos_fresh(&url_str).await?;
+                self.download_video_with_quality_to_path_inner(
+                    &url_str,
+                    &output,
+                    video_quality,
+                    video_codec,
+                    audio_quality,
+                    audio_codec,
+                )
+                .await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Internal implementation for download_video_with_quality_to_path.
+    /// Separated to allow retry on 403 wrapping without duplicating the complex body.
+    async fn download_video_with_quality_to_path_inner(
+        &self,
+        url: &str,
+        output: impl AsRef<Path> + std::fmt::Debug,
+        video_quality: model::selector::VideoQuality,
+        video_codec: model::selector::VideoCodecPreference,
+        audio_quality: model::selector::AudioQuality,
+        audio_codec: model::selector::AudioCodecPreference,
+    ) -> Result<PathBuf> {
         let video = self.fetch_video_infos(url.to_string()).await?;
 
         // Select video format based on quality and codec preferences
@@ -1690,7 +1736,8 @@ impl Downloader {
         quality: model::selector::VideoQuality,
         codec: model::selector::VideoCodecPreference,
     ) -> Result<PathBuf> {
-        let video = self.fetch_video_infos(url.to_string()).await?;
+        let url_str = url.as_ref().to_string();
+        let video = self.fetch_video_infos(url_str.clone()).await?;
 
         // Select video format based on quality and codec preferences
         let video_format = video
@@ -1702,7 +1749,31 @@ impl Downloader {
             })?;
 
         // Download directly to the specified path
-        self.download_format_to_path(video_format, output).await
+        match self.download_format_to_path(video_format, &output).await {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url_str).await?;
+                let video_format = video.select_video_format(quality, codec).ok_or_else(|| {
+                    Error::FormatNotAvailable {
+                        video_id: video.id.clone(),
+                        format_type: "video".to_string(),
+                        available_formats: video
+                            .formats
+                            .iter()
+                            .map(|f| f.format_id.clone())
+                            .collect(),
+                    }
+                })?;
+                self.download_format_to_path(video_format, &output).await
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Downloads an audio stream with the specified quality preferences.
@@ -1800,7 +1871,8 @@ impl Downloader {
         quality: model::selector::AudioQuality,
         codec: model::selector::AudioCodecPreference,
     ) -> Result<PathBuf> {
-        let video = self.fetch_video_infos(url.to_string()).await?;
+        let url_str = url.as_ref().to_string();
+        let video = self.fetch_video_infos(url_str.clone()).await?;
 
         // Select audio format based on quality and codec preferences
         let audio_format = video
@@ -1812,7 +1884,31 @@ impl Downloader {
             })?;
 
         // Download directly to the specified path
-        self.download_format_to_path(audio_format, output).await
+        match self.download_format_to_path(audio_format, &output).await {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url_str).await?;
+                let audio_format = video.select_audio_format(quality, codec).ok_or_else(|| {
+                    Error::FormatNotAvailable {
+                        video_id: video.id.clone(),
+                        format_type: "audio".to_string(),
+                        available_formats: video
+                            .formats
+                            .iter()
+                            .map(|f| f.format_id.clone())
+                            .collect(),
+                    }
+                })?;
+                self.download_format_to_path(audio_format, &output).await
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Initiates a graceful shutdown of all ongoing operations.

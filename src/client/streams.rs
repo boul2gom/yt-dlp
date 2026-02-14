@@ -83,6 +83,47 @@ impl Downloader {
         Ok(video)
     }
 
+    /// Fetch the video information from the given URL, bypassing the cache.
+    ///
+    /// This method always calls yt-dlp to get fresh metadata, even if the video
+    /// is already in the cache. It then updates the cache with the fresh data.
+    /// This is useful when cached download URLs have expired (e.g. HTTP 403).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to fetch.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the video information could not be fetched.
+    pub async fn fetch_video_infos_fresh(&self, url: &str) -> crate::error::Result<Video> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Force-refreshing video information for {}", url);
+
+        // Remove the old cached entry if caching is enabled
+        #[cfg(feature = "cache")]
+        if let Some(cache) = &self.cache
+            && let Err(_e) = cache.remove(url).await
+        {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove stale cache entry: {}", _e);
+        }
+
+        // Always fetch fresh data from yt-dlp
+        let video = self.extractor.fetch_video(url).await?;
+
+        // Update the cache with fresh data
+        #[cfg(feature = "cache")]
+        if let Some(cache) = &self.cache
+            && let Err(_e) = cache.put(url.to_string(), video.clone()).await
+        {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to cache refreshed video information: {}", _e);
+        }
+
+        Ok(video)
+    }
+
     /// Fetch the video from the given URL, download it (video with audio) and returns its path.
     /// Be careful, this function may take a while to execute.
     ///
@@ -174,8 +215,21 @@ impl Downloader {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-        self.download_video_to_path(&video, output).await
+        let video = self.fetch_video_infos(url.clone()).await?;
+        match self.download_video_to_path(&video, &output).await {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url).await?;
+                self.download_video_to_path(&video, &output).await
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Fetch the video, download it (video with audio) and returns its path.
@@ -433,8 +487,21 @@ impl Downloader {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-        self.download_video_stream_to_path(&video, output).await
+        let video = self.fetch_video_infos(url.clone()).await?;
+        match self.download_video_stream_to_path(&video, &output).await {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url).await?;
+                self.download_video_stream_to_path(&video, &output).await
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Download the video only, and returns its path.
@@ -584,8 +651,21 @@ impl Downloader {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-        self.download_audio_stream_to_path(&video, output).await
+        let video = self.fetch_video_infos(url.clone()).await?;
+        match self.download_audio_stream_to_path(&video, &output).await {
+            Ok(path) => Ok(path),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url).await?;
+                self.download_audio_stream_to_path(&video, &output).await
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Fetch the audio stream, download it and returns its path.
