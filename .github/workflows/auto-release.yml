@@ -168,6 +168,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
 
     steps:
       - name: 📁 Check out the repository
@@ -202,7 +204,10 @@ jobs:
 
       - name: 🔍 Get new version
         id: get_version
-        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> $GITHUB_ENV
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "version=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: 📝 Generate releases notes
         id: generate_release_notes
