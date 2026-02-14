@@ -46,7 +46,7 @@ tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
 async-trait = "0.1.89"
 reqwest = { version = "0.13.2", features = ["json", "stream"], default-features = false }
-sqlx = { version = "0.8.6", optional = true, features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.8.6", optional = true, default-features = false, features = ["sqlite", "runtime-tokio", "derive", "macros"] }
 futures-util = "0.3.31"
 
 # Serialization dependencies

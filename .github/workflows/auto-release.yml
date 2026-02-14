@@ -285,9 +285,9 @@ jobs:
               
               const commit_entry = `${message} - by @${author}${pr_number ? ` in #${pr_number}` : ''} (${sha})`;
 
-              const deps_tags = ["bump", "update"]
-              const bug_tags = ["fix", "bug", "error"]
-              const refactor_tags = ["refactor", "format", "lint"]
+              const deps_tags = ["bump", "update", "dependencies", "dependency", "cargo.lock", "pinning", "📌", "🔌"]
+              const bug_tags = ["fix", "bug", "error", "patch", "hotfix", "🐛"]
+              const refactor_tags = ["refactor", "format", "lint", "cleanup", "rename", "restructure", "💄"]
               
               // Categorize based on message content
               const message_lower = message.toLowerCase();
