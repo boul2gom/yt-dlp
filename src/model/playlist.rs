@@ -16,11 +16,11 @@ pub struct Playlist {
     pub description: Option<String>,
 
     /// The uploader name (channel name).
-    pub uploader: String,
+    pub uploader: Option<String>,
     /// The uploader ID (channel ID).
-    pub uploader_id: String,
+    pub uploader_id: Option<String>,
     /// The uploader URL (channel URL).
-    pub uploader_url: String,
+    pub uploader_url: Option<String>,
 
     /// The list of video entries in the playlist.
     #[serde(default)]
@@ -278,7 +278,9 @@ impl Hash for Playlist {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         self.title.hash(state);
-        self.uploader_id.hash(state);
+        if let Some(ref uid) = self.uploader_id {
+            uid.hash(state);
+        }
     }
 }
 
