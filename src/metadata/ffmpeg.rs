@@ -71,7 +71,7 @@ impl MetadataManager {
         // WebM is based on Matroska format and uses specific metadata tags
         let metadata_args: Vec<String> = all_metadata
             .iter()
-            .map(|(key, value)| {
+            .flat_map(|(key, value)| {
                 // Map standard metadata keys to Matroska format keys
                 let matroska_key = match key.as_str() {
                     "title" => "title",
@@ -91,7 +91,12 @@ impl MetadataManager {
                     "audio_sample_rate" => "AUDIOSAMPLERATE",
                     _ => key.as_str(),
                 };
-                format!("-metadata:g {}={}", matroska_key, value)
+                // Pass -metadata:g and key=value as separate arguments so that
+                // special characters in the value (e.g. |) are not misinterpreted
+                vec![
+                    "-metadata:g".to_string(),
+                    format!("{}={}", matroska_key, value),
+                ]
             })
             .collect();
 
@@ -260,7 +265,9 @@ impl MetadataManager {
         // Build FFmpeg metadata arguments
         let metadata_args: Vec<String> = all_metadata
             .iter()
-            .map(|(key, value)| format!("-metadata {}={}", key, value))
+            // Pass -metadata and key=value as separate arguments so that
+            // special characters in the value (e.g. |) are not misinterpreted
+            .flat_map(|(key, value)| vec!["-metadata".to_string(), format!("{}={}", key, value)])
             .collect();
 
         let mut ffmpeg_args = vec!["-i".to_string(), input_str.to_string()];
