@@ -69,7 +69,7 @@ regex = "1.12.3"
 sha2 = "0.10.9"
 chrono = "0.4.43"
 tar = "0.4.44"
-zip = { version = "7.4.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.0.0", default-features = false, features = ["deflate"] }
 xz2 = "0.1.7"
 rand = "0.10.0"
 lazy_static = "1.5.0"
