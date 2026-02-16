@@ -31,30 +31,35 @@ pub struct Video {
     /// The title of the video.
     pub title: String,
     /// The thumbnail URL of the video, usually the highest quality.
-    pub thumbnail: String,
+    pub thumbnail: Option<String>,
     /// The description of the video.
-    pub description: String,
+    pub description: Option<String>,
     /// If the video is public, unlisted, or private.
-    pub availability: String,
+    pub availability: Option<String>,
     /// The upload date of the video.
     #[serde(rename = "timestamp")]
-    pub upload_date: i64,
+    pub upload_date: Option<i64>,
 
     /// The number of views the video has.
-    pub view_count: i64,
+    pub view_count: Option<i64>,
     /// The number of likes the video has. None, when the author has hidden it.
     pub like_count: Option<i64>,
     /// The number of comments the video has. None, when the author has disabled comments.
     pub comment_count: Option<i64>,
 
     /// The channel display name.
-    pub channel: String,
+    pub channel: Option<String>,
     /// The channel ID, not the @username.
-    pub channel_id: String,
+    pub channel_id: Option<String>,
     /// The URL of the channel.
-    pub channel_url: String,
+    pub channel_url: Option<String>,
     /// The number of subscribers the channel has.
     pub channel_follower_count: Option<i64>,
+
+    /// The uploader name (often legacy or same as channel).
+    pub uploader: Option<String>,
+    /// The uploader ID.
+    pub uploader_id: Option<String>,
 
     /// The available formats of the video.
     pub formats: Vec<Format>,
@@ -650,7 +655,7 @@ impl fmt::Display for Video {
             "Video(id = {}, title = \"{}\", channel = \"{}\", formats = {})",
             self.id,
             self.title,
-            self.channel,
+            self.channel.as_deref().unwrap_or("Unknown"),
             self.formats.len()
         )
     }

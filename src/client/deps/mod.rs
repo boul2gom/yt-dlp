@@ -23,7 +23,7 @@ pub mod youtube;
 /// # Examples
 ///
 /// ```rust,no_run
-/// # use yt_dlp::fetcher::deps::LibraryInstaller;
+/// # use yt_dlp::client::deps::LibraryInstaller;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,7 +46,7 @@ pub struct LibraryInstaller {
 /// # Examples
 ///
 /// ```rust,no_run
-/// # use yt_dlp::fetcher::deps::Libraries;
+/// # use yt_dlp::client::deps::Libraries;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -90,7 +90,7 @@ impl LibraryInstaller {
             custom_name
         );
 
-        fs::create_dir(self.destination.clone())?;
+        fs::create_dir(self.destination.clone()).await?;
 
         let fetcher = GitHubFetcher::new(owner, repo);
 
@@ -111,7 +111,7 @@ impl LibraryInstaller {
             custom_name
         );
 
-        fs::create_dir(self.destination.clone())?;
+        fs::create_dir(self.destination.clone()).await?;
 
         let fetcher = BuildFetcher::new();
         let archive = self.destination.join("ffmpeg-release.zip");
@@ -122,7 +122,7 @@ impl LibraryInstaller {
 
         if let Some(name) = custom_name {
             let new_path = self.destination.join(utils::find_executable(&name));
-            std::fs::rename(&path, &new_path)?;
+            tokio::fs::rename(&path, &new_path).await?;
 
             return Ok(new_path);
         }
@@ -143,8 +143,39 @@ impl Libraries {
         Ok(Self::new(youtube, ffmpeg))
     }
 
+    /// Install the required dependencies with an authentication token.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_token` - The authentication token to use for downloading the dependencies.
+    pub async fn install_dependencies_with_token(
+        &self,
+        auth_token: impl Into<String>,
+    ) -> Result<Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Installing required dependencies with token");
+
+        let token = auth_token.into();
+        let youtube = self.install_youtube_with_token(token.clone()).await?;
+        let ffmpeg = self.install_ffmpeg_with_token(token).await?;
+
+        Ok(Self::new(youtube, ffmpeg))
+    }
+
     /// Install yt-dlp.
     pub async fn install_youtube(&self) -> Result<PathBuf> {
+        self.install_youtube_internal(None).await
+    }
+
+    /// Install yt-dlp with an authentication token.
+    pub async fn install_youtube_with_token(
+        &self,
+        auth_token: impl Into<String>,
+    ) -> Result<PathBuf> {
+        self.install_youtube_internal(Some(auth_token.into())).await
+    }
+
+    async fn install_youtube_internal(&self, auth_token: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing yt-dlp");
 
@@ -159,11 +190,25 @@ impl Libraries {
         let file_name = fs::try_name(self.youtube.clone())?;
 
         let custom_name = ternary!(file_name == name, None, Some(file_name));
-        installer.install_youtube(custom_name).await
+        installer
+            .install_youtube_from_repo("yt-dlp", "yt-dlp", auth_token, custom_name)
+            .await
     }
 
     /// Install ffmpeg.
     pub async fn install_ffmpeg(&self) -> Result<PathBuf> {
+        self.install_ffmpeg_internal(None).await
+    }
+
+    /// Install ffmpeg with an authentication token.
+    pub async fn install_ffmpeg_with_token(
+        &self,
+        auth_token: impl Into<String>,
+    ) -> Result<PathBuf> {
+        self.install_ffmpeg_internal(Some(auth_token.into())).await
+    }
+
+    async fn install_ffmpeg_internal(&self, _auth_token: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Installing ffmpeg");
 
@@ -270,37 +315,42 @@ impl WantedRelease {
             #[cfg(feature = "tracing")]
             tracing::debug!("Verifying checksum for {}", destination.as_ref().display());
 
-            let file = File::open(&destination).map_err(|e| {
-                crate::error::Error::io_with_path(
-                    "open file for checksum",
-                    destination.as_ref().to_path_buf(),
-                    e,
-                )
-            })?;
-            let mut reader = BufReader::new(file);
-            let mut hasher = Sha256::new();
-            let mut buffer = [0; 8192];
-
-            loop {
-                let count = reader.read(&mut buffer).map_err(|e| {
+            let dest_path = destination.as_ref().to_path_buf();
+            let actual_checksum = tokio::task::spawn_blocking(move || {
+                let file = File::open(&dest_path).map_err(|e| {
                     crate::error::Error::io_with_path(
-                        "read file for checksum",
-                        destination.as_ref().to_path_buf(),
+                        "open file for checksum",
+                        dest_path.clone(),
                         e,
                     )
                 })?;
-                if count == 0 {
-                    break;
-                }
-                hasher.update(&buffer[..count]);
-            }
+                let mut reader = BufReader::new(file);
+                let mut hasher = Sha256::new();
+                let mut buffer = [0; 8192];
 
-            let result = hasher.finalize();
-            let actual_checksum = format!("{:x}", result);
+                loop {
+                    let count = reader.read(&mut buffer).map_err(|e| {
+                        crate::error::Error::io_with_path(
+                            "read file for checksum",
+                            dest_path.clone(),
+                            e,
+                        )
+                    })?;
+                    if count == 0 {
+                        break;
+                    }
+                    hasher.update(&buffer[..count]);
+                }
+
+                let result = hasher.finalize();
+                Ok::<_, crate::error::Error>(format!("{:x}", result))
+            })
+            .await
+            .map_err(|e| crate::error::Error::Unknown(e.to_string()))??;
 
             if actual_checksum != *expected_checksum {
                 // Delete the invalid file
-                let _ = std::fs::remove_file(&destination);
+                let _ = tokio::fs::remove_file(destination.as_ref()).await;
                 return Err(crate::error::Error::Unknown(format!(
                     "Checksum verification failed. Expected: {}, Actual: {}",
                     expected_checksum, actual_checksum

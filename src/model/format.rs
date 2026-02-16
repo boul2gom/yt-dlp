@@ -6,6 +6,7 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
+use std::str::FromStr;
 
 /// Represents an available format of a video.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
@@ -391,6 +392,22 @@ impl fmt::Display for Extension {
                 Extension::Unknown => "unknown",
             }
         )
+    }
+}
+
+impl FromStr for Extension {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "m4a" => Ok(Extension::M4A),
+            "mp3" => Ok(Extension::Mp3),
+            "mp4" => Ok(Extension::Mp4),
+            "webm" => Ok(Extension::Webm),
+            "mhtml" => Ok(Extension::Mhtml),
+            "" | "none" => Ok(Extension::None),
+            _ => Ok(Extension::Unknown),
+        }
     }
 }
 

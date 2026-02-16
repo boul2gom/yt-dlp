@@ -1,7 +1,6 @@
 //! Process execution and output handling.
 
 use crate::error::{Error, Result};
-use std::path::PathBuf;
 use std::time::Duration;
 
 /// Represents the output of a process.
@@ -27,7 +26,7 @@ pub struct ProcessOutput {
 ///
 /// Returns an error if the command fails, times out, or cannot be executed
 pub async fn execute_command(
-    executable_path: &PathBuf,
+    executable_path: &std::path::Path,
     args: &[String],
     timeout: Duration,
 ) -> Result<ProcessOutput> {

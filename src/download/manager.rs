@@ -37,7 +37,7 @@ pub enum DownloadPriority {
 }
 
 impl DownloadPriority {
-    /// Convertit an integer to priority
+    /// Converts an integer to priority
     pub fn from_i32(value: i32) -> Self {
         match value {
             0 => Self::Low,
@@ -695,17 +695,23 @@ impl DownloadManager {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
     /// use tokio_stream::StreamExt;
     ///
-    /// let download_id = manager.enqueue("https://example.com/file", "output", None).await;
-    /// let mut progress_stream = manager.progress_stream(download_id);
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let manager = DownloadManager::with_config_and_event_bus(ManagerConfig::default(), None);
+    ///     
+    ///     let download_id = manager.enqueue("https://example.com/file", "output", None).await;
+    ///     let mut progress_stream = manager.progress_stream(download_id);
     ///
-    /// while let Some(update) = progress_stream.next().await {
-    ///     println!("Downloaded: {}/{} bytes ({:.1}%)",
-    ///         update.downloaded_bytes,
-    ///         update.total_bytes,
-    ///         (update.downloaded_bytes as f64 / update.total_bytes as f64) * 100.0
-    ///     );
+    ///     while let Some(update) = progress_stream.next().await {
+    ///         println!("Downloaded: {}/{} bytes ({:.1}%)",
+    ///             update.downloaded_bytes,
+    ///             update.total_bytes,
+    ///             (update.downloaded_bytes as f64 / update.total_bytes as f64) * 100.0
+    ///         );
+    ///     }
     /// }
     /// ```
     pub fn progress_stream(&self, id: u64) -> impl Stream<Item = ProgressUpdate> + Send + 'static {

@@ -22,8 +22,8 @@
 //! ```ignore
 //! use tokio_stream::StreamExt;
 //!
-//! let youtube = Youtube::new();
-//! let mut stream = youtube.event_stream();
+//! let downloader = Downloader::new(libraries, output_dir).await?;
+//! let mut stream = downloader.event_stream();
 //!
 //! while let Some(Ok(event)) = stream.next().await {
 //!     match &*event {

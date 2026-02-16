@@ -127,7 +127,15 @@ impl MetadataManager {
         // Create temporary metadata file
         let temp_metadata_path =
             std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
-        let metadata_file = Self::create_chapters_metadata_file(chapters, &temp_metadata_path)?;
+
+        let chapters_clone = chapters.to_vec();
+        let metadata_path_clone = temp_metadata_path.clone();
+
+        let metadata_file = tokio::task::spawn_blocking(move || {
+            Self::create_chapters_metadata_file(&chapters_clone, &metadata_path_clone)
+        })
+        .await
+        .map_err(|e| Error::Unknown(e.to_string()))??;
 
         // Create temporary output file
         let temp_output_path = Self::create_temp_output_path(path, extension)?;
@@ -160,11 +168,11 @@ impl MetadataManager {
         #[cfg(feature = "tracing")]
         tracing::debug!("Running FFmpeg with args: {:?}", ffmpeg_args);
 
-        let executor = Executor {
-            executable_path: self.ffmpeg_path.clone(),
-            timeout: Duration::from_secs(120),
-            args: ffmpeg_args,
-        };
+        let executor = Executor::new(
+            self.ffmpeg_path.clone(),
+            ffmpeg_args,
+            Duration::from_secs(120),
+        );
 
         let output = executor.execute().await;
 

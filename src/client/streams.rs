@@ -5,7 +5,8 @@ use crate::error::Error;
 use crate::executor::Executor;
 use crate::metadata::MetadataManager;
 use crate::model::Video;
-use crate::model::format::Format;
+use crate::model::caption::Extension as CaptionExtension;
+use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 #[cfg(feature = "cache")]
 use crate::model::selector::{
@@ -17,7 +18,39 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::future::Future;
+
 impl Downloader {
+    /// Helper to execute an action with automatic URL expiry retry.
+    ///
+    /// This fetches the video metadata, runs the action, and if it fails with a
+    /// URL expiry error, refreshes the metadata and retries the action once.
+    pub(crate) async fn execute_with_retry<T, F, Fut>(
+        &self,
+        url: String,
+        action: F,
+    ) -> crate::error::Result<T>
+    where
+        F: Fn(Video) -> Fut,
+        Fut: Future<Output = crate::error::Result<T>>,
+    {
+        let video = self.fetch_video_infos(url.clone()).await?;
+        match action(video.clone()).await {
+            Ok(val) => Ok(val),
+            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(
+                    "Download failed with expired URL, refreshing metadata and retrying: {}",
+                    err
+                );
+
+                let video = self.fetch_video_infos_fresh(&url).await?;
+                action(video).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     /// Fetch the video information from the given URL.
     ///
     /// # Arguments
@@ -31,7 +64,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -41,7 +74,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -142,7 +175,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -152,7 +185,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video_path = fetcher.download_video_from_url(url, "my-video.mp4").await?;
@@ -162,13 +195,17 @@ impl Downloader {
     pub async fn download_video_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-        self.download_video(&video, output).await
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move { downloader.download_video(&video, output).await }
+        })
+        .await
     }
 
     /// Fetch the video from the given URL, download it (video with audio) to a specific path.
@@ -189,7 +226,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -199,37 +236,28 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let path = PathBuf::from("/downloads/my-video.mp4");
-    /// let video_path = fetcher.download_video_from_url_to_path(url, &path).await?;
+    /// let video_path = fetcher.download_video_from_url_to_path(url, path).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn download_video_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url.clone()).await?;
-        match self.download_video_to_path(&video, &output).await {
-            Ok(path) => Ok(path),
-            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    "Download failed with expired URL, refreshing metadata and retrying: {}",
-                    err
-                );
-
-                let video = self.fetch_video_infos_fresh(&url).await?;
-                self.download_video_to_path(&video, &output).await
-            }
-            Err(err) => Err(err),
-        }
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move { downloader.download_video_to_path(&video, output).await }
+        })
+        .await
     }
 
     /// Fetch the video, download it (video with audio) and returns its path.
@@ -247,7 +275,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -257,7 +285,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -293,7 +321,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -303,7 +331,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -316,7 +344,7 @@ impl Downloader {
     pub async fn download_video_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
@@ -348,11 +376,19 @@ impl Downloader {
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::Unknown(format!("Missing format: {}", "video")))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: FormatType::Video,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         let best_audio = video
             .best_audio_format()
-            .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: FormatType::Audio,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         // Create temporary names for audio and video files
         let audio_name = format!("temp_audio_{}.m4a", video.id);
@@ -384,12 +420,11 @@ impl Downloader {
             if let Some(parent) = path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-            tokio::fs::rename(&output_path, &path).await.or_else(|_| {
+            if (tokio::fs::rename(&output_path, &path).await).is_err() {
                 // rename fails across filesystems, fall back to copy+delete
-                std::fs::copy(&output_path, &path)?;
-                std::fs::remove_file(&output_path)?;
-                Ok::<_, std::io::Error>(())
-            })?;
+                tokio::fs::copy(&output_path, &path).await?;
+                tokio::fs::remove_file(&output_path).await?;
+            }
         }
 
         // Clean up temporary files
@@ -435,7 +470,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -445,7 +480,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video_path = fetcher.download_video_stream_from_url(url, "my-video-stream.mp4").await?;
@@ -455,14 +490,17 @@ impl Downloader {
     pub async fn download_video_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-
-        self.download_video_stream(&video, output).await
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move { downloader.download_video_stream(&video, output).await }
+        })
+        .await
     }
 
     /// Fetch the video from the given URL, download the video stream to a specific path.
@@ -482,26 +520,21 @@ impl Downloader {
     pub async fn download_video_stream_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url.clone()).await?;
-        match self.download_video_stream_to_path(&video, &output).await {
-            Ok(path) => Ok(path),
-            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    "Download failed with expired URL, refreshing metadata and retrying: {}",
-                    err
-                );
-
-                let video = self.fetch_video_infos_fresh(&url).await?;
-                self.download_video_stream_to_path(&video, &output).await
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move {
+                downloader
+                    .download_video_stream_to_path(&video, output)
+                    .await
             }
-            Err(err) => Err(err),
-        }
+        })
+        .await
     }
 
     /// Download the video only, and returns its path.
@@ -522,7 +555,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -532,7 +565,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -551,7 +584,11 @@ impl Downloader {
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::Unknown(format!("Missing format: {}", "video")))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: FormatType::Video,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         self.download_format(best_video, output).await
     }
@@ -573,14 +610,18 @@ impl Downloader {
     pub async fn download_video_stream_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream to path {}", video.title);
 
         let best_video = video
             .best_video_format()
-            .ok_or(Error::Unknown(format!("Missing format: {}", "video")))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: FormatType::Video,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         self.download_format_to_path(best_video, output).await
     }
@@ -600,7 +641,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -610,7 +651,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let audio_path = fetcher.download_audio_stream_from_url(url, "my-audio.mp3").await?;
@@ -620,13 +661,17 @@ impl Downloader {
     pub async fn download_audio_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL: {}", url);
 
-        let video = self.fetch_video_infos(url).await?;
-        self.download_audio_stream(&video, output).await
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move { downloader.download_audio_stream(&video, output).await }
+        })
+        .await
     }
 
     /// Fetch the audio stream from the given URL, download it to a specific path.
@@ -646,25 +691,51 @@ impl Downloader {
     pub async fn download_audio_stream_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL to path: {}", url);
 
-        let video = self.fetch_video_infos(url.clone()).await?;
-        match self.download_audio_stream_to_path(&video, &output).await {
-            Ok(path) => Ok(path),
-            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    "Download failed with expired URL, refreshing metadata and retrying: {}",
-                    err
-                );
-
-                let video = self.fetch_video_infos_fresh(&url).await?;
-                self.download_audio_stream_to_path(&video, &output).await
+        self.execute_with_retry(url, move |video| {
+            let output = output.clone();
+            let downloader = self.clone();
+            async move {
+                downloader
+                    .download_audio_stream_to_path(&video, output)
+                    .await
             }
-            Err(err) => Err(err),
+        })
+        .await
+    }
+
+    /// Fetch the thumbnail from the given URL and download it to the specified path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The path where the thumbnail will be saved.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the video information could not be fetched or if the thumbnail could not be downloaded.
+    pub async fn download_thumbnail_from_url(
+        &self,
+        url: String,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
+    ) -> crate::error::Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading thumbnail from URL: {}", url);
+
+        let video = self.fetch_video_infos(url).await?;
+
+        if let Some(thumbnail_url) = &video.thumbnail {
+            let fetcher = Fetcher::new(thumbnail_url, self.proxy.as_ref(), self.user_agent.clone());
+            fetcher.fetch_asset(output.clone()).await?;
+            Ok(output.as_ref().to_path_buf())
+        } else {
+            Err(Error::Unknown(
+                "No thumbnail found for this video".to_string(),
+            ))
         }
     }
 
@@ -686,7 +757,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -696,7 +767,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -733,7 +804,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -743,7 +814,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -756,7 +827,7 @@ impl Downloader {
     pub async fn download_audio_stream_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
@@ -772,9 +843,18 @@ impl Downloader {
         #[cfg(feature = "cache")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find an audio format in the cache by video ID
-            let best_audio = video
-                .best_audio_format()
-                .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
+            let best_audio =
+                video
+                    .best_audio_format()
+                    .ok_or_else(|| Error::FormatNotAvailable {
+                        video_id: video.id.clone(),
+                        format_type: FormatType::Audio,
+                        available_formats: video
+                            .formats
+                            .iter()
+                            .map(|f| f.format_id.clone())
+                            .collect(),
+                    })?;
 
             if let Some((_, cached_path)) = download_cache
                 .get_by_video_and_format(&video.id, &best_audio.format_id)
@@ -798,7 +878,11 @@ impl Downloader {
 
         let best_audio = video
             .best_audio_format()
-            .ok_or(Error::Unknown(format!("Missing format: {}", "audio")))?;
+            .ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type: FormatType::Audio,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
 
         let temp_output = format!("temp_{}", output_str);
         let temp_path = self.download_format(best_audio, &temp_output).await?;
@@ -834,11 +918,11 @@ impl Downloader {
             return Err(Error::Unknown("Unsupported output format".into()));
         };
 
-        let executor = Executor {
-            executable_path: self.libraries.ffmpeg.clone(),
-            timeout: self.timeout,
-            args: utils::to_owned(args),
-        };
+        let executor = Executor::new(
+            self.libraries.ffmpeg.clone(),
+            utils::to_owned(args),
+            self.timeout,
+        );
 
         executor.execute().await?;
 
@@ -886,7 +970,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -896,7 +980,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -936,7 +1020,7 @@ impl Downloader {
     /// # Examples
     ///
     /// ```rust, no_run
-    /// # use yt_dlp::Youtube;
+    /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
     /// # #[tokio::main]
@@ -946,7 +1030,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Youtube::new(libraries, output_dir)?;
+    /// let fetcher = Downloader::new(libraries, output_dir).await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     /// let video = fetcher.fetch_video_infos(url).await?;
@@ -1331,11 +1415,11 @@ impl Downloader {
         // Prefer SRT format, then VTT, then any available format
         let subtitle = subtitles
             .iter()
-            .find(|s| s.is_format(&crate::model::caption::Extension::Srt))
+            .find(|s| s.is_format(&CaptionExtension::Srt))
             .or_else(|| {
                 subtitles
                     .iter()
-                    .find(|s| s.is_format(&crate::model::caption::Extension::Vtt))
+                    .find(|s| s.is_format(&CaptionExtension::Vtt))
             })
             .or_else(|| subtitles.first())
             .ok_or_else(|| Error::SubtitleNotAvailable {
@@ -1470,6 +1554,19 @@ impl Downloader {
             .await
     }
 
+    /// Embeds a single subtitle file into a video file using ffmpeg.
+    ///
+    /// This is a convenience wrapper around `embed_subtitles_in_video`.
+    pub async fn embed_subtitles(
+        &self,
+        video_path: impl AsRef<Path>,
+        subtitle_path: impl AsRef<Path>,
+        output: impl AsRef<str>,
+    ) -> crate::error::Result<PathBuf> {
+        self.embed_subtitles_in_video(video_path, &[subtitle_path.as_ref().to_path_buf()], output)
+            .await
+    }
+
     /// Embeds subtitle files into a video file with language metadata using ffmpeg.
     ///
     /// # Arguments
@@ -1550,11 +1647,11 @@ impl Downloader {
         #[cfg(feature = "tracing")]
         tracing::debug!("Running ffmpeg with args: {:?}", args);
 
-        let executor = Executor {
-            executable_path: self.libraries.ffmpeg.clone(),
-            timeout: self.timeout,
-            args,
-        };
+        let executor = Executor::new(
+            self.libraries.ffmpeg.clone(),
+            utils::to_owned(args),
+            self.timeout,
+        );
 
         executor.execute().await?;
 
@@ -1580,7 +1677,11 @@ impl Downloader {
     /// # Returns
     ///
     /// The playlist metadata
-    pub async fn fetch_playlist_infos(&self, url: String) -> crate::error::Result<Playlist> {
+    pub async fn fetch_playlist_infos(
+        &self,
+        url: impl Into<String>,
+    ) -> crate::error::Result<Playlist> {
+        let url = url.into();
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching playlist information from {}", url);
 
@@ -2123,11 +2224,7 @@ impl Downloader {
         let mut final_args = self.args.clone();
         final_args.append(&mut utils::to_owned(download_args));
 
-        let executor = Executor {
-            executable_path: self.libraries.youtube.clone(),
-            timeout: self.timeout,
-            args: final_args,
-        };
+        let executor = Executor::new(self.libraries.youtube.clone(), final_args, self.timeout);
 
         executor.execute().await?;
         Ok(output_path.to_path_buf())
@@ -2178,11 +2275,11 @@ impl Downloader {
             output_str,
         ];
 
-        let executor = Executor {
-            executable_path: self.libraries.ffmpeg.clone(),
-            timeout: self.timeout,
-            args: utils::to_owned(args),
-        };
+        let executor = Executor::new(
+            self.libraries.ffmpeg.clone(),
+            utils::to_owned(args),
+            self.timeout,
+        );
 
         executor.execute().await?;
 

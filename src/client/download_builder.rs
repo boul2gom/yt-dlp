@@ -6,6 +6,7 @@ use crate::client::Downloader;
 use crate::download::DownloadPriority;
 use crate::download::partial::PartialRange;
 use crate::error::Result;
+use crate::model::format::FormatType;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
@@ -159,7 +160,7 @@ impl<'a> DownloadBuilder<'a> {
             .select_video_format(video_quality, video_codec.clone())
             .ok_or_else(|| crate::error::Error::FormatNotAvailable {
                 video_id: video.id.clone(),
-                format_type: "video".to_string(),
+                format_type: FormatType::Video,
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
@@ -168,7 +169,7 @@ impl<'a> DownloadBuilder<'a> {
             .select_audio_format(audio_quality, audio_codec.clone())
             .ok_or_else(|| crate::error::Error::FormatNotAvailable {
                 video_id: video.id.clone(),
-                format_type: "audio".to_string(),
+                format_type: FormatType::Audio,
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 

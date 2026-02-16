@@ -23,11 +23,11 @@ use std::time::Duration;
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let args = vec!["--update"];
 ///
-/// let executor = Executor {
-///     executable_path: PathBuf::from("yt-dlp"),
-///     timeout: Duration::from_secs(30),
-///     args: utils::to_owned(args),
-/// };
+/// let executor = Executor::new(
+///     PathBuf::from("yt-dlp"),
+///     utils::to_owned(args),
+///     Duration::from_secs(30),
+/// );
 ///
 /// let output = executor.execute().await?;
 /// println!("Output: {}", output.stdout);
@@ -38,14 +38,44 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Executor {
     /// The path to the command executable.
-    pub executable_path: PathBuf,
+    executable_path: PathBuf,
     /// The timeout for the process.
-    pub timeout: Duration,
+    timeout: Duration,
     /// The arguments to pass to the command.
-    pub args: Vec<String>,
+    args: Vec<String>,
 }
 
 impl Executor {
+    /// Creates a new Executor.
+    ///
+    /// # Arguments
+    ///
+    /// * `executable_path` - Path to the executable
+    /// * `args` - Arguments to pass to the command
+    /// * `timeout` - Timeout for the command
+    pub fn new(executable_path: PathBuf, args: Vec<String>, timeout: Duration) -> Self {
+        Self {
+            executable_path,
+            args,
+            timeout,
+        }
+    }
+
+    /// Returns the executable path.
+    pub fn executable_path(&self) -> &PathBuf {
+        &self.executable_path
+    }
+
+    /// Returns the arguments.
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    /// Returns the timeout.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
     /// Executes the command and returns the output.
     ///
     /// # Errors

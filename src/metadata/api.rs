@@ -5,9 +5,10 @@
 
 use crate::error::Result;
 use crate::model::Video;
-use crate::model::format::Format;
+use crate::model::format::{Extension, Format};
 use std::fmt::Debug;
 use std::path::Path;
+use std::str::FromStr;
 
 use super::MetadataManager;
 
@@ -35,12 +36,16 @@ impl MetadataManager {
 
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
-        match file_format.as_str() {
-            "mp3" => Self::add_metadata_to_mp3(file_path.as_ref(), video, None, None),
-            "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => {
-                Self::add_metadata_to_m4a(file_path.as_ref(), video, None, None, None)
+        let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
+
+        match extension {
+            Extension::Mp3 => {
+                Self::add_metadata_to_mp3(file_path.as_ref(), video, None, None).await
             }
-            "webm" | "mkv" => {
+            Extension::M4A | Extension::Mp4 => {
+                Self::add_metadata_to_m4a(file_path.as_ref(), video, None, None, None).await
+            }
+            Extension::Webm => {
                 self.add_metadata_to_webm(file_path.as_ref(), video, None, None, None)
                     .await
             }
@@ -82,16 +87,23 @@ impl MetadataManager {
 
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
-        match file_format.as_str() {
-            "mp3" => Self::add_metadata_to_mp3(file_path.as_ref(), video, audio_format, None),
-            "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => Self::add_metadata_to_m4a(
-                file_path.as_ref(),
-                video,
-                audio_format,
-                video_format,
-                None,
-            ),
-            "webm" | "mkv" => {
+        let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
+
+        match extension {
+            Extension::Mp3 => {
+                Self::add_metadata_to_mp3(file_path.as_ref(), video, audio_format, None).await
+            }
+            Extension::M4A | Extension::Mp4 => {
+                Self::add_metadata_to_m4a(
+                    file_path.as_ref(),
+                    video,
+                    audio_format,
+                    video_format,
+                    None,
+                )
+                .await
+            }
+            Extension::Webm => {
                 self.add_metadata_to_webm(
                     file_path.as_ref(),
                     video,
@@ -137,12 +149,16 @@ impl MetadataManager {
 
         let file_format = Self::get_file_extension(file_path.as_ref())?;
 
-        match file_format.as_str() {
-            "mp3" => Self::add_thumbnail_to_mp3(file_path.as_ref(), thumbnail_path.as_ref()),
-            "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => {
-                Self::add_thumbnail_to_m4a(file_path.as_ref(), thumbnail_path.as_ref())
+        let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
+
+        match extension {
+            Extension::Mp3 => {
+                Self::add_thumbnail_to_mp3(file_path.as_ref(), thumbnail_path.as_ref()).await
             }
-            "webm" | "mkv" => {
+            Extension::M4A | Extension::Mp4 => {
+                Self::add_thumbnail_to_m4a(file_path.as_ref(), thumbnail_path.as_ref()).await
+            }
+            Extension::Webm => {
                 self.add_thumbnail_to_webm(file_path.as_ref(), thumbnail_path.as_ref())
                     .await
             }

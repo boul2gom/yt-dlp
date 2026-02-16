@@ -23,7 +23,7 @@ use std::time::Duration;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+/// let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
 ///
 /// let youtube = YoutubeBuilder::new(libraries, PathBuf::from("output"))
 ///     .with_args(vec!["--no-playlist".to_string()])
@@ -57,7 +57,7 @@ impl YoutubeBuilder {
             libraries,
             output_dir: output_dir.into(),
             args: Vec::new(),
-            timeout: Duration::from_secs(60),
+            timeout: crate::client::DEFAULT_TIMEOUT,
             proxy: None,
             #[cfg(feature = "cache")]
             cache_dir: None,
@@ -156,7 +156,7 @@ impl YoutubeBuilder {
     /// # use std::path::PathBuf;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
+    /// let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     ///
     /// // Use aggressive profile for high-speed connections
     /// let youtube = YoutubeBuilder::new(libraries, PathBuf::from("output"))
@@ -167,7 +167,15 @@ impl YoutubeBuilder {
     /// # }
     /// ```
     pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
-        self.download_manager_config = Some(ManagerConfig::from_speed_profile(profile));
+        if let Some(config) = &mut self.download_manager_config {
+            config.max_concurrent_downloads = profile.max_concurrent_downloads();
+            config.segment_size = profile.segment_size();
+            config.parallel_segments = profile.parallel_segments();
+            config.max_buffer_size = profile.max_buffer_size();
+            config.speed_profile = profile;
+        } else {
+            self.download_manager_config = Some(ManagerConfig::from_speed_profile(profile));
+        }
         self
     }
 
@@ -242,6 +250,7 @@ impl YoutubeBuilder {
             libraries: self.libraries,
             output_dir: self.output_dir,
             args,
+            user_agent: None,
             timeout: self.timeout,
             proxy: self.proxy,
             #[cfg(feature = "cache")]

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct Heatmap(pub Vec<HeatmapPoint>);
+pub struct Heatmap(Vec<HeatmapPoint>);
 
 /// Represents the complete heatmap data for a video.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,7 +19,12 @@ pub struct HeatmapPoint {
 }
 
 impl Heatmap {
-    fn points(&self) -> &[HeatmapPoint] {
+    /// Creates a new Heatmap from a list of points.
+    pub fn new(points: Vec<HeatmapPoint>) -> Self {
+        Self(points)
+    }
+
+    pub fn points(&self) -> &[HeatmapPoint] {
         &self.0
     }
 

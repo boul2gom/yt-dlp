@@ -8,7 +8,6 @@ use crate::model::Video;
 use crate::model::format::Format;
 use mp4ameta::Tag as MP4Tag;
 use std::fmt::Debug;
-use std::fs;
 use std::path::Path;
 
 use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
@@ -29,7 +28,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if MP4 tags cannot be read or written
-    pub(super) fn add_metadata_to_m4a<P: AsRef<Path> + Debug + Copy>(
+    pub(super) async fn add_metadata_to_m4a<P: AsRef<Path> + Debug + Copy + Send + Sync>(
         file_path: P,
         video: &Video,
         audio_format: Option<&Format>,
@@ -41,40 +40,55 @@ impl MetadataManager {
 
         Self::log_metadata_debug(format!("Adding metadata to M4A/MP4 file: {:?}", file_path));
 
-        // Load existing tag
-        let mut tag = MP4Tag::read_from_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+        // Prepare data for blocking thread
+        let metadata = Self::extract_basic_metadata(video)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let has_format_info = audio_format.is_some() || video_format.is_some();
+        let path = file_path.as_ref().to_path_buf();
 
-        // Add basic metadata
-        let metadata = Self::extract_basic_metadata(video);
-        for (key, value) in metadata {
-            match key.as_str() {
-                "title" => tag.set_title(value),
-                "artist" => tag.set_artist(value),
-                "album" => tag.set_album(value),
-                "album_artist" => tag.set_album_artist(value),
-                "genre" => tag.set_genre(value),
-                "year" => {
-                    if let Ok(year) = value.parse::<u16>() {
-                        tag.set_year(year.to_string());
+        tokio::task::spawn_blocking(move || {
+            // Load existing tag
+            let mut tag = MP4Tag::read_from_path(&path)
+                .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+
+            // Add basic metadata
+            for (key, value) in metadata {
+                match key.as_str() {
+                    "title" => tag.set_title(value),
+                    "artist" => tag.set_artist(value),
+                    "album" => tag.set_album(value),
+                    "album_artist" => tag.set_album_artist(value),
+                    "genre" => tag.set_genre(value),
+                    "year" => {
+                        if let Ok(year) = value.parse::<u16>() {
+                            tag.set_year(year.to_string());
+                        }
+                    }
+                    _ => {
+                        Self::log_metadata_debug(format!(
+                            "Skipping MP4 metadata: {} = {}",
+                            key, value
+                        ));
                     }
                 }
-                _ => {
-                    Self::log_metadata_debug(format!("Skipping MP4 metadata: {} = {}", key, value));
-                }
             }
-        }
 
-        // MP4 format has limited metadata support compared to ID3
-        if audio_format.is_some() || video_format.is_some() {
-            Self::log_metadata_debug(
-                "Format info available but MP4 tag has limited support for technical metadata",
-            );
-        }
+            // MP4 format has limited metadata support compared to ID3
+            if has_format_info {
+                Self::log_metadata_debug(
+                    "Format info available but MP4 tag has limited support for technical metadata",
+                );
+            }
 
-        // Save the changes
-        tag.write_to_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+            // Save the changes
+            tag.write_to_path(&path)
+                .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+
+            Ok::<_, Error>(())
+        })
+        .await
+        .map_err(|e| Error::Unknown(e.to_string()))??;
 
         Ok(())
     }
@@ -89,19 +103,16 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the MP4 tags cannot be written
-    pub(super) fn add_thumbnail_to_m4a<P: AsRef<Path> + Debug + Copy>(
+    pub(super) async fn add_thumbnail_to_m4a<P: AsRef<Path> + Debug + Copy + Send + Sync>(
         file_path: P,
         thumbnail_path: &Path,
     ) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Adding thumbnail to M4A/MP4 file: {:?}", file_path);
 
-        // Read the tag
-        let mut tag = MP4Tag::read_from_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
-
         // Read the image file content
-        let image_data = fs::read(thumbnail_path)
+        let image_data = tokio::fs::read(thumbnail_path)
+            .await
             .map_err(|e| Error::io_with_path("read thumbnail", thumbnail_path, e))?;
 
         // Determine image format from file extension
@@ -112,13 +123,25 @@ impl MetadataManager {
             _ => mp4ameta::ImgFmt::Jpeg,
         };
 
-        // Create an Img object with the correct format
-        let artwork = mp4ameta::Img::new(fmt, image_data);
-        tag.set_artwork(artwork);
+        let path = file_path.as_ref().to_path_buf();
 
-        // Write the tag back to the file
-        tag.write_to_path(file_path.as_ref())
-            .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+        tokio::task::spawn_blocking(move || {
+            // Read the tag
+            let mut tag = MP4Tag::read_from_path(&path)
+                .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+
+            // Create an Img object with the correct format
+            let artwork = mp4ameta::Img::new(fmt, image_data);
+            tag.set_artwork(artwork);
+
+            // Write the tag back to the file
+            tag.write_to_path(&path)
+                .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+
+            Ok::<_, Error>(())
+        })
+        .await
+        .map_err(|e| Error::Unknown(e.to_string()))??;
 
         #[cfg(feature = "tracing")]
         tracing::debug!("Added thumbnail to M4A/MP4 file: {:?}", file_path);

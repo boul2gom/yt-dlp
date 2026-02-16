@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// Represents a YouTube playlist.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Playlist {
     /// The unique identifier of the playlist.
     pub id: String,
@@ -196,7 +196,7 @@ impl Playlist {
 }
 
 /// Represents an entry (video) in a playlist.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistEntry {
     /// The video ID.
     pub id: String,
@@ -267,11 +267,37 @@ impl fmt::Display for PlaylistEntry {
     }
 }
 
-// Implementation of Eq for Playlist
-impl Eq for Playlist {}
+impl PartialEq for Playlist {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.title == other.title
+            && self.description == other.description
+            && self.uploader == other.uploader
+            && self.uploader_id == other.uploader_id
+            && self.uploader_url == other.uploader_url
+            && self.entries == other.entries
+            && self.video_count == other.video_count
+            && self.url == other.url
+    }
+}
 
-// Implementation of Eq for PlaylistEntry
-impl Eq for PlaylistEntry {}
+impl PartialEq for PlaylistEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.title == other.title
+            && self.url == other.url
+            && self.index == other.index
+            && match (self.duration, other.duration) {
+                (Some(a), Some(b)) => a.to_bits() == b.to_bits(),
+                (None, None) => true,
+                _ => false,
+            }
+            && self.thumbnail == other.thumbnail
+            && self.uploader == other.uploader
+            && self.channel_id == other.channel_id
+            && self.availability == other.availability
+    }
+}
 
 // Implementation of Hash for Playlist
 impl Hash for Playlist {

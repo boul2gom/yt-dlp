@@ -126,14 +126,20 @@ impl ProxyConfig {
     /// The proxy URL with embedded authentication credentials if provided
     pub fn build_url(&self) -> String {
         if let (Some(username), Some(password)) = (&self.username, &self.password) {
+            // URL-encode username and password
+            let username_enc =
+                url::form_urlencoded::byte_serialize(username.as_bytes()).collect::<String>();
+            let password_enc =
+                url::form_urlencoded::byte_serialize(password.as_bytes()).collect::<String>();
+
             // Extract scheme and host from URL
             if let Some(idx) = self.url.find("://") {
                 let scheme = &self.url[..idx];
                 let rest = &self.url[idx + 3..];
-                format!("{}://{}:{}@{}", scheme, username, password, rest)
+                format!("{}://{}:{}@{}", scheme, username_enc, password_enc, rest)
             } else {
                 // No scheme, just add auth
-                format!("{}:{}@{}", username, password, self.url)
+                format!("{}:{}@{}", username_enc, password_enc, self.url)
             }
         } else {
             self.url.clone()

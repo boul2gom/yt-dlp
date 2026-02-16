@@ -5,7 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Represents a thumbnail of a YouTube video.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Thumbnail {
     /// The URL of the thumbnail.
     pub url: String,
@@ -33,9 +33,6 @@ impl fmt::Display for Thumbnail {
         )
     }
 }
-
-// Implementation of Eq for Thumbnail
-impl Eq for Thumbnail {}
 
 // Implementation of Hash for Thumbnail
 impl Hash for Thumbnail {

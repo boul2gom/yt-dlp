@@ -5,7 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Represents an automatic caption of a YouTube video.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AutomaticCaption {
     /// The extension of the caption file.
     #[serde(rename = "ext")]
@@ -22,6 +22,7 @@ pub struct AutomaticCaption {
 pub enum Extension {
     /// The JSON extension.
     Json,
+    /// The JSON3 extension.
     Json3,
     /// The Srv1 extension.
     Srv1,
@@ -41,6 +42,24 @@ pub enum Extension {
     Ssa,
 }
 
+impl Extension {
+    /// Returns the extension as a string slice.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Extension::Json => "json",
+            Extension::Json3 => "json3",
+            Extension::Srv1 => "srv1",
+            Extension::Srv2 => "srv2",
+            Extension::Srv3 => "srv3",
+            Extension::Ttml => "ttml",
+            Extension::Vtt => "vtt",
+            Extension::Srt => "srt",
+            Extension::Ass => "ass",
+            Extension::Ssa => "ssa",
+        }
+    }
+}
+
 // Implementation of the Display trait for AutomaticCaption
 impl fmt::Display for AutomaticCaption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -52,9 +71,6 @@ impl fmt::Display for AutomaticCaption {
         )
     }
 }
-
-// Implementation of Eq for AutomaticCaption
-impl Eq for AutomaticCaption {}
 
 // Implementation of Hash for AutomaticCaption
 impl Hash for AutomaticCaption {
@@ -68,18 +84,7 @@ impl Hash for AutomaticCaption {
 // Implementation of the Display trait for Extension
 impl fmt::Display for Extension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Extension::Json => write!(f, "json"),
-            Extension::Json3 => write!(f, "json3"),
-            Extension::Srv1 => write!(f, "srv1"),
-            Extension::Srv2 => write!(f, "srv2"),
-            Extension::Srv3 => write!(f, "srv3"),
-            Extension::Ttml => write!(f, "ttml"),
-            Extension::Vtt => write!(f, "vtt"),
-            Extension::Srt => write!(f, "srt"),
-            Extension::Ass => write!(f, "ass"),
-            Extension::Ssa => write!(f, "ssa"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -94,7 +99,7 @@ impl Hash for Extension {
 }
 
 /// Represents a subtitle (user-uploaded or automatic caption) for a video.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Subtitle {
     /// The language code of the subtitle (e.g., 'en', 'fr', 'es').
     pub language_code: Option<String>,
@@ -129,18 +134,7 @@ impl Subtitle {
 
     /// Returns the file extension as a string.
     pub fn file_extension(&self) -> &str {
-        match self.extension {
-            Extension::Json => "json",
-            Extension::Json3 => "json3",
-            Extension::Srv1 => "srv1",
-            Extension::Srv2 => "srv2",
-            Extension::Srv3 => "srv3",
-            Extension::Ttml => "ttml",
-            Extension::Vtt => "vtt",
-            Extension::Srt => "srt",
-            Extension::Ass => "ass",
-            Extension::Ssa => "ssa",
-        }
+        self.extension.as_str()
     }
 }
 
@@ -159,9 +153,6 @@ impl fmt::Display for Subtitle {
         )
     }
 }
-
-// Implementation of Eq for Subtitle
-impl Eq for Subtitle {}
 
 // Implementation of Hash for Subtitle
 impl Hash for Subtitle {

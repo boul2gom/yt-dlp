@@ -9,7 +9,7 @@
 /// ```rust,no_run
 /// # use yt_dlp::youtube;
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 /// let yt = youtube!("libs/yt-dlp", "libs/ffmpeg", "output").await?;
 /// # Ok(())
 /// # }
@@ -17,13 +17,19 @@
 #[macro_export]
 macro_rules! youtube {
     ($yt_dlp:expr, $ffmpeg:expr, $output:expr) => {{
-        let libraries = $crate::client::Libraries::new($yt_dlp, $ffmpeg);
-        $crate::Youtube::builder(libraries, $output).build()
+        let libraries = $crate::client::Libraries::new(
+            std::path::PathBuf::from($yt_dlp),
+            std::path::PathBuf::from($ffmpeg),
+        );
+        $crate::Downloader::builder(libraries, $output).build()
     }};
 
     ($yt_dlp:expr, $ffmpeg:expr, $output:expr, cache: $cache:expr) => {{
-        let libraries = $crate::client::Libraries::new($yt_dlp, $ffmpeg);
-        $crate::Youtube::builder(libraries, $output)
+        let libraries = $crate::client::Libraries::new(
+            std::path::PathBuf::from($yt_dlp),
+            std::path::PathBuf::from($ffmpeg),
+        );
+        $crate::Downloader::builder(libraries, $output)
             .with_cache($cache)
             .build()
     }};
@@ -35,17 +41,18 @@ macro_rules! youtube {
 ///
 /// ```rust,no_run
 /// # use yt_dlp::{download_video, prelude::*};
+/// # use yt_dlp::youtube;
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 /// let yt = youtube!("libs/yt-dlp", "libs/ffmpeg", "output").await?;
-/// download_video!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "video.mp4").await?;
+/// download_video!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "video.mp4")?;
 /// # Ok(())
 /// # }
 /// ```
 #[macro_export]
 macro_rules! download_video {
     ($yt:expr, $url:expr, $output:expr) => {{
-        let video = $yt.fetch_video_infos($url).await?;
+        let video = $yt.fetch_video_infos($url.to_string()).await?;
         $yt.download_video(&video, $output).await
     }};
 
@@ -68,18 +75,19 @@ macro_rules! download_video {
 ///
 /// ```rust,no_run
 /// # use yt_dlp::{download_audio, prelude::*};
+/// # use yt_dlp::youtube;
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 /// let yt = youtube!("libs/yt-dlp", "libs/ffmpeg", "output").await?;
-/// download_audio!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "audio.m4a").await?;
+/// download_audio!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "audio.m4a")?;
 /// # Ok(())
 /// # }
 /// ```
 #[macro_export]
 macro_rules! download_audio {
     ($yt:expr, $url:expr, $output:expr) => {{
-        let video = $yt.fetch_video_infos($url).await?;
-        $yt.download_audio(&video, $output).await
+        let video = $yt.fetch_video_infos($url.to_string()).await?;
+        $yt.download_audio_stream(&video, $output).await
     }};
 
     ($yt:expr, $url:expr, $output:expr, quality: $quality:expr) => {{
@@ -123,7 +131,7 @@ macro_rules! ytdlp_args {
 /// # use yt_dlp::install_libraries;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let libs = install_libraries!("libs").await?;
+/// let libs = install_libraries!("libs")?;
 /// # Ok(())
 /// # }
 /// ```
@@ -139,7 +147,7 @@ macro_rules! install_libraries {
         let ffmpeg = dir.join("ffmpeg");
 
         let libraries = Libraries::new(yt_dlp, ffmpeg);
-        libraries.install(None).await?;
+        libraries.install_dependencies().await?;
 
         Ok::<Libraries, $crate::error::Error>(libraries)
     }};
@@ -154,7 +162,7 @@ macro_rules! install_libraries {
         let ffmpeg = dir.join("ffmpeg");
 
         let libraries = Libraries::new(yt_dlp, ffmpeg);
-        libraries.install(Some($token)).await?;
+        libraries.install_dependencies_with_token($token).await?;
 
         Ok::<Libraries, $crate::error::Error>(libraries)
     }};

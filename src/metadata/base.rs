@@ -62,12 +62,11 @@ pub trait BaseMetadata {
         #[cfg(feature = "tracing")]
         tracing::trace!("Extracting basic metadata for video: {}", video.id);
 
-        let mut metadata = vec![
-            ("title".to_string(), video.title.clone()),
-            ("artist".to_string(), video.channel.clone()),
-            ("album_artist".to_string(), video.channel.clone()),
-            ("album".to_string(), video.channel.clone()),
-        ];
+        let mut metadata = vec![("title".to_string(), video.title.clone())];
+
+        Self::add_metadata_if_some(&mut metadata, "artist", video.channel.clone());
+        Self::add_metadata_if_some(&mut metadata, "album_artist", video.channel.clone());
+        Self::add_metadata_if_some(&mut metadata, "album", video.channel.clone());
 
         // Add tags as genre
         if !video.tags.is_empty() {
@@ -75,12 +74,11 @@ pub trait BaseMetadata {
         }
 
         // Add dates
-        if video.upload_date > 0
-            && let Some(date_str) = Self::format_timestamp(video.upload_date, "%Y-%m-%d")
-        {
-            metadata.push(("date".to_string(), date_str));
-
-            if let Some(year_str) = Self::format_timestamp(video.upload_date, "%Y") {
+        if let Some(timestamp) = video.upload_date.filter(|&t| t > 0) {
+            if let Some(date_str) = Self::format_timestamp(timestamp, "%Y-%m-%d") {
+                metadata.push(("date".to_string(), date_str));
+            }
+            if let Some(year_str) = Self::format_timestamp(timestamp, "%Y") {
                 metadata.push(("year".to_string(), year_str));
             }
         }

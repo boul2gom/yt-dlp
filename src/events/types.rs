@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+
 use std::time::Duration;
 
 use crate::download::DownloadPriority;
@@ -12,7 +12,7 @@ use crate::model::playlist::Playlist;
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum DownloadEvent {
     /// Video metadata has been fetched from the URL
-    VideoFetched { url: String, video: Arc<Video> },
+    VideoFetched { url: String, video: Video },
 
     /// Download has been queued in the download manager
     DownloadQueued {
@@ -66,7 +66,7 @@ pub enum DownloadEvent {
     /// Format has been selected for download
     FormatSelected {
         video_id: String,
-        format: Arc<Format>,
+        format: Format,
         quality: String,
     },
 
@@ -104,10 +104,7 @@ pub enum DownloadEvent {
     },
 
     /// Playlist metadata has been fetched
-    PlaylistFetched {
-        url: String,
-        playlist: Arc<Playlist>,
-    },
+    PlaylistFetched { url: String, playlist: Playlist },
 
     /// Playlist item download has started
     PlaylistItemStarted {

@@ -16,7 +16,7 @@ const BASE_ASSET_NAME: &str = "yt-dlp";
 ///
 /// ```rust, no_run
 /// # use std::path::PathBuf;
-/// # use yt_dlp::fetcher::deps::youtube::GitHubFetcher;
+/// # use yt_dlp::client::deps::youtube::GitHubFetcher;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let fetcher = GitHubFetcher::new("yt-dlp", "yt-dlp");

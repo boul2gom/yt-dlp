@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::executor::Executor;
 use crate::extractor::VideoExtractor;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
@@ -73,7 +72,7 @@ impl FormatPreset {
             Self::Best => "bestvideo+bestaudio/best".to_string(),
             Self::Premium => "bestvideo[height>=1080]+bestaudio[abr>=192]/best".to_string(),
             Self::High => "bestvideo[height>=1080]+bestaudio/best".to_string(),
-            Self::Medium => "bestvideo[height>=720]+bestaudio/best".to_string(),
+            Self::Medium => "bestvideo[height<=720]+bestaudio/best".to_string(),
             Self::Low => "bestvideo[height<=480]+bestaudio/best".to_string(),
             Self::AudioOnly => "bestaudio/best".to_string(),
             Self::ModernCodecs => "bestvideo[vcodec^=vp9]+bestaudio[acodec=opus]/best".to_string(),
@@ -109,7 +108,7 @@ impl Youtube {
             skip_dash: false,
             format_preset: None,
             args: Vec::new(),
-            timeout: Duration::from_secs(60),
+            timeout: crate::client::DEFAULT_TIMEOUT,
         }
     }
 
@@ -120,9 +119,10 @@ impl Youtube {
     ///
     /// # Examples
     /// ```rust,no_run
-    /// # use yt_dlp::extractor::{Youtube, PlayerClient};
+    /// # use yt_dlp::extractor::Youtube;
+    /// # use yt_dlp::extractor::youtube::PlayerClient;
     /// # use std::path::PathBuf;
-    /// let mut extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let mut extractor = Youtube::new(PathBuf::from("yt-dlp"));
     /// extractor.with_player_client(PlayerClient::Android);
     /// ```
     pub fn with_player_client(&mut self, client: PlayerClient) -> &mut Self {
@@ -187,7 +187,7 @@ impl Youtube {
     /// # use std::path::PathBuf;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"));
     /// let channel = extractor.fetch_channel("UC...").await?;
     /// # Ok(())
     /// # }
@@ -274,7 +274,7 @@ impl Youtube {
     /// # use std::path::PathBuf;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let extractor = Youtube::new(PathBuf::from("yt-dlp"));
     /// let results = extractor.search("rust programming", 10).await?;
     /// # Ok(())
     /// # }
@@ -332,32 +332,20 @@ impl Youtube {
     }
 
     async fn execute_for_video(&self, args: &[String]) -> Result<Video> {
-        let executor = Executor {
-            executable_path: self.executable_path.clone(),
-            args: args.to_vec(),
-            timeout: self.timeout,
-        };
-
-        let output = executor.execute().await?;
-        let mut video: Video = serde_json::from_str(&output.stdout)?;
-
-        // Set video ID on each format for caching purposes
-        for format in &mut video.formats {
-            format.video_id = Some(video.id.clone());
-        }
-
-        Ok(video)
+        super::execute_and_parse_video(self.executable_path.clone(), args, self.timeout).await
     }
 
     async fn execute_for_playlist(&self, args: &[String]) -> Result<Playlist> {
-        let executor = Executor {
-            executable_path: self.executable_path.clone(),
-            args: args.to_vec(),
-            timeout: self.timeout,
-        };
+        super::execute_and_parse_playlist(self.executable_path.clone(), args, self.timeout).await
+    }
 
-        let output = executor.execute().await?;
-        serde_json::from_str(&output.stdout).map_err(Into::into)
+    pub fn supports_url(url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+        url_lower.contains("youtube.com")
+            || url_lower.contains("youtu.be")
+            || url_lower.contains("youtube-nocookie.com")
+            || url_lower.starts_with("ytsearch")
+            || url_lower.starts_with("ytplaylist")
     }
 }
 
@@ -371,27 +359,18 @@ impl VideoExtractor for Youtube {
     }
 
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
-        let mut args = vec![
-            "--flat-playlist".to_string(),
-            "--dump-json".to_string(),
-            "--no-progress".to_string(),
-        ];
-
-        args.extend(self.args.clone());
+        let mut args = self.build_base_args();
+        args.push("--flat-playlist".to_string());
         args.push(url.to_string());
 
         self.execute_for_playlist(&args).await
     }
 
-    fn name(&self) -> &str {
-        "youtube"
+    fn name(&self) -> crate::extractor::ExtractorName {
+        crate::extractor::ExtractorName::Youtube
     }
 
     fn supports_url(&self, url: &str) -> bool {
-        let url_lower = url.to_lowercase();
-        url_lower.contains("youtube.com")
-            || url_lower.contains("youtu.be")
-            || url_lower.contains("youtube-nocookie.com")
-            || url_lower.starts_with("ytsearch")
+        Self::supports_url(url)
     }
 }

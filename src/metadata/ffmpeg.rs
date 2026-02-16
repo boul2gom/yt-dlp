@@ -120,11 +120,11 @@ impl MetadataManager {
             ffmpeg_args
         ));
 
-        let executor = Executor {
-            executable_path: self.ffmpeg_path.clone(),
-            timeout: Duration::from_secs(120),
-            args: ffmpeg_args,
-        };
+        let executor = Executor::new(
+            self.ffmpeg_path.clone(),
+            ffmpeg_args,
+            Duration::from_secs(120),
+        );
 
         let output = executor.execute().await?;
 
@@ -197,11 +197,7 @@ impl MetadataManager {
         args.push("-y".to_string());
         args.push(temp_output_str.to_string());
 
-        let executor = Executor {
-            executable_path: self.ffmpeg_path.clone(),
-            timeout: Duration::from_secs(120),
-            args,
-        };
+        let executor = Executor::new(self.ffmpeg_path.clone(), args, Duration::from_secs(60));
 
         let _ = executor.execute().await?;
 
@@ -289,11 +285,11 @@ impl MetadataManager {
             ffmpeg_args
         ));
 
-        let executor = Executor {
-            executable_path: self.ffmpeg_path.clone(),
-            timeout: Duration::from_secs(120),
-            args: ffmpeg_args,
-        };
+        let executor = Executor::new(
+            self.ffmpeg_path.clone(),
+            ffmpeg_args,
+            Duration::from_secs(120),
+        );
 
         let output = executor.execute().await?;
 

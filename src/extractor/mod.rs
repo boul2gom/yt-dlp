@@ -10,13 +10,36 @@ use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 use async_trait::async_trait;
+use downcast_rs::{Downcast, impl_downcast};
+use std::fmt;
+
+/// Identifies which extractor implementation is in use.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ExtractorName {
+    /// YouTube-specific extractor with platform optimizations.
+    Youtube,
+    /// Generic extractor for all other yt-dlp supported sites.
+    /// Contains the optional site-specific extractor name reported by yt-dlp
+    /// (e.g. `"vimeo"`, `"tiktok"`).
+    Generic(Option<String>),
+}
+
+impl fmt::Display for ExtractorName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Youtube => write!(f, "youtube"),
+            Self::Generic(Some(name)) => write!(f, "{}", name),
+            Self::Generic(None) => write!(f, "generic"),
+        }
+    }
+}
 
 /// Core trait for video extractors.
 ///
 /// This trait defines the common interface that all extractors must implement.
-/// Each extractor handles fetching video metadata and playlists from their respective platforms.
+/// Each extractor handles fetching video metadata and playlists from their respective platform.
 #[async_trait]
-pub trait VideoExtractor: Send + Sync + std::fmt::Debug {
+pub trait VideoExtractor: Downcast + Send + Sync + std::fmt::Debug {
     /// Fetch video metadata from a URL.
     ///
     /// # Arguments
@@ -42,7 +65,7 @@ pub trait VideoExtractor: Send + Sync + std::fmt::Debug {
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist>;
 
     /// Get the name of this extractor.
-    fn name(&self) -> &str;
+    fn name(&self) -> ExtractorName;
 
     /// Check if this extractor supports the given URL pattern.
     ///
@@ -51,10 +74,53 @@ pub trait VideoExtractor: Send + Sync + std::fmt::Debug {
     fn supports_url(&self, url: &str) -> bool;
 }
 
+impl_downcast!(VideoExtractor);
+
 pub mod detector;
 pub mod generic;
 pub mod youtube;
 
-pub use detector::{ExtractorType, detect_extractor_type};
+pub use detector::detect_extractor_type;
 pub use generic::Generic;
 pub use youtube::Youtube;
+
+use crate::executor::Executor;
+use std::path::PathBuf;
+use std::time::Duration;
+
+/// Helper to execute the extractor command and parse the output as a Video.
+///
+/// This handles the common pattern of:
+/// 1. Creating an Executor
+/// 2. Running it
+/// 3. Deserializing the JSON output
+/// 4. Post-processing the video (e.g. setting video_id on formats)
+pub async fn execute_and_parse_video(
+    executable_path: PathBuf,
+    args: &[String],
+    timeout: Duration,
+) -> Result<Video> {
+    let executor = Executor::new(executable_path, args.to_vec(), timeout);
+
+    let output = executor.execute().await?;
+    let mut video: Video = serde_json::from_str(&output.stdout)?;
+
+    // Set video ID on each format for caching purposes
+    for format in &mut video.formats {
+        format.video_id = Some(video.id.clone());
+    }
+
+    Ok(video)
+}
+
+/// Helper to execute the extractor command and parse the output as a Playlist.
+pub async fn execute_and_parse_playlist(
+    executable_path: PathBuf,
+    args: &[String],
+    timeout: Duration,
+) -> Result<Playlist> {
+    let executor = Executor::new(executable_path, args.to_vec(), timeout);
+
+    let output = executor.execute().await?;
+    Ok(serde_json::from_str(&output.stdout)?)
+}

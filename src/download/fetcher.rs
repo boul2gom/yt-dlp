@@ -275,13 +275,13 @@ impl Fetcher {
         tracing::debug!("Fetching asset from {} to {:?}", self.url, destination);
 
         // Ensure the destination directory exists
-        fs::create_parent_dir(&destination)?;
+        fs::create_parent_dir(&destination).await?;
 
         // If the parent directory doesn't exist, create it
         if let Some(parent) = destination.as_ref().parent()
             && !parent.exists()
         {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         // Check if the file exists and if we can resume the download
@@ -360,7 +360,7 @@ impl Fetcher {
             #[cfg(feature = "tracing")]
             tracing::debug!("Creating new file for download");
 
-            fs::create_parent_dir(&destination)?;
+            fs::create_parent_dir(&destination).await?;
             let file = fs::create_file(&destination).await?;
             // Resize the file to the total size
             file.set_len(content_length).await?;
@@ -657,13 +657,13 @@ impl Fetcher {
         tracing::debug!("Using simple download for {}", self.url);
 
         // Ensure the destination directory exists
-        fs::create_parent_dir(&destination)?;
+        fs::create_parent_dir(&destination).await?;
 
         // If the parent directory doesn't exist, create it
         if let Some(parent) = destination.as_ref().parent()
             && !parent.exists()
         {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         // Check if the file exists and get its size

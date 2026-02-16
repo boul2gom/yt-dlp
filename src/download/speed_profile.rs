@@ -5,6 +5,34 @@
 
 use std::fmt;
 
+/// Default concurrent downloads for Conservative profile
+const CONSERVATIVE_CONCURRENT: usize = 3;
+/// Default concurrent downloads for Balanced profile
+const BALANCED_CONCURRENT: usize = 5;
+/// Default concurrent downloads for Aggressive profile
+const AGGRESSIVE_CONCURRENT: usize = 8;
+
+/// Default segment size for Conservative profile (5 MB)
+const CONSERVATIVE_SEGMENT_SIZE: usize = 5 * 1024 * 1024;
+/// Default segment size for Balanced profile (8 MB)
+const BALANCED_SEGMENT_SIZE: usize = 8 * 1024 * 1024;
+/// Default segment size for Aggressive profile (10 MB)
+const AGGRESSIVE_SEGMENT_SIZE: usize = 10 * 1024 * 1024;
+
+/// Default parallel segments for Conservative profile
+const CONSERVATIVE_PARALLEL: usize = 4;
+/// Default parallel segments for Balanced profile
+const BALANCED_PARALLEL: usize = 8;
+/// Default parallel segments for Aggressive profile
+const AGGRESSIVE_PARALLEL: usize = 12;
+
+/// Default buffer size for Conservative profile (10 MB)
+const CONSERVATIVE_BUFFER: usize = 10 * 1024 * 1024;
+/// Default buffer size for Balanced profile (20 MB)
+const BALANCED_BUFFER: usize = 20 * 1024 * 1024;
+/// Default buffer size for Aggressive profile (30 MB)
+const AGGRESSIVE_BUFFER: usize = 30 * 1024 * 1024;
+
 /// Download speed profile
 ///
 /// Different profiles optimize download parameters for various network conditions
@@ -52,36 +80,36 @@ impl SpeedProfile {
     /// Get the maximum number of concurrent downloads for this profile
     pub fn max_concurrent_downloads(&self) -> usize {
         match self {
-            Self::Conservative => 3,
-            Self::Balanced => 5,
-            Self::Aggressive => 8,
+            Self::Conservative => CONSERVATIVE_CONCURRENT,
+            Self::Balanced => BALANCED_CONCURRENT,
+            Self::Aggressive => AGGRESSIVE_CONCURRENT,
         }
     }
 
     /// Get the segment size in bytes for this profile
     pub fn segment_size(&self) -> usize {
         match self {
-            Self::Conservative => 5 * 1024 * 1024, // 5 MB
-            Self::Balanced => 8 * 1024 * 1024,     // 8 MB
-            Self::Aggressive => 10 * 1024 * 1024,  // 10 MB
+            Self::Conservative => CONSERVATIVE_SEGMENT_SIZE,
+            Self::Balanced => BALANCED_SEGMENT_SIZE,
+            Self::Aggressive => AGGRESSIVE_SEGMENT_SIZE,
         }
     }
 
     /// Get the number of parallel segments per download for this profile
     pub fn parallel_segments(&self) -> usize {
         match self {
-            Self::Conservative => 4,
-            Self::Balanced => 8,
-            Self::Aggressive => 12,
+            Self::Conservative => CONSERVATIVE_PARALLEL,
+            Self::Balanced => BALANCED_PARALLEL,
+            Self::Aggressive => AGGRESSIVE_PARALLEL,
         }
     }
 
     /// Get the maximum buffer size in bytes for this profile
     pub fn max_buffer_size(&self) -> usize {
         match self {
-            Self::Conservative => 10 * 1024 * 1024, // 10 MB
-            Self::Balanced => 20 * 1024 * 1024,     // 20 MB
-            Self::Aggressive => 30 * 1024 * 1024,   // 30 MB
+            Self::Conservative => CONSERVATIVE_BUFFER,
+            Self::Balanced => BALANCED_BUFFER,
+            Self::Aggressive => AGGRESSIVE_BUFFER,
         }
     }
 

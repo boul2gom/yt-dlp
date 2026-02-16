@@ -5,7 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Represents a chapter in a YouTube video.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chapter {
     /// The start time of the chapter in seconds.
     pub start_time: f64,
@@ -402,8 +402,13 @@ impl fmt::Display for Chapter {
     }
 }
 
-// Implementation of Eq for Chapter
-impl Eq for Chapter {}
+impl PartialEq for Chapter {
+    fn eq(&self, other: &Self) -> bool {
+        self.start_time.to_bits() == other.start_time.to_bits()
+            && self.end_time.to_bits() == other.end_time.to_bits()
+            && self.title == other.title
+    }
+}
 
 // Implementation of Hash for Chapter
 impl Hash for Chapter {

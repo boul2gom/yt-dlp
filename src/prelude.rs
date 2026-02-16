@@ -15,7 +15,7 @@ pub use crate::YoutubeBuilder;
 pub use crate::error::{Error, Result};
 
 // Client types (new architecture)
-pub use crate::client::{DownloadBuilder, Libraries, LibraryInstaller, YoutubeConfig};
+pub use crate::client::{DownloadBuilder, Libraries, LibraryInstaller};
 
 // Download types (new architecture)
 pub use crate::download::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};

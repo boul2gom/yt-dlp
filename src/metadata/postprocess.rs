@@ -57,11 +57,7 @@ pub async fn apply_postprocess(
 
     let args = build_ffmpeg_command(input_str, output_str, config)?;
 
-    let executor = Executor {
-        executable_path: libraries.ffmpeg.clone(),
-        timeout,
-        args,
-    };
+    let executor = Executor::new(libraries.ffmpeg.clone(), args, timeout);
 
     executor.execute().await?;
     Ok(output_path.as_ref().to_path_buf())

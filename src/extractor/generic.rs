@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::executor::Executor;
 use crate::extractor::VideoExtractor;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
@@ -35,7 +34,7 @@ impl Generic {
             executable_path,
             extractor_name: None,
             args: Vec::new(),
-            timeout: Duration::from_secs(60),
+            timeout: crate::client::DEFAULT_TIMEOUT,
         }
     }
 
@@ -49,7 +48,7 @@ impl Generic {
             executable_path,
             extractor_name: Some(name),
             args: Vec::new(),
-            timeout: Duration::from_secs(60),
+            timeout: crate::client::DEFAULT_TIMEOUT,
         }
     }
 
@@ -63,7 +62,7 @@ impl Generic {
     /// ```rust,no_run
     /// # use yt_dlp::extractor::Generic;
     /// # use std::path::PathBuf;
-    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"));
     /// extractor.with_extractor_args("tiktok", "api_hostname=api-h2.tiktokv.com");
     /// ```
     pub fn with_extractor_args(&mut self, extractor: &str, args: &str) -> &mut Self {
@@ -81,7 +80,7 @@ impl Generic {
     /// ```rust,no_run
     /// # use yt_dlp::extractor::Generic;
     /// # use std::path::PathBuf;
-    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"));
     /// extractor.with_cookies("instagram_cookies.txt");
     /// ```
     pub fn with_cookies(&mut self, cookie_file: &str) -> &mut Self {
@@ -99,7 +98,7 @@ impl Generic {
     /// ```rust,no_run
     /// # use yt_dlp::extractor::Generic;
     /// # use std::path::PathBuf;
-    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"));
     /// extractor.with_credentials("user@email.com", "password");
     /// ```
     pub fn with_credentials(&mut self, username: &str, password: &str) -> &mut Self {
@@ -114,7 +113,7 @@ impl Generic {
     /// ```rust,no_run
     /// # use yt_dlp::extractor::Generic;
     /// # use std::path::PathBuf;
-    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"), PathBuf::from("output"));
+    /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"));
     /// extractor.with_netrc();
     /// ```
     pub fn with_netrc(&mut self) -> &mut Self {
@@ -147,32 +146,11 @@ impl Generic {
     }
 
     async fn execute_for_video(&self, args: &[String]) -> Result<Video> {
-        let executor = Executor {
-            executable_path: self.executable_path.clone(),
-            args: args.to_vec(),
-            timeout: self.timeout,
-        };
-
-        let output = executor.execute().await?;
-        let mut video: Video = serde_json::from_str(&output.stdout)?;
-
-        // Set video ID on each format for caching purposes
-        for format in &mut video.formats {
-            format.video_id = Some(video.id.clone());
-        }
-
-        Ok(video)
+        super::execute_and_parse_video(self.executable_path.clone(), args, self.timeout).await
     }
 
     async fn execute_for_playlist(&self, args: &[String]) -> Result<Playlist> {
-        let executor = Executor {
-            executable_path: self.executable_path.clone(),
-            args: args.to_vec(),
-            timeout: self.timeout,
-        };
-
-        let output = executor.execute().await?;
-        serde_json::from_str(&output.stdout).map_err(Into::into)
+        super::execute_and_parse_playlist(self.executable_path.clone(), args, self.timeout).await
     }
 }
 
@@ -198,8 +176,8 @@ impl VideoExtractor for Generic {
         self.execute_for_playlist(&args).await
     }
 
-    fn name(&self) -> &str {
-        self.extractor_name.as_deref().unwrap_or("generic")
+    fn name(&self) -> crate::extractor::ExtractorName {
+        crate::extractor::ExtractorName::Generic(self.extractor_name.clone())
     }
 
     fn supports_url(&self, _url: &str) -> bool {

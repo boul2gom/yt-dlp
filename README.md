@@ -39,7 +39,7 @@
     <img src="https://img.shields.io/github/issues-raw/boul2gom/yt-dlp?label=Issues&logo=Github" alt="Issues">
   </a>
   <a href="https://github.com/boul2gom/yt-dlp/pulls">
-    <img src="https://img.shields.io/github/issues-pr-raw/boul2gom/yt-dlp?label=Pull requests&logo=Github" alt="Pull requests">
+    <img src="https://img.shields.io/github/issues-pr-raw/boul2gom/yt-dlp?label=Pull%20requests&logo=Github" alt="Pull%20requests">
   </a>
 </p>
 <p align="center">
@@ -121,33 +121,49 @@ This library now supports downloading from **1,800+ websites** through a flexibl
 ### Usage Patterns
 
 **For YouTube with optimizations:**
-```rust
+```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
 
-let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
-let downloader = Downloader::for_youtube(libraries, "output").await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"), 
+        PathBuf::from("libs/ffmpeg")
+    );
+    let downloader = Downloader::for_youtube(libraries, "output").await?;
 
-// Access YouTube-specific features
-if let Some(youtube) = downloader.youtube_extractor() {
-    let results = youtube.search("rust programming", 10).await?;
-    let channel = youtube.fetch_channel("UCaYhcUwRBNscFNUKTjgPFiA").await?;
+    // Access YouTube-specific features
+    if let Some(youtube) = downloader.youtube_extractor() {
+        let results = youtube.search("rust programming", 10).await?;
+        let channel = youtube.fetch_channel("UCaYhcUwRBNscFNUKTjgPFiA").await?;
+    }
+    Ok(())
 }
 ```
 
 **For any website (YouTube, Vimeo, TikTok, etc.):**
-```rust
+```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
 
-let libraries = Libraries::new("libs/yt-dlp", "libs/ffmpeg");
-let downloader = Downloader::new(libraries, "output").await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"), 
+        PathBuf::from("libs/ffmpeg")
+    );
+    let downloader = Downloader::new(libraries, "output").await?;
 
-// Works with any supported site
-let video = downloader.download_video_from_url(
-    "https://vimeo.com/123456789",
-    "output.mp4"
-).await?;
+    // Works with any supported site
+    let video = downloader.download_video_from_url(
+        "https://vimeo.com/123456789".to_string(),
+        "output.mp4"
+    ).await?;
+    Ok(())
+}
 ```
 
 **Backwards compatibility:** The library maintains backwards compatibility by re-exporting `Downloader` as `Youtube` in the prelude, so existing code continues to work.
@@ -155,8 +171,8 @@ let video = downloader.download_video_from_url(
 ## 📚 Examples
 
 - 📦 Installing the [```yt-dlp```](https://github.com/yt-dlp/yt-dlp/) and [```ffmpeg```](https://ffmpeg.org/) binaries:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -164,13 +180,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let executables_dir = PathBuf::from("libs");
     let output_dir = PathBuf::from("output");
 
-    let fetcher = Youtube::with_new_binaries(executables_dir, output_dir).await?;
+    let downloader = Downloader::with_new_binaries(executables_dir, output_dir).await?;
     Ok(())
 }
 ```
 
 - 📦 Installing the [```yt-dlp```](https://github.com/yt-dlp/yt-dlp/) binary only:
-```rust
+```rust,no_run
 use yt_dlp::client::deps::LibraryInstaller;
 use std::path::PathBuf;
 
@@ -185,7 +201,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📦 Installing the [```ffmpeg```](https://ffmpeg.org/) binary only:
-```rust
+```rust,no_run
 use yt_dlp::client::deps::LibraryInstaller;
 use std::path::PathBuf;
 
@@ -200,8 +216,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🔄 Updating the [```yt-dlp```](https://github.com/yt-dlp/yt-dlp/) binary:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -214,16 +230,16 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
-    fetcher.update_downloader().await?;
+    downloader.update_downloader().await?;
     Ok(())
 }
 ```
 
 - 📥 Fetching a video (with its audio) and downloading it:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -236,17 +252,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video_path = fetcher.download_video_from_url(url, "my-video.mp4").await?;
+    let video_path = downloader.download_video_from_url(url, "my-video.mp4").await?;
     Ok(())
 }
 ```
 
 - 📁 Downloading a video to a specific path (ignoring `output_dir`):
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -259,21 +275,21 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     
     // Download to an absolute path — the file is written directly to the given path,
     // bypassing the configured output_dir.
     let path = PathBuf::from("/Users/me/Videos/my-video.mp4");
-    let video_path = fetcher.download_video_from_url_to_path(url, &path).await?;
+    let video_path = downloader.download_video_from_url_to_path(url, path).await?;
     Ok(())
 }
 ```
 
 - ✨ Using the fluent API with custom quality preferences:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::model::selector::{VideoQuality, AudioQuality, VideoCodecPreference};
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
@@ -287,14 +303,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
     // Use the fluent download builder API
-    let video_path = fetcher.download(url, "my-video.mp4")
-        .video_quality(VideoQuality::Q1080p)
-        .video_codec(VideoCodecPreference::H264)
+    let video_path = downloader.download(url, "my-video.mp4")
+        .video_quality(VideoQuality::CustomHeight(1080))
+        .video_codec(VideoCodecPreference::AVC1)
         .audio_quality(AudioQuality::Best)
         .execute()
         .await?;
@@ -304,8 +320,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🎬 Fetching a video (without its audio) and downloading it:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -318,17 +334,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
     
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    fetcher.download_video_stream_from_url(url, "video.mp4").await?;
+    downloader.download_video_stream_from_url(url, "video.mp4").await?;
     Ok(())
 }
 ```
 
 - 🎵 Fetching an audio and downloading it:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -341,17 +357,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    fetcher.download_audio_stream_from_url(url, "audio.mp3").await?;
+    downloader.download_audio_stream_from_url(url, "audio.mp3").await?;
     Ok(())
 }
 ```
 
 - 📜 Fetching a specific format and downloading it:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -364,25 +380,25 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
     
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
     println!("Video title: {}", video.title);
 
     let video_format = video.best_video_format().unwrap();
-    let format_path = fetcher.download_format(&video_format, "my-video-stream.mp4").await?;
+    let format_path = downloader.download_format(&video_format, "my-video-stream.mp4").await?;
     
     let audio_format = video.worst_audio_format().unwrap();
-    let audio_path = fetcher.download_format(&audio_format, "my-audio-stream.mp3").await?;
+    let audio_path = downloader.download_format(&audio_format, "my-audio-stream.mp3").await?;
     
     Ok(())
 }
 ```
 
 - ⚙️ Combining an audio and a video file into a single file:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -395,25 +411,25 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     let audio_format = video.best_audio_format().unwrap();
-    let audio_path = fetcher.download_format(&audio_format, "audio-stream.mp3").await?;
+    let audio_path = downloader.download_format(&audio_format, "audio-stream.mp3").await?;
 
     let video_format = video.worst_video_format().unwrap();
-    let video_path = fetcher.download_format(&video_format, "video-stream.mp4").await?;
+    let video_path = downloader.download_format(&video_format, "video-stream.mp4").await?;
 
-    let output_path = fetcher.combine_audio_and_video("audio-stream.mp3", "video-stream.mp4", "my-output.mp4").await?;
+    let output_path = downloader.combine_audio_and_video("audio-stream.mp3", "video-stream.mp4", "my-output.mp4").await?;
     Ok(())
 }
 ```
 
 - 📸 Fetching a thumbnail and downloading it:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -426,17 +442,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let thumbnail_path = fetcher.download_thumbnail_from_url(url, "thumbnail.jpg").await?;
+    let thumbnail_path = downloader.download_thumbnail_from_url(url, "thumbnail.jpg").await?;
     Ok(())
 }
 ```
 
 - 📥 Download with download manager and priority:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::manager::{ManagerConfig, DownloadPriority};
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
@@ -460,20 +476,20 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let libraries = Libraries::new(youtube, ffmpeg);
 
     // Create a fetcher with custom configuration
-    let fetcher = Youtube::with_download_manager_config(libraries, output_dir, config)?;
+    let downloader = Downloader::with_download_manager_config(libraries, output_dir, config).await?;
 
     // Download a video with high priority
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
-    let download_id = fetcher.download_video_with_priority(
+    let download_id = downloader.download_video_with_priority(
         &video,
         "video-high-priority.mp4",
         Some(DownloadPriority::High)
     ).await?;
 
     // Wait for download completion
-    let status = fetcher.wait_for_download(download_id).await;
+    let status = downloader.wait_for_download(download_id).await;
     println!("Final download status: {:?}", status);
 
     Ok(())
@@ -481,8 +497,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📊 Download with progress tracking:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -495,13 +511,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
     
     // Download with progress callback
-    let download_id = fetcher.download_video_with_progress(
+    let download_id = downloader.download_video_with_progress(
         &video, 
         "video-with-progress.mp4", 
         |downloaded, total| {
@@ -515,15 +531,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     // Wait for download completion
-    fetcher.wait_for_download(download_id).await;
+    downloader.wait_for_download(download_id).await;
     
     Ok(())
 }
 ```
 
 - 🛑 Canceling a download:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -536,24 +552,24 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
     
     // Start a download
-    let download_id = fetcher.download_video_with_priority(
+    let download_id = downloader.download_video_with_priority(
         &video, 
         "video-to-cancel.mp4", 
         None
     ).await?;
 
     // Check status
-    let status = fetcher.get_download_status(download_id).await;
+    let status = downloader.get_download_status(download_id).await;
     println!("Download status: {:?}", status);
 
     // Cancel the download
-    let canceled = fetcher.cancel_download(download_id).await;
+    let canceled = downloader.cancel_download(download_id).await;
     println!("Download canceled: {}", canceled);
     
     Ok(())
@@ -601,8 +617,8 @@ The library provides a powerful format selection system that allows you to downl
 
 ### 🧪 Example: Downloading with Quality and Codec Preferences
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::model::selector::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
@@ -616,12 +632,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
     
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     
     // Download a high quality video with VP9 codec and high quality audio with Opus codec
-    let video_path = fetcher.download_video_with_quality(
+    let video_path = downloader.download_video_with_quality(
         url.clone(),
         "complete-video.mp4",
         VideoQuality::High,
@@ -631,7 +647,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
     
     // Download just the video stream with medium quality and AVC1 codec
-    let video_stream_path = fetcher.download_video_stream_with_quality(
+    let video_stream_path = downloader.download_video_stream_with_quality(
         url.clone(),
         "video-only.mp4",
         VideoQuality::Medium,
@@ -639,7 +655,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
     
     // Download just the audio stream with high quality and AAC codec
-    let audio_stream_path = fetcher.download_audio_stream_with_quality(
+    let audio_stream_path = downloader.download_audio_stream_with_quality(
         url,
         "audio-only.m4a",
         AudioQuality::High,
@@ -679,8 +695,8 @@ This optimized approach ensures that metadata is always present in the final fil
 Videos may contain chapters that divide the content into logical segments. The library provides easy access to chapter information and **automatically embeds chapters into downloaded video files** (MP4/MKV/WebM):
 
 - 📖 Accessing video chapters:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -693,10 +709,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Check if video has chapters
     if video.has_chapters() {
@@ -718,8 +734,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🕒 Finding a chapter at a specific timestamp:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -732,10 +748,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Find chapter at 120 seconds (2 minutes)
     if let Some(chapter) = video.get_chapter_at_time(120.0) {
@@ -757,8 +773,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Heatmap data (also known as "Most Replayed" segments) shows viewer engagement across different parts of a video. This feature allows you to identify which segments are most popular:
 
 - 🔥 Accessing heatmap data:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -771,15 +787,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Check if video has heatmap data
     if video.has_heatmap() {
         if let Some(heatmap) = video.get_heatmap() {
-            println!("Video has {} heatmap segments", heatmap.points.len());
+            println!("Video has {} heatmap segments", heatmap.points().len());
 
             // Find the most replayed segment
             if let Some(most_replayed) = heatmap.most_engaged_segment() {
@@ -798,8 +814,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📊 Analyzing engagement by threshold:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -812,10 +828,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     if let Some(heatmap) = video.get_heatmap() {
         // Get segments with high engagement (> 0.7)
@@ -849,8 +865,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The library provides comprehensive subtitle support, including downloading, language selection, and embedding subtitles into videos:
 
 - 📋 Listing available subtitle languages:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -863,17 +879,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // List all available subtitle languages
-    let languages = fetcher.list_subtitle_languages(&video);
+    let languages = downloader.list_subtitle_languages(&video);
     println!("Available subtitle languages: {:?}", languages);
 
     // Check if specific language is available
-    if fetcher.has_subtitle_language(&video, "en") {
+    if downloader.has_subtitle_language(&video, "en") {
         println!("English subtitles are available");
     }
 
@@ -882,8 +898,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📥 Downloading a specific subtitle:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -896,13 +912,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download English subtitles
-    let subtitle_path = fetcher
+    let subtitle_path = downloader
         .download_subtitle(&video, "en", "subtitle_en.srt")
         .await?;
     println!("Subtitle downloaded to: {:?}", subtitle_path);
@@ -912,8 +928,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📥 Downloading all available subtitles:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -926,13 +942,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir.clone()).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download all available subtitles
-    let subtitle_paths = fetcher
+    let subtitle_paths = downloader
         .download_all_subtitles(&video, &output_dir)
         .await?;
     println!("Downloaded {} subtitle files", subtitle_paths.len());
@@ -942,8 +958,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🎬 Embedding subtitles into a video:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -956,24 +972,24 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download video
-    let video_path = fetcher.download_video(&video, "video.mp4").await?;
+    let video_path = downloader.download_video(&video, "video.mp4").await?;
 
     // Download subtitles
-    let en_subtitle = fetcher
+    let en_subtitle = downloader
         .download_subtitle(&video, "en", "subtitle_en.srt")
         .await?;
-    let fr_subtitle = fetcher
+    let fr_subtitle = downloader
         .download_subtitle(&video, "fr", "subtitle_fr.srt")
         .await?;
 
     // Embed subtitles into video
-    let video_with_subs = fetcher
+    let video_with_subs = downloader
         .embed_subtitles_in_video(
             &video_path,
             &[en_subtitle, fr_subtitle],
@@ -987,8 +1003,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🔄 Working with automatic captions:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::model::caption::Subtitle;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
@@ -1002,10 +1018,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = fetcher.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Iterate over subtitles and filter automatic ones
     for (lang_code, subtitles) in &video.subtitles {
@@ -1042,8 +1058,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The library provides full playlist support, including fetching playlist metadata and downloading videos with various selection options:
 
 - 📋 Fetching playlist information:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -1056,14 +1072,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let playlist_url = String::from("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf");
-    let playlist = fetcher.fetch_playlist_infos(playlist_url).await?;
+    let playlist = downloader.fetch_playlist_infos(playlist_url).await?;
 
     println!("Playlist: {}", playlist.title);
     println!("Videos: {}", playlist.entry_count());
-    println!("Uploader: {}", playlist.uploader);
+    println!("Uploader: {}", playlist.uploader.as_deref().unwrap_or("unknown"));
 
     // List all videos in the playlist
     for entry in &playlist.entries {
@@ -1080,8 +1096,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📥 Downloading entire playlist:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -1094,14 +1110,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let playlist_url = String::from("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf");
-    let playlist = fetcher.fetch_playlist_infos(playlist_url).await?;
+    let playlist = downloader.fetch_playlist_infos(playlist_url).await?;
 
     // Download all videos with a pattern
     // Use %(playlist_index)s for index, %(title)s for title, %(id)s for video ID
-    let video_paths = fetcher
+    let video_paths = downloader
         .download_playlist(&playlist, "%(playlist_index)s - %(title)s.mp4")
         .await?;
 
@@ -1112,8 +1128,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🎯 Downloading specific videos by index:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -1126,14 +1142,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let playlist_url = String::from("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf");
-    let playlist = fetcher.fetch_playlist_infos(playlist_url).await?;
+    let playlist = downloader.fetch_playlist_infos(playlist_url).await?;
 
     // Download specific videos by index (0-based)
     let indices = vec![0, 2, 5, 10]; // Videos at positions 1, 3, 6, and 11
-    let video_paths = fetcher
+    let video_paths = downloader
         .download_playlist_items(&playlist, &indices, "%(playlist_index)s - %(title)s.mp4")
         .await?;
 
@@ -1144,8 +1160,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 📊 Downloading a range of videos:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -1158,13 +1174,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let playlist_url = String::from("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf");
-    let playlist = fetcher.fetch_playlist_infos(playlist_url).await?;
+    let playlist = downloader.fetch_playlist_infos(playlist_url).await?;
 
     // Download videos 5-15 (0-based, inclusive)
-    let video_paths = fetcher
+    let video_paths = downloader
         .download_playlist_range(&playlist, 5, 15, "%(playlist_index)s - %(title)s.mp4")
         .await?;
 
@@ -1175,8 +1191,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 - 🔍 Filtering and analyzing playlists:
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
@@ -1189,10 +1205,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     let libraries = Libraries::new(youtube, ffmpeg);
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let downloader = Downloader::new(libraries, output_dir).await?;
 
     let playlist_url = String::from("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf");
-    let playlist = fetcher.fetch_playlist_infos(playlist_url).await?;
+    let playlist = downloader.fetch_playlist_infos(playlist_url).await?;
 
     // Check if playlist is complete
     if playlist.is_complete() {
@@ -1225,8 +1241,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The library supports HTTP, HTTPS, and SOCKS5 proxies for both `yt-dlp` and `reqwest` downloads:
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::client::proxy::{ProxyConfig, ProxyType};
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1246,17 +1262,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_auth("username", "password")
         .with_no_proxy(vec!["localhost".to_string(), "127.0.0.1".to_string()]);
 
-    // Build Youtube client with proxy
-    let youtube = Youtube::builder(libraries, output_dir)
+    // Build Downloader with proxy
+    let downloader = Downloader::builder(libraries, output_dir)
         .with_proxy(proxy)
         .build()
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = youtube.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // All downloads (video, audio, thumbnails) will use the proxy
-    youtube.download_video(&video, "video.mp4").await?;
+    downloader.download_video(&video, "video.mp4").await?;
 
     Ok(())
 }
@@ -1274,8 +1290,8 @@ Download only specific parts of a video using time ranges or chapters:
 
 #### Time-based partial download
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::partial::PartialRange;
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1289,14 +1305,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
     );
-    let youtube = Youtube::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = youtube.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download from 1:30 to 5:00 (90 to 300 seconds)
     let range = PartialRange::time_range(90.0, 300.0);
-    youtube.download_video_partial(&video, &range, "partial.mp4").await?;
+    downloader.download_video_partial(&video, &range, "partial.mp4").await?;
 
     Ok(())
 }
@@ -1304,8 +1320,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### Chapter-based partial download
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::partial::PartialRange;
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1319,18 +1335,18 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
     );
-    let youtube = Youtube::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    let video = youtube.fetch_video_infos(url).await?;
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download a single chapter (0-based index)
     let single_chapter = PartialRange::single_chapter(2);
-    youtube.download_video_partial(&video, &single_chapter, "chapter2.mp4").await?;
+    downloader.download_video_partial(&video, &single_chapter, "chapter2.mp4").await?;
 
     // Download chapters 2 through 5
     let chapter_range = PartialRange::chapter_range(2, 5);
-    youtube.download_video_partial(&video, &chapter_range, "chapters2-5.mp4").await?;
+    downloader.download_video_partial(&video, &chapter_range, "chapters2-5.mp4").await?;
 
     Ok(())
 }
@@ -1338,8 +1354,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### Using DownloadBuilder for partial downloads
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
 
@@ -1352,12 +1368,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
     );
-    let youtube = Youtube::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
     // Download with fluent API
-    youtube.download(url.clone(), "partial.mp4")
+    downloader.download(url.clone(), "partial.mp4")
         .time_range(90.0, 300.0)  // Download from 1:30 to 5:00
         .execute()
         .await?;
@@ -1378,8 +1394,8 @@ Apply advanced post-processing to videos using FFmpeg:
 
 #### Basic codec conversion
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::postprocess::{PostProcessConfig, VideoCodec, AudioCodec};
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1393,7 +1409,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
     );
-    let youtube = Youtube::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     // Configure post-processing
     let config = PostProcessConfig::new()
@@ -1403,7 +1419,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_audio_bitrate("192k");
 
     // Apply to existing video
-    youtube.postprocess_video("input.mp4", "output.mp4", config).await?;
+    downloader.postprocess_video("input.mp4", "output.mp4", config).await?;
 
     Ok(())
 }
@@ -1411,8 +1427,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### Advanced post-processing with filters
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::postprocess::{
     PostProcessConfig, VideoCodec, Resolution, EncodingPreset,
     FfmpegFilter, WatermarkPosition
@@ -1429,7 +1445,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
     );
-    let youtube = Youtube::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     // Advanced configuration with filters
     let config = PostProcessConfig::new()
@@ -1444,7 +1460,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             position: WatermarkPosition::BottomRight,
         });
 
-    youtube.postprocess_video("input.mp4", "processed.mp4", config).await?;
+    downloader.postprocess_video("input.mp4", "processed.mp4", config).await?;
 
     Ok(())
 }
@@ -1527,8 +1543,8 @@ Three pre-configured profiles are available:
 
 #### Using Speed Profiles
 
-```rust
-use yt_dlp::{Youtube, YoutubeBuilder};
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::SpeedProfile;
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1544,14 +1560,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Use the Aggressive profile for maximum speed
-    let youtube = YoutubeBuilder::new(libraries, output_dir)
+    let downloader = Downloader::builder(libraries, output_dir)
         .with_speed_profile(SpeedProfile::Aggressive)
         .build()
         .await?;
 
     // All downloads will now use optimized settings
     let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    youtube.download_video_from_url(url, "video.mp4").await?;
+    downloader.download_video_from_url(url, "video.mp4").await?;
 
     Ok(())
 }
@@ -1561,8 +1577,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 You can also manually configure download parameters if you need fine-grained control:
 
-```rust
-use yt_dlp::{Youtube, YoutubeBuilder};
+```rust,no_run
+use yt_dlp::Downloader;
 use yt_dlp::download::ManagerConfig;
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
@@ -1583,7 +1599,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_segment_size(15 * 1024 * 1024) // 15 MB segments
         .with_parallel_segments(16);          // 16 parallel segments
 
-    let youtube = YoutubeBuilder::new(libraries, output_dir)
+    let downloader = Downloader::builder(libraries, output_dir)
         .with_download_manager_config(config)
         .build()
         .await?;
@@ -1624,15 +1640,30 @@ The library provides a comprehensive event system to monitor download lifecycle 
 
 All download operations emit events that you can subscribe to:
 
-```rust
-use yt_dlp::Youtube;
+```rust,no_run
+use yt_dlp::Downloader;
 use tokio_stream::StreamExt;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
 
-let youtube = Youtube::builder(libraries, "output").build().await?;
-let mut stream = youtube.event_stream();
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let libraries = Libraries::new(
+        libraries_dir.join("yt-dlp"),
+        libraries_dir.join("ffmpeg")
+    );
 
-while let Some(Ok(event)) = stream.next().await {
-    println!("Event: {} - {:?}", event.event_type(), event);
+    let downloader = Downloader::builder(libraries, output_dir).build().await?;
+    let mut stream = downloader.event_stream();
+
+    while let Some(Ok(event)) = stream.next().await {
+        println!("Event: {} - {:?}", event.event_type(), event);
+    }
+    
+    Ok(())
 }
 ```
 
@@ -1675,9 +1706,12 @@ Register async functions to be called when events occur:
 yt-dlp = { version = "1.4.3", features = ["hooks"] }
 ```
 
-```rust
+```rust,ignore
 use yt_dlp::events::{EventHook, EventFilter, DownloadEvent, HookResult};
 use async_trait::async_trait;
+use yt_dlp::Downloader;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
 
 struct MyHook;
 
@@ -1702,8 +1736,21 @@ impl EventHook for MyHook {
     }
 }
 
-let mut youtube = Youtube::builder(libraries, "output").build().await?;
-youtube.register_hook(MyHook).await;
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let libraries = Libraries::new(
+        libraries_dir.join("yt-dlp"),
+        libraries_dir.join("ffmpeg")
+    );
+
+    let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
+    downloader.register_hook(MyHook).await;
+    
+    Ok(())
+}
 ```
 
 **Hook Features:**
@@ -1714,33 +1761,36 @@ youtube.register_hook(MyHook).await;
 - Error isolation (hook failures don't stop downloads)
 
 **Event Filters:**
-```rust
+```rust,ignore
+# use yt_dlp::events::EventFilter;
+# fn main() {
 // Only completed downloads
-EventFilter::only_completed()
+EventFilter::only_completed();
 
 // Only failed downloads
-EventFilter::only_failed()
+EventFilter::only_failed();
 
 // Progress updates only
-EventFilter::only_progress()
+EventFilter::only_progress();
 
 // Exclude progress events
-EventFilter::all().exclude_progress()
+EventFilter::all().exclude_progress();
 
 // Specific download ID
-EventFilter::download_id(123)
+EventFilter::download_id(123);
 
 // Terminal events (completed, failed, canceled)
-EventFilter::only_terminal()
+EventFilter::only_terminal();
 
 // Chain filters
-EventFilter::download_id(123).and_then(|e| e.is_terminal())
+EventFilter::download_id(123).and_then(|e| e.is_terminal());
 
 // Custom filter
 EventFilter::all().and_then(|event| {
     // Your custom logic
     true
-})
+});
+# }
 ```
 
 ### HTTP Webhooks (Feature: `webhooks`)
@@ -1752,17 +1802,34 @@ Send events to external HTTP endpoints with automatic retry:
 yt-dlp = { version = "1.4.3", features = ["webhooks"] }
 ```
 
-```rust
+```rust,ignore
 use yt_dlp::events::{WebhookConfig, WebhookMethod, EventFilter};
+use std::time::Duration;
+use yt_dlp::Downloader;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
 
-let webhook = WebhookConfig::new("https://example.com/webhook")
-    .with_method(WebhookMethod::Post)
-    .with_header("Authorization", "Bearer your-token")
-    .with_filter(EventFilter::only_completed())
-    .with_timeout(Duration::from_secs(10));
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+    
+    let libraries = Libraries::new(
+        libraries_dir.join("yt-dlp"),
+        libraries_dir.join("ffmpeg")
+    );
 
-let mut youtube = Youtube::builder(libraries, "output").build().await?;
-youtube.register_webhook(webhook).await;
+    let webhook = WebhookConfig::new("https://example.com/webhook")
+        .with_method(WebhookMethod::Post)
+        .with_header("Authorization", "Bearer your-token")
+        .with_filter(EventFilter::only_completed())
+        .with_timeout(Duration::from_secs(10));
+
+    let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
+    downloader.register_webhook(webhook).await;
+    
+    Ok(())
+}
 ```
 
 **Webhook Features:**
@@ -1781,11 +1848,28 @@ export YTDLP_WEBHOOK_METHOD="POST"  # Optional, default: POST
 export YTDLP_WEBHOOK_TIMEOUT="10"   # Optional, default: 10 seconds
 ```
 
-```rust
+```rust,no_run
+# use yt_dlp::Downloader;
+# use yt_dlp::client::deps::Libraries;
+# use std::path::PathBuf;
+#
+# #[cfg(feature = "webhooks")]
+# use yt_dlp::events::WebhookConfig;
+#
+# #[cfg(feature = "webhooks")]
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+# let downloader = Downloader::new(libraries, "output").await?;
 // Load webhook from environment variables
 if let Some(webhook) = WebhookConfig::from_env() {
-    youtube.register_webhook(webhook).await;
+    downloader.register_webhook(webhook).await;
 }
+# Ok(())
+# }
+#
+# #[cfg(not(feature = "webhooks"))]
+# fn main() {}
 ```
 
 **Webhook Payload:**
@@ -1804,9 +1888,13 @@ if let Some(webhook) = WebhookConfig::from_env() {
 ```
 
 **Retry Strategy:**
-```rust
+```rust,no_run
+#[cfg(feature = "webhooks")]
 use yt_dlp::events::RetryStrategy;
+use std::time::Duration;
 
+#[cfg(feature = "webhooks")]
+fn main() {
 // Exponential backoff (default)
 let strategy = RetryStrategy::exponential(
     3,                              // max attempts
@@ -1822,29 +1910,47 @@ let strategy = RetryStrategy::linear(
 
 // No retries
 let strategy = RetryStrategy::none();
+}
+#
+# #[cfg(not(feature = "webhooks"))]
+# fn main() {}
 ```
 
 ### Combining Features
 
 Use both hooks and webhooks together:
 
-```rust
-use yt_dlp::Youtube;
+```rust,ignore
+use yt_dlp::Downloader;
 use yt_dlp::events::{EventHook, WebhookConfig, EventFilter};
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
 
-let mut youtube = Youtube::builder(libraries, "output").build().await?;
+struct MyLocalHook;
+#[async_trait::async_trait]
+impl EventHook for MyLocalHook {
+    async fn on_event(&self, _event: &yt_dlp::events::DownloadEvent) -> yt_dlp::events::HookResult { Ok(()) }
+    fn filter(&self) -> EventFilter { EventFilter::all() }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+let mut downloader = Downloader::builder(libraries, "output").build().await?;
 
 // Register Rust hook for immediate in-process handling
-youtube.register_hook(MyLocalHook).await;
+downloader.register_hook(MyLocalHook).await;
 
 // Register webhook for external notifications
 let webhook = WebhookConfig::new("https://example.com/webhook")
     .with_filter(EventFilter::only_completed());
-youtube.register_webhook(webhook).await;
+downloader.register_webhook(webhook).await;
 
 // Start downloads - both hooks and webhooks will receive events
-let video = youtube.fetch_video_infos("https://youtube.com/watch?v=...").await?;
-youtube.download_video(&video, "video.mp4").await?;
+let video = downloader.fetch_video_infos("https://youtube.com/watch?v=...".to_string()).await?;
+downloader.download_video(&video, "video.mp4").await?;
+Ok(())
+}
 ```
 
 ## 🌍 Multi-Site Support
@@ -1866,30 +1972,70 @@ For the complete list, see [yt-dlp's supported sites](https://github.com/yt-dlp/
 ### Examples
 
 **Vimeo:**
-```rust
+```rust,no_run
+# use yt_dlp::Downloader;
+# use yt_dlp::client::deps::Libraries;
+# use std::path::PathBuf;
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+# let downloader = Downloader::new(libraries, "output").await?;
 let url = "https://vimeo.com/148751763".to_string();
-let video = fetcher.fetch_video_infos(url).await?;
-fetcher.download_video(&video, "vimeo-video.mp4").await?;
+let video = downloader.fetch_video_infos(url).await?;
+downloader.download_video(&video, "vimeo-video.mp4").await?;
+# Ok(())
+# }
 ```
 
 **TikTok:**
-```rust
+```rust,no_run
+# use yt_dlp::Downloader;
+# use yt_dlp::client::deps::Libraries;
+# use std::path::PathBuf;
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+# let downloader = Downloader::new(libraries, "output").await?;
 let url = "https://www.tiktok.com/@user/video/123".to_string();
-let video = fetcher.fetch_video_infos(url).await?;
-fetcher.download_video(&video, "tiktok-video.mp4").await?;
+let video = downloader.fetch_video_infos(url).await?;
+downloader.download_video(&video, "tiktok-video.mp4").await?;
+# Ok(())
+# }
 ```
 
 **Instagram:**
-```rust
+```rust,no_run
+# use yt_dlp::Downloader;
+# use yt_dlp::client::deps::Libraries;
+# use std::path::PathBuf;
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+# let downloader = Downloader::new(libraries, "output").await?;
 // Note: May require cookies for authentication
 let url = "https://www.instagram.com/p/ABC123/".to_string();
-let video = fetcher.fetch_video_infos(url).await?;
+let video = downloader.fetch_video_infos(url).await?;
+# Ok(())
+# }
 ```
 
 **Check which extractor handles a URL:**
-```rust
-let extractor = fetcher.detect_extractor("https://vimeo.com/123").await?;
-println!("This URL uses the '{}' extractor", extractor);
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"), 
+        PathBuf::from("libs/ffmpeg")
+    );
+    let downloader = Downloader::new(libraries, "output").await?;
+    let extractor = downloader.detect_extractor("https://vimeo.com/123").await?;
+    println!("This URL uses the '{}' extractor", extractor);
+    Ok(())
+}
 ```
 
 For detailed documentation, examples, and authentication instructions, see the [`extractors`](https://docs.rs/yt-dlp/latest/yt_dlp/extractors/) module documentation.

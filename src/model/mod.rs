@@ -12,7 +12,7 @@ pub mod heatmap;
 pub mod playlist;
 pub mod selector;
 pub mod thumbnail;
-pub mod utils; // Keep for traits
+pub mod utils;
 pub mod video;
 
 // Re-export main types
@@ -60,11 +60,14 @@ impl<'de> Deserialize<'de> for DrmStatus {
             where
                 E: serde::de::Error,
             {
-                match value {
-                    "Yes" => Ok(DrmStatus::Yes),
-                    "No" => Ok(DrmStatus::No),
+                match value.to_lowercase().as_str() {
+                    "yes" => Ok(DrmStatus::Yes),
+                    "no" => Ok(DrmStatus::No),
                     "maybe" => Ok(DrmStatus::Maybe),
-                    _ => Err(E::custom(format!("Expected \"maybe\", got \"{}\"", value))),
+                    _ => Err(E::custom(format!(
+                        "Expected \"yes\", \"no\" or \"maybe\", got \"{}\"",
+                        value
+                    ))),
                 }
             }
         }

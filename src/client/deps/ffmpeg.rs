@@ -49,7 +49,7 @@ struct Extraction {
 /// # Example
 ///
 /// ```rust, no_run
-/// # use yt_dlp::fetcher::deps::ffmpeg::BuildFetcher;
+/// # use yt_dlp::client::deps::ffmpeg::BuildFetcher;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -362,7 +362,7 @@ impl BuildFetcher {
 
         // Set executable permissions on Unix platforms
         if matches!(platform, Platform::Mac | Platform::Linux) {
-            fs::set_executable(binary.clone())?;
+            fs::set_executable(binary.clone()).await?;
         }
 
         Ok(binary)

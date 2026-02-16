@@ -141,7 +141,7 @@ impl RetryPolicy {
     /// let policy = RetryPolicy::default();
     /// let result = policy.execute(|| async {
     ///     // Your async operation here
-    ///     Ok("success".to_string())
+    ///     Ok::<_, yt_dlp::error::Error>("success".to_string())
     /// }).await?;
     /// # Ok(result)
     /// # }

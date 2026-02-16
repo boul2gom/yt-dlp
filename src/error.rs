@@ -3,6 +3,7 @@
 //! This module provides comprehensive error handling for the yt-dlp library,
 //! with detailed context, error chaining, and structured error information.
 
+use crate::model::format::FormatType;
 use crate::utils::platform::{Architecture, Platform};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -138,7 +139,7 @@ pub enum Error {
     #[error("No {format_type} format available for video {video_id}")]
     FormatNotAvailable {
         video_id: String,
-        format_type: String,
+        format_type: FormatType,
         available_formats: Vec<String>,
     },
 
