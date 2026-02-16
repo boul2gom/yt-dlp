@@ -1,31 +1,13 @@
-//! Fetch the latest release of 'yt-dlp' from a GitHub repository.
+//! Fetch releases and assets from a GitHub repository.
 
 use crate::client::deps::{Asset, Release, WantedRelease};
 use crate::download::Fetcher;
 use crate::error::{Error, Result};
-use crate::utils::platform::Architecture;
-use crate::utils::platform::Platform;
+use crate::utils::platform::{Architecture, Platform};
 use std::fmt;
 
-const BASE_ASSET_NAME: &str = "yt-dlp";
-
-/// The GitHub fetcher is responsible for fetching the latest release of 'yt-dlp' from a GitHub repository.
+/// The GitHub fetcher is responsible for fetching the latest release of a project from a GitHub repository.
 /// It can also select the correct asset for the current platform and architecture.
-///
-/// # Example
-///
-/// ```rust, no_run
-/// # use std::path::PathBuf;
-/// # use yt_dlp::client::deps::youtube::GitHubFetcher;
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let fetcher = GitHubFetcher::new("yt-dlp", "yt-dlp");
-/// let release = fetcher.fetch_release(None).await?;
-///
-/// let destination = PathBuf::from("yt-dlp");
-/// release.download(destination).await?;
-/// # Ok(())
-/// # }
 #[derive(Debug)]
 pub struct GitHubFetcher {
     /// The owner or organization of the GitHub repository.
@@ -63,14 +45,31 @@ impl GitHubFetcher {
     /// # Errors
     ///
     /// This function will return an error if the release could not be fetched or if no asset was found for the current platform.
-    pub async fn fetch_release(&self, auth_token: Option<String>) -> Result<WantedRelease> {
+    /// Fetch the latest release for the current platform.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
+    /// * `selector` - A closure that selects the correct asset from the release for the given platform and architecture.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the release could not be fetched or if no asset was found for the current platform.
+    pub async fn fetch_release<F>(
+        &self,
+        auth_token: Option<String>,
+        selector: F,
+    ) -> Result<WantedRelease>
+    where
+        F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
+    {
         #[cfg(feature = "tracing")]
         tracing::debug!("Fetching latest release from {}/{}", self.owner, self.repo);
 
         let platform = Platform::detect();
         let architecture = Architecture::detect();
 
-        self.fetch_release_for_platform(platform, architecture, auth_token)
+        self.fetch_release_for_platform(platform, architecture, auth_token, selector)
             .await
     }
 
@@ -81,16 +80,21 @@ impl GitHubFetcher {
     /// * `platform` - The platform to fetch the release for.
     /// * `architecture` - The architecture to fetch the release for.
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
+    /// * `selector` - A closure that selects the correct asset from the release for the given platform and architecture.
     ///
     /// # Errors
     ///
     /// This function will return an error if the release could not be fetched or if no asset was found for the given platform.
-    pub async fn fetch_release_for_platform(
+    pub async fn fetch_release_for_platform<F>(
         &self,
         platform: Platform,
         architecture: Architecture,
         auth_token: Option<String>,
-    ) -> Result<WantedRelease> {
+        selector: F,
+    ) -> Result<WantedRelease>
+    where
+        F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
+    {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             "Fetching latest release for {}/{} for platform: {:?}, architecture: {:?}",
@@ -101,13 +105,19 @@ impl GitHubFetcher {
         );
 
         let release = self.fetch_latest_release(auth_token.clone()).await?;
-        let asset = Self::select_asset(&platform, &architecture, &release).ok_or(
-            Error::NoBinaryRelease {
-                binary: "yt-dlp".to_string(),
-                platform,
-                architecture,
-            },
-        )?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Selecting asset for platform: {:?}, architecture: {:?}",
+            platform,
+            architecture
+        );
+
+        let asset = selector(&release, &platform, &architecture).ok_or(Error::NoBinaryRelease {
+            binary: self.repo.clone(),
+            platform: platform.clone(),
+            architecture: architecture.clone(),
+        })?;
 
         // Fetch checksum if available
         let checksum = self
@@ -144,54 +154,6 @@ impl GitHubFetcher {
         Ok(release)
     }
 
-    /// Select the correct asset from the release for the given platform and architecture.
-    ///
-    /// # Arguments
-    ///
-    /// * `platform` - The platform to select the asset for.
-    /// * `architecture` - The architecture to select the asset for.
-    /// * `release` - The release to select the asset from.
-    pub fn select_asset<'a>(
-        platform: &Platform,
-        architecture: &Architecture,
-        release: &'a Release,
-    ) -> Option<&'a Asset> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Selecting asset for platform: {:?}, architecture: {:?}",
-            platform,
-            architecture
-        );
-
-        let assets = &release.assets;
-        assets.iter().find(|asset| {
-            let name = &asset.name;
-
-            match (platform, architecture) {
-                (Platform::Windows, Architecture::X64) => {
-                    name.contains(&format!("{}.exe", BASE_ASSET_NAME))
-                }
-                (Platform::Windows, Architecture::X86) => {
-                    name.contains(&format!("{}_x86.exe", BASE_ASSET_NAME))
-                }
-
-                (Platform::Linux, Architecture::X64) => {
-                    name.contains(&format!("{}_linux", BASE_ASSET_NAME))
-                }
-                (Platform::Linux, Architecture::Armv7l) => {
-                    name.contains(&format!("{}_linux_armv7l", BASE_ASSET_NAME))
-                }
-                (Platform::Linux, Architecture::Aarch64) => {
-                    name.contains(&format!("{}_linux_aarch64", BASE_ASSET_NAME))
-                }
-
-                (Platform::Mac, _) => name.contains(&format!("{}_macos", BASE_ASSET_NAME)),
-
-                _ => false,
-            }
-        })
-    }
-
     /// Fetch the checksum for the given asset from the release.
     async fn fetch_checksum(
         &self,
@@ -199,29 +161,57 @@ impl GitHubFetcher {
         asset_name: &str,
         auth_token: Option<String>,
     ) -> Result<Option<String>> {
-        // Find the SHA2-256SUMS file
-        let checksum_asset = release
+        // Priority 1: Check for "digest" field in the asset itself
+        if let Some(digest) = release
             .assets
             .iter()
-            .find(|asset| asset.name == "SHA2-256SUMS");
+            .find(|a| a.name == asset_name)
+            .and_then(|a| a.digest.as_ref())
+        {
+            // Format is usually "sha256:..."
+            if let Some(stripped) = digest.strip_prefix("sha256:") {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Found digest from API for {}: {}", asset_name, stripped);
+                return Ok(Some(stripped.to_string()));
+            } else {
+                // Use as is if no prefix
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Found digest from API for {}: {}", asset_name, digest);
+                return Ok(Some(digest.clone()));
+            }
+        }
 
-        if let Some(asset) = checksum_asset {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Found checksum file: {}", asset.download_url);
+        // Priority 2: Look for common checksum files (SHA2-256SUMS, checksums.sha256)
+        let checksum_files = ["SHA2-256SUMS", "checksums.sha256"];
 
-            let fetcher = Fetcher::new(&asset.download_url, None, None);
-            let content = fetcher.fetch_text(auth_token).await?;
+        for checksum_filename in checksum_files {
+            let checksum_asset = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == checksum_filename);
 
-            for line in content.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let checksum = parts[0];
-                    let filename = parts[1].trim_start_matches('*');
+            if let Some(asset) = checksum_asset {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Found checksum file: {}", asset.download_url);
 
-                    if filename == asset_name {
-                        #[cfg(feature = "tracing")]
-                        tracing::debug!("Found checksum for {}: {}", asset_name, checksum);
-                        return Ok(Some(checksum.to_string()));
+                let fetcher = Fetcher::new(&asset.download_url, None, None);
+                let content = fetcher.fetch_text(auth_token.clone()).await?;
+
+                for line in content.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        // Different formats:
+                        // SHA2-256SUMS: checksum *filename
+                        // checksums.sha256: checksum  filename
+
+                        let checksum = parts[0];
+                        let filename_part = parts[1].trim_start_matches('*');
+
+                        if filename_part == asset_name {
+                            #[cfg(feature = "tracing")]
+                            tracing::debug!("Found checksum for {}: {}", asset_name, checksum);
+                            return Ok(Some(checksum.to_string()));
+                        }
                     }
                 }
             }

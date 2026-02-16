@@ -1,44 +1,18 @@
 //! Fetch the latest release of 'ffmpeg' from static builds.
 
-use crate::client::deps::{Asset, WantedRelease};
+use crate::client::deps::WantedRelease;
+use crate::client::deps::github::GitHubFetcher;
 use crate::error::{Error, Result};
 use crate::utils::fs;
 use crate::utils::platform::{Architecture, Platform};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// URL templates for FFmpeg builds based on platform and architecture
-#[derive(Debug, Clone)]
-struct Url;
-
-impl Url {
-    fn windows() -> &'static str {
-        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-    }
-
-    fn macos_intel() -> &'static str {
-        "https://www.osxexperts.net/ffmpeg80intel.zip"
-    }
-
-    fn macos_arm() -> &'static str {
-        "https://www.osxexperts.net/ffmpeg80arm.zip"
-    }
-
-    fn linux(arch: &str) -> String {
-        format!(
-            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-{}-static.tar.xz",
-            arch
-        )
-    }
-}
-
 /// Information about FFmpeg binary extraction based on platform
 #[derive(Debug, Clone)]
 struct Extraction {
     /// Path to the executable within the extracted archive
     executable_path: PathBuf,
-    /// Name of the extracted directory (for Linux)
-    extracted_dir: Option<String>,
     /// File extension for the binary
     binary_extension: String,
 }
@@ -107,96 +81,32 @@ impl BuildFetcher {
             architecture
         );
 
-        let asset = self
-            .select_asset(&platform, &architecture)
-            .ok_or(Error::NoBinaryRelease {
-                binary: "ffmpeg".to_string(),
-                platform,
-                architecture,
-            })?;
+        match platform {
+            Platform::Windows | Platform::Linux | Platform::Mac => {
+                let fetcher = GitHubFetcher::new("boul2gom", "ffmpeg-builds");
+                fetcher
+                    .fetch_release_for_platform(
+                        platform,
+                        architecture,
+                        None,
+                        |release, platform, architecture| {
+                            let os_str = platform.to_string();
+                            let arch_str = architecture.to_string();
 
-        Ok(WantedRelease {
-            url: asset.download_url.clone(),
-            name: asset.name.clone(),
-            checksum: None,
-        })
-    }
+                            let target_name = format!("ffmpeg-{}-{}.zip", os_str, arch_str);
 
-    /// Select the correct ffmpeg asset for the given platform and architecture.
-    ///
-    /// # Arguments
-    ///
-    /// * `platform` - The platform to select the asset for.
-    /// * `architecture` - The architecture to select the asset for.
-    pub fn select_asset(&self, platform: &Platform, architecture: &Architecture) -> Option<Asset> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Selecting ffmpeg asset for platform: {:?}, architecture: {:?}",
-            platform,
-            architecture
-        );
-
-        match (platform, architecture) {
-            (Platform::Windows, _) => {
-                let url = Url::windows().to_string();
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
+                            release
+                                .assets
+                                .iter()
+                                .find(|asset| asset.name == target_name)
+                        },
+                    )
+                    .await
             }
-
-            (Platform::Mac, Architecture::X64) => {
-                let url = Url::macos_intel().to_string();
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-            (Platform::Mac, Architecture::Aarch64) => {
-                let url = Url::macos_arm().to_string();
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-
-            (Platform::Linux, Architecture::X64) => {
-                let url = Url::linux("amd64");
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-            (Platform::Linux, Architecture::X86) => {
-                let url = Url::linux("i686");
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-            (Platform::Linux, Architecture::Armv7l) => {
-                let url = Url::linux("armhf");
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-            (Platform::Linux, Architecture::Aarch64) => {
-                let url = Url::linux("arm64");
-                let name = url.split('/').next_back()?.to_string();
-                Some(Asset {
-                    name,
-                    download_url: url,
-                })
-            }
-
-            _ => None,
+            _ => Err(Error::Unknown(format!(
+                "Unsupported platform for FFmpeg: {:?}",
+                platform
+            ))),
         }
     }
 
@@ -208,35 +118,17 @@ impl BuildFetcher {
     ) -> Option<Extraction> {
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
-                executable_path: PathBuf::new(), // Not used for Windows, dynamically detected
-                extracted_dir: None,
+                executable_path: PathBuf::from("ffmpeg.exe"),
                 binary_extension: "exe".to_string(),
             }),
 
             (Platform::Mac, _) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: None,
                 binary_extension: "".to_string(),
             }),
 
-            (Platform::Linux, Architecture::X64) => Some(Extraction {
+            (Platform::Linux, _) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("amd64".to_string()),
-                binary_extension: "".to_string(),
-            }),
-            (Platform::Linux, Architecture::X86) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("i686".to_string()),
-                binary_extension: "".to_string(),
-            }),
-            (Platform::Linux, Architecture::Armv7l) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("armhf".to_string()),
-                binary_extension: "".to_string(),
-            }),
-            (Platform::Linux, Architecture::Aarch64) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg"),
-                extracted_dir: Some("arm64".to_string()),
                 binary_extension: "".to_string(),
             }),
 
@@ -310,22 +202,7 @@ impl BuildFetcher {
         extraction_info: Extraction,
         platform: Platform,
     ) -> Result<PathBuf> {
-        // Extract the archive based on platform
-        match platform {
-            Platform::Windows | Platform::Mac => {
-                fs::extract_zip(&archive, &destination).await?;
-            }
-            Platform::Linux => {
-                fs::extract_tar_xz(&archive, &destination).await?;
-            }
-            _ => {
-                return Err(Error::NoBinaryRelease {
-                    binary: "ffmpeg".to_string(),
-                    platform: platform.clone(),
-                    architecture: Architecture::detect(),
-                });
-            }
-        }
+        fs::extract_zip(&archive, &destination).await?;
 
         // Get the parent directory of the destination
         let parent = fs::try_parent(&destination)?;
@@ -339,22 +216,22 @@ impl BuildFetcher {
                 "".to_string()
             }
         );
-        let binary = parent.join(binary_name);
+        let final_binary_path = parent.join(&binary_name);
 
-        // Find the executable path
-        let executable = if matches!(platform, Platform::Windows) {
-            // For Windows, dynamically find the extracted directory
-            self.find_windows_executable(&destination).await?
-        } else if matches!(platform, Platform::Linux) {
-            // For Linux, dynamically find the extracted directory
-            let arch = extraction_info.extracted_dir.as_deref().unwrap_or("");
-            self.find_linux_executable(&destination, arch).await?
-        } else {
-            destination.join(extraction_info.executable_path)
-        };
+        // In these flat zips, the binary should be directly in the destination folder
+        let extracted_binary = destination.join(&extraction_info.executable_path);
+
+        if !extracted_binary.exists() {
+            // Fallback: list dir to see what's there (debugging purposes mostly, or slightly nested fallback)
+            // But user insisted it's flat.
+            return Err(Error::Unknown(format!(
+                "Could not find ffmpeg binary at expected path: {:?}. Archive content might not be flat.",
+                extracted_binary
+            )));
+        }
 
         // Copy the executable to the final location
-        tokio::fs::copy(executable, binary.clone()).await?;
+        tokio::fs::copy(&extracted_binary, &final_binary_path).await?;
 
         // Clean up
         tokio::fs::remove_dir_all(destination).await?;
@@ -362,61 +239,9 @@ impl BuildFetcher {
 
         // Set executable permissions on Unix platforms
         if matches!(platform, Platform::Mac | Platform::Linux) {
-            fs::set_executable(binary.clone()).await?;
+            fs::set_executable(final_binary_path.clone()).await?;
         }
 
-        Ok(binary)
-    }
-
-    /// Find the ffmpeg executable in the extracted Windows archive
-    async fn find_windows_executable(&self, destination: &Path) -> Result<PathBuf> {
-        let mut entries = tokio::fs::read_dir(destination).await?;
-
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-                // Look for directories matching the pattern ffmpeg-*-essentials_build
-                if dir_name.starts_with("ffmpeg-") && dir_name.ends_with("-essentials_build") {
-                    let executable = path.join("bin").join("ffmpeg.exe");
-                    if executable.exists() {
-                        return Ok(executable);
-                    }
-                }
-            }
-        }
-
-        Err(Error::Unknown(
-            "Could not find ffmpeg executable in extracted Windows archive".to_string(),
-        ))
-    }
-
-    /// Find the ffmpeg executable in the extracted Linux archive
-    async fn find_linux_executable(&self, destination: &Path, arch: &str) -> Result<PathBuf> {
-        let mut entries = tokio::fs::read_dir(destination).await?;
-
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-                // Look for directories matching the pattern ffmpeg-*-{arch}-static
-                if dir_name.starts_with("ffmpeg-")
-                    && dir_name.contains(arch)
-                    && dir_name.ends_with("-static")
-                {
-                    let executable = path.join("ffmpeg");
-                    if executable.exists() {
-                        return Ok(executable);
-                    }
-                }
-            }
-        }
-
-        Err(Error::Unknown(format!(
-            "Could not find ffmpeg executable for architecture {} in extracted Linux archive",
-            arch
-        )))
+        Ok(final_binary_path)
     }
 }

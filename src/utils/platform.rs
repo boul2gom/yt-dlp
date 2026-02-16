@@ -35,9 +35,9 @@ pub enum Architecture {
 impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Platform::Windows => write!(f, "Windows"),
-            Platform::Linux => write!(f, "Linux"),
-            Platform::Mac => write!(f, "MacOS"),
+            Platform::Windows => write!(f, "windows"),
+            Platform::Linux => write!(f, "linux"),
+            Platform::Mac => write!(f, "osx"),
             Platform::Unknown(os) => write!(f, "Unknown: {}", os),
         }
     }
@@ -49,7 +49,7 @@ impl fmt::Display for Architecture {
             Architecture::X64 => write!(f, "x64"),
             Architecture::X86 => write!(f, "x86"),
             Architecture::Armv7l => write!(f, "armv7l"),
-            Architecture::Aarch64 => write!(f, "aarch64"),
+            Architecture::Aarch64 => write!(f, "arm64"),
             Architecture::Unknown(arch) => write!(f, "Unknown: {}", arch),
         }
     }

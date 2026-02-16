@@ -1,7 +1,7 @@
 //! The fetchers for required dependencies.
 
 use crate::client::deps::ffmpeg::BuildFetcher;
-use crate::client::deps::youtube::GitHubFetcher;
+use crate::client::deps::ytdlp::YoutubeFetcher;
 use crate::download::Fetcher;
 use crate::error::Result;
 use crate::utils::fs;
@@ -16,7 +16,8 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 
 pub mod ffmpeg;
-pub mod youtube;
+pub mod github;
+pub mod ytdlp;
 
 /// Installs required libraries.
 ///
@@ -92,7 +93,7 @@ impl LibraryInstaller {
 
         fs::create_dir(self.destination.clone()).await?;
 
-        let fetcher = GitHubFetcher::new(owner, repo);
+        let fetcher = YoutubeFetcher::new(owner, repo);
 
         let name = custom_name.unwrap_or(String::from("yt-dlp"));
         let path = self.destination.join(utils::find_executable(&name));
@@ -255,6 +256,8 @@ pub struct Asset {
     /// The download URL of the asset.
     #[serde(rename = "browser_download_url")]
     pub download_url: String,
+    /// The digest of the asset (if available via API, e.g. sha256:...).
+    pub digest: Option<String>,
 }
 
 impl fmt::Display for Asset {
