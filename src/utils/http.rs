@@ -23,7 +23,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 60;
 /// # Returns
 ///
 /// An Arc-wrapped HTTP client configured with connection pooling
-pub fn create_http_client(proxy: Option<&ProxyConfig>) -> Arc<Client> {
+pub fn create_http_client(proxy: Option<&ProxyConfig>) -> crate::error::Result<Arc<Client>> {
     let mut builder = Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
@@ -38,7 +38,9 @@ pub fn create_http_client(proxy: Option<&ProxyConfig>) -> Arc<Client> {
         builder = builder.proxy(proxy);
     }
 
-    let client = builder.build().expect("Failed to build HTTP client");
+    let client = builder
+        .build()
+        .map_err(|e| crate::error::Error::Unknown(format!("Failed to build HTTP client: {}", e)))?;
 
-    Arc::new(client)
+    Ok(Arc::new(client))
 }

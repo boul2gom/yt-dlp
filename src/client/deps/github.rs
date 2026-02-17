@@ -119,9 +119,8 @@ impl GitHubFetcher {
             architecture: architecture.clone(),
         })?;
 
-        // Fetch checksum if available
         let checksum = self
-            .fetch_checksum(&release, &asset.name, auth_token)
+            .fetch_checksum(&release, &asset.name)
             .await
             .ok()
             .flatten();
@@ -147,7 +146,7 @@ impl GitHubFetcher {
             self.owner, self.repo
         );
 
-        let fetcher = Fetcher::new(&url, None, None);
+        let fetcher = Fetcher::new(&url, None, None)?;
         let response = fetcher.fetch_json(auth_token).await?;
 
         let release: Release = serde_json::from_value(response)?;
@@ -155,65 +154,21 @@ impl GitHubFetcher {
     }
 
     /// Fetch the checksum for the given asset from the release.
-    async fn fetch_checksum(
-        &self,
-        release: &Release,
-        asset_name: &str,
-        auth_token: Option<String>,
-    ) -> Result<Option<String>> {
-        // Priority 1: Check for "digest" field in the asset itself
+    async fn fetch_checksum(&self, release: &Release, asset_name: &str) -> Result<Option<String>> {
         if let Some(digest) = release
             .assets
             .iter()
             .find(|a| a.name == asset_name)
             .and_then(|a| a.digest.as_ref())
         {
-            // Format is usually "sha256:..."
             if let Some(stripped) = digest.strip_prefix("sha256:") {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Found digest from API for {}: {}", asset_name, stripped);
                 return Ok(Some(stripped.to_string()));
             } else {
-                // Use as is if no prefix
                 #[cfg(feature = "tracing")]
                 tracing::debug!("Found digest from API for {}: {}", asset_name, digest);
                 return Ok(Some(digest.clone()));
-            }
-        }
-
-        // Priority 2: Look for common checksum files (SHA2-256SUMS, checksums.sha256)
-        let checksum_files = ["SHA2-256SUMS", "checksums.sha256"];
-
-        for checksum_filename in checksum_files {
-            let checksum_asset = release
-                .assets
-                .iter()
-                .find(|asset| asset.name == checksum_filename);
-
-            if let Some(asset) = checksum_asset {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Found checksum file: {}", asset.download_url);
-
-                let fetcher = Fetcher::new(&asset.download_url, None, None);
-                let content = fetcher.fetch_text(auth_token.clone()).await?;
-
-                for line in content.lines() {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        // Different formats:
-                        // SHA2-256SUMS: checksum *filename
-                        // checksums.sha256: checksum  filename
-
-                        let checksum = parts[0];
-                        let filename_part = parts[1].trim_start_matches('*');
-
-                        if filename_part == asset_name {
-                            #[cfg(feature = "tracing")]
-                            tracing::debug!("Found checksum for {}: {}", asset_name, checksum);
-                            return Ok(Some(checksum.to_string()));
-                        }
-                    }
-                }
             }
         }
 

@@ -6,7 +6,7 @@ pub mod builder;
 pub mod deps;
 pub mod download_builder;
 pub mod proxy;
-mod streams;
+pub mod streams;
 
 pub use builder::YoutubeBuilder;
 pub use deps::{Libraries, LibraryInstaller};

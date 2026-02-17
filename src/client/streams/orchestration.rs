@@ -1,197 +1,126 @@
-//! Tools for fetching video streams from YouTube.
-
+use crate::Downloader;
+use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
 use crate::error::Error;
 use crate::executor::Executor;
-use crate::metadata::MetadataManager;
-use crate::model::Video;
 use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
-#[cfg(feature = "cache")]
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
-use crate::{Downloader, utils};
+use crate::model::{AudioCodecPreference, AudioQuality, Video, VideoCodecPreference, VideoQuality};
+use crate::utils;
 use std::fmt::Display;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use std::future::Future;
-
 impl Downloader {
-    /// Helper to execute an action with automatic URL expiry retry.
-    ///
-    /// This fetches the video metadata, runs the action, and if it fails with a
-    /// URL expiry error, refreshes the metadata and retries the action once.
-    pub(crate) async fn execute_with_retry<T, F, Fut>(
-        &self,
-        url: String,
-        action: F,
-    ) -> crate::error::Result<T>
-    where
-        F: Fn(Video) -> Fut,
-        Fut: Future<Output = crate::error::Result<T>>,
-    {
-        let video = self.fetch_video_infos(url.clone()).await?;
-        match action(video.clone()).await {
-            Ok(val) => Ok(val),
-            Err(err) if utils::url_expiry::should_refresh_url(&err) => {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    "Download failed with expired URL, refreshing metadata and retrying: {}",
-                    err
-                );
-
-                let video = self.fetch_video_infos_fresh(&url).await?;
-                action(video).await
-            }
-            Err(err) => Err(err),
+    /// Helper to check if a video is in the cache by URL.
+    async fn check_video_cache(&self, url: &str) -> Option<Video> {
+        #[cfg(feature = "cache")]
+        {
+            let cache = self.cache.as_ref()?;
+            cache.get(url).await.ok().flatten()
         }
+        #[cfg(not(feature = "cache"))]
+        None
     }
 
     /// Fetch the video information from the given URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to fetch.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video information could not be fetched.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn fetch_video_infos(&self, url: String) -> crate::error::Result<Video> {
-        // Check if the video is in the cache
-        #[cfg(feature = "cache")]
-        if let Some(cache) = &self.cache
-            && let Some(video) = cache.get(&url).await?
-        {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Fetching video infos for {}", url);
+
+        if let Some(video) = self.check_video_cache(&url).await {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Using cached video information for {}", url);
+            tracing::debug!("Cache hit for {}", url);
             return Ok(video);
         }
 
-        // Delegate to the extractor
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Fetching video information using {} extractor",
-            self.extractor.name()
+        let args = vec!["-j", "--flat-playlist", &url];
+        let executor = Executor::new(
+            self.libraries.youtube.clone(),
+            utils::to_owned(args),
+            self.timeout,
         );
+        let output = executor.execute().await?;
+        let output = output.stdout;
+        let video: Video =
+            serde_json::from_str(&output).map_err(|e| Error::Unknown(e.to_string()))?;
 
-        let video = self.extractor.fetch_video(&url).await?;
-
-        // Put the video in the cache if caching is enabled
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Caching video information for {}", url);
-
-            if let Err(_e) = cache.put(url.clone(), video.clone()).await {
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to cache video information: {}", _e);
-            }
+            let _ = cache.put(url.clone(), video.clone()).await;
         }
 
         Ok(video)
     }
 
     /// Fetch the video information from the given URL, bypassing the cache.
-    ///
-    /// This method always calls yt-dlp to get fresh metadata, even if the video
-    /// is already in the cache. It then updates the cache with the fresh data.
-    /// This is useful when cached download URLs have expired (e.g. HTTP 403).
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to fetch.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video information could not be fetched.
+    /// Fetch the video information from the given URL, bypassing the cache.
     pub async fn fetch_video_infos_fresh(&self, url: &str) -> crate::error::Result<Video> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Force-refreshing video information for {}", url);
+        tracing::debug!("Fetching fresh video infos for {}", url);
 
-        // Remove the old cached entry if caching is enabled
+        let args = vec!["-j", "--flat-playlist", url];
+        let executor = Executor::new(
+            self.libraries.youtube.clone(),
+            utils::to_owned(args),
+            self.timeout,
+        );
+        let output = executor.execute().await?;
+        let output = output.stdout;
+        let video: Video =
+            serde_json::from_str(&output).map_err(|e| Error::Unknown(e.to_string()))?;
+
         #[cfg(feature = "cache")]
-        if let Some(cache) = &self.cache
-            && let Err(_e) = cache.remove(url).await
-        {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to remove stale cache entry: {}", _e);
-        }
-
-        // Always fetch fresh data from yt-dlp
-        let video = self.extractor.fetch_video(url).await?;
-
-        // Update the cache with fresh data
-        #[cfg(feature = "cache")]
-        if let Some(cache) = &self.cache
-            && let Err(_e) = cache.put(url.to_string(), video.clone()).await
-        {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to cache refreshed video information: {}", _e);
+        if let Some(cache) = &self.cache {
+            let _ = cache.put(url.to_string(), video.clone()).await;
         }
 
         Ok(video)
     }
 
+    /// Helper to get video by ID from cache (if available)
+    pub async fn get_video_by_id(&self, id: &str) -> Option<Video> {
+        #[cfg(feature = "cache")]
+        {
+            let cache = self.cache.as_ref()?;
+            let cached_video = cache.get_by_id(id).await.ok()?;
+            cached_video.video().ok()
+        }
+        #[cfg(not(feature = "cache"))]
+        None
+    }
+
+    /// Helper to execute an action with automatic URL expiry retry.
+    pub async fn execute_with_retry<T, F, Fut>(
+        &self,
+        url: String,
+        action: F,
+    ) -> crate::error::Result<T>
+    where
+        F: Fn(Video) -> Fut + Send + Sync + Clone,
+        Fut: std::future::Future<Output = crate::error::Result<T>> + Send,
+    {
+        // First attempt with potentially cached metadata
+        let video = self.fetch_video_infos(url.clone()).await?;
+
+        match action(video.clone()).await {
+            Ok(result) => Ok(result),
+            Err(Error::UrlExpired) => {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("URL expired, refreshing metadata and retrying...");
+
+                // Refresh metadata bypassing cache
+                let video = self.fetch_video_infos_fresh(&url).await?;
+                // Retry action with fresh metadata
+                action(video).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Retrieve a video by its ID, checking the cache first if available
     /// Fetch the video from the given URL, download it (video with audio) and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// The file is saved relative to the configured `output_dir`.
-    /// To specify an absolute output path, use [`download_video_from_url_to_path`](Self::download_video_from_url_to_path).
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The name of the file to save the video to (relative to `output_dir`).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video_path = fetcher.download_video_from_url(url, "my-video.mp4").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video_from_url(
         &self,
         url: String,
@@ -209,41 +138,6 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download it (video with audio) to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_video_from_url`](Self::download_video_from_url), this method writes the file
-    /// to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let path = PathBuf::from("/downloads/my-video.mp4");
-    /// let video_path = fetcher.download_video_from_url_to_path(url, path).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video_from_url_to_path(
         &self,
         url: String,
@@ -261,39 +155,6 @@ impl Downloader {
     }
 
     /// Fetch the video, download it (video with audio) and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download.
-    /// * `output` - The name of the file to save the video to.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let video_path = fetcher.download_video(&video, "my-video.mp4").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video(
         &self,
         video: &Video,
@@ -304,43 +165,6 @@ impl Downloader {
     }
 
     /// Fetch the video, download it (video with audio) to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_video`](Self::download_video), this method writes the file
-    /// to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let path = PathBuf::from("/downloads/my-video.mp4");
-    /// let video_path = fetcher.download_video_to_path(&video, &path).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video_to_path(
         &self,
         video: &Video,
@@ -350,15 +174,6 @@ impl Downloader {
         tracing::debug!("Downloading video {}", video.title);
 
         let path = output.as_ref().to_path_buf();
-
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "cache")] {
-                let output_str = path.file_name()
-                    .and_then(|f| f.to_str())
-                    .unwrap_or_default()
-                    .to_string();
-            }
-        }
 
         // Check if the video is in the cache
         #[cfg(feature = "cache")]
@@ -443,6 +258,12 @@ impl Downloader {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
+            let output_str = path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or_default()
+                .to_string();
+
             if let Err(_e) = download_cache
                 .put_file(&path, output_str, Some(video.id.clone()), None)
                 .await
@@ -456,37 +277,6 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download it and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The name of the file to save the video to.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video_path = fetcher.download_video_stream_from_url(url, "my-video-stream.mp4").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video_stream_from_url(
         &self,
         url: String,
@@ -504,19 +294,6 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download the video stream to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_video_stream_from_url`](Self::download_video_stream_from_url), this method writes
-    /// the file to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
     pub async fn download_video_stream_from_url_to_path(
         &self,
         url: String,
@@ -538,42 +315,6 @@ impl Downloader {
     }
 
     /// Download the video only, and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// The file is saved relative to the configured `output_dir`.
-    /// To specify an absolute output path, use [`download_video_stream_to_path`](Self::download_video_stream_to_path).
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download.
-    /// * `output` - The name of the file to save the video to (relative to `output_dir`).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let video_path = fetcher.download_video_stream(&video, "my-video-stream.mp4").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_video_stream(
         &self,
         video: &Video,
@@ -594,19 +335,6 @@ impl Downloader {
     }
 
     /// Download the video stream to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_video_stream`](Self::download_video_stream), this method writes the file
-    /// to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
     pub async fn download_video_stream_to_path(
         &self,
         video: &Video,
@@ -627,37 +355,6 @@ impl Downloader {
     }
 
     /// Fetch the audio stream from the given URL, download it and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The name of the file to save the audio to.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let audio_path = fetcher.download_audio_stream_from_url(url, "my-audio.mp3").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_audio_stream_from_url(
         &self,
         url: String,
@@ -675,19 +372,6 @@ impl Downloader {
     }
 
     /// Fetch the audio stream from the given URL, download it to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_audio_stream_from_url`](Self::download_audio_stream_from_url), this method writes
-    /// the file to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be fetched or downloaded.
     pub async fn download_audio_stream_from_url_to_path(
         &self,
         url: String,
@@ -709,15 +393,6 @@ impl Downloader {
     }
 
     /// Fetch the thumbnail from the given URL and download it to the specified path.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video.
-    /// * `output` - The path where the thumbnail will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video information could not be fetched or if the thumbnail could not be downloaded.
     pub async fn download_thumbnail_from_url(
         &self,
         url: String,
@@ -729,7 +404,8 @@ impl Downloader {
         let video = self.fetch_video_infos(url).await?;
 
         if let Some(thumbnail_url) = &video.thumbnail {
-            let fetcher = Fetcher::new(thumbnail_url, self.proxy.as_ref(), self.user_agent.clone());
+            let fetcher =
+                Fetcher::new(thumbnail_url, self.proxy.as_ref(), self.user_agent.clone())?;
             fetcher.fetch_asset(output.clone()).await?;
             Ok(output.as_ref().to_path_buf())
         } else {
@@ -740,42 +416,6 @@ impl Downloader {
     }
 
     /// Fetch the audio stream, download it and returns its path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// The file is saved relative to the configured `output_dir`.
-    /// To specify an absolute output path, use [`download_audio_stream_to_path`](Self::download_audio_stream_to_path).
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download the audio from.
-    /// * `output` - The name of the file to save the audio to (relative to `output_dir`).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the audio could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let audio_path = fetcher.download_audio_stream(&video, "my-audio.mp3").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_audio_stream(
         &self,
         video: &Video,
@@ -787,43 +427,6 @@ impl Downloader {
     }
 
     /// Fetch the audio stream, download it to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_audio_stream`](Self::download_audio_stream), this method writes the file
-    /// to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download the audio from.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the audio could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let path = PathBuf::from("/music/jazz/my-audio.mp3");
-    /// let audio_path = fetcher.download_audio_stream_to_path(&video, &path).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_audio_stream_to_path(
         &self,
         video: &Video,
@@ -831,50 +434,6 @@ impl Downloader {
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
-
-        let output_path = output.as_ref().to_path_buf();
-        let output_str = output_path
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or_default()
-            .to_string();
-
-        // Check if we have a cached audio file for this video
-        #[cfg(feature = "cache")]
-        if let Some(download_cache) = &self.download_cache {
-            // Try to find an audio format in the cache by video ID
-            let best_audio =
-                video
-                    .best_audio_format()
-                    .ok_or_else(|| Error::FormatNotAvailable {
-                        video_id: video.id.clone(),
-                        format_type: FormatType::Audio,
-                        available_formats: video
-                            .formats
-                            .iter()
-                            .map(|f| f.format_id.clone())
-                            .collect(),
-                    })?;
-
-            if let Some((_, cached_path)) = download_cache
-                .get_by_video_and_format(&video.id, &best_audio.format_id)
-                .await
-            {
-                #[cfg(feature = "tracing")]
-                tracing::debug!(
-                    "Using cached audio: {} (format: {})",
-                    video.id,
-                    best_audio.format_id
-                );
-
-                // Copy the file from the cache to the output path
-                if let Some(parent) = output_path.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(&cached_path, &output_path).await?;
-                return Ok(output_path);
-            }
-        }
 
         let best_audio = video
             .best_audio_format()
@@ -884,115 +443,10 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        let temp_output = format!("temp_{}", output_str);
-        let temp_path = self.download_format(best_audio, &temp_output).await?;
-
-        // Ensure parent directories exist
-        if let Some(parent) = output_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Post-process the audio file with ffmpeg to ensure compatibility with players
-        let temp = temp_path
-            .to_str()
-            .ok_or(Error::Unknown("Invalid temp path".to_string()))?;
-        let output_str_path = output_path
-            .to_str()
-            .ok_or(Error::Unknown("Invalid output path".to_string()))?;
-
-        let args = if output_str.ends_with(".webm") {
-            vec!["-i", temp, "-c:a", "copy", output_str_path]
-        } else if output_str.ends_with(".m4a") {
-            vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path]
-        } else if output_str.ends_with(".mp3") {
-            vec![
-                "-i",
-                temp,
-                "-c:a",
-                "libmp3lame",
-                "-b:a",
-                "192k",
-                output_str_path,
-            ]
-        } else {
-            return Err(Error::Unknown("Unsupported output format".into()));
-        };
-
-        let executor = Executor::new(
-            self.libraries.ffmpeg.clone(),
-            utils::to_owned(args),
-            self.timeout,
-        );
-
-        executor.execute().await?;
-
-        // Clean up temporary file (logs error internally if tracing is enabled)
-        let _ = utils::fs::remove_temp_file(temp_path).await;
-
-        // Cache the processed audio file
-        #[cfg(feature = "cache")]
-        if let Some(download_cache) = &self.download_cache {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Caching format with ID: {}", best_audio.format_id);
-
-            if let Err(_e) = download_cache
-                .put_file(
-                    &output_path,
-                    &output_str,
-                    Some(video.id.clone()),
-                    Some(best_audio),
-                )
-                .await
-            {
-                #[cfg(feature = "tracing")]
-                tracing::warn!("Failed to cache format: {}", _e);
-            }
-        }
-
-        Ok(output_path)
+        self.download_format_to_path(best_audio, output).await
     }
 
     /// Downloads a format.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// The file is saved relative to the configured `output_dir`.
-    /// To specify an absolute output path, use [`download_format_to_path`](Self::download_format_to_path).
-    ///
-    /// # Arguments
-    ///
-    /// * `format` - The format to download.
-    /// * `output` - The name of the file to save the format to (relative to `output_dir`).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let video_format = video.best_video_format().unwrap();
-    /// let format_path = fetcher.download_format(&video_format, "my-video-stream.mp4").await?;
-    ///
-    /// let audio_format = video.worst_audio_format().unwrap();
-    /// let audio_path = fetcher.download_format(&audio_format, "my-audio-stream.mp3").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_format(
         &self,
         format: &Format,
@@ -1003,44 +457,6 @@ impl Downloader {
     }
 
     /// Downloads a format to a specific path.
-    /// Be careful, this function may take a while to execute.
-    ///
-    /// Unlike [`download_format`](Self::download_format), this method writes the file
-    /// to the exact path specified, ignoring the configured `output_dir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `format` - The format to download.
-    /// * `output` - The full path where the file will be saved.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be downloaded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let fetcher = Downloader::new(libraries, output_dir).await?;
-    ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    /// let video = fetcher.fetch_video_infos(url).await?;
-    ///
-    /// let format = video.best_video_format().unwrap();
-    /// let path = PathBuf::from("/custom/path/video.mp4");
-    /// let format_path = fetcher.download_format_to_path(&format, &path).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn download_format_to_path(
         &self,
         format: &Format,
@@ -1062,26 +478,6 @@ impl Downloader {
     }
 
     /// Downloads a format with specific quality and codec preferences.
-    ///
-    /// This method allows fine-grained control over the download process by specifying
-    /// quality and codec preferences for both video and audio components of the format.
-    ///
-    /// # Arguments
-    ///
-    /// * `format` - The format to download
-    /// * `output` - The name of the output file
-    /// * `video_quality` - Optional video quality preference
-    /// * `audio_quality` - Optional audio quality preference
-    /// * `video_codec` - Optional video codec preference
-    /// * `audio_codec` - Optional audio codec preference
-    ///
-    /// # Returns
-    ///
-    /// * `PathBuf` - The path to the downloaded format
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the video could not be downloaded.
     pub async fn download_format_with_preferences(
         &self,
         format: &Format,
@@ -1112,8 +508,6 @@ impl Downloader {
     }
 
     /// Internal function that handles downloading a format with or without preferences
-    ///
-    /// This function avoids code duplication between download_format and download_format_with_preferences
     async fn download_format_internal(
         &self,
         format: &Format,
@@ -1183,7 +577,7 @@ impl Downloader {
             })?;
 
         // Create an optimized fetcher with parallel downloading
-        let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)
+        let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)?
             .with_parallel_segments(8) // Use 8 parallel segments
             .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
             .with_retry_attempts(3); // 3 attempts in case of failure
@@ -1237,135 +631,7 @@ impl Downloader {
 
         Ok(path.clone())
     }
-
-    /// Adds format metadata based on the format type (audio-only, video-only, or both)
-    /// This function is extracted to avoid code duplication
-    async fn add_metadata_if_needed(
-        &self,
-        path: impl AsRef<Path>,
-        format: &Format,
-    ) -> crate::error::Result<()> {
-        let format_type = format.format_type();
-        let is_standalone_format = format_type.is_audio_and_video() || format_type.is_audio();
-
-        if is_standalone_format {
-            if let Some(video_id) = format.video_id.as_ref() {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Adding metadata to standalone format file");
-
-                // Try to get video metadata from cache
-                #[cfg(feature = "cache")]
-                if let Some(cache) = &self.cache
-                    && let Ok(cached_video) = cache.get_by_id(video_id).await
-                    && let Ok(video) = cached_video.video()
-                {
-                    // Add metadata with format information
-                    let metadata_manager = MetadataManager::new();
-                    if let Err(_e) = metadata_manager
-                        .add_metadata_with_format(path.as_ref(), &video, None, Some(format))
-                        .await
-                    {
-                        #[cfg(feature = "tracing")]
-                        tracing::warn!("Failed to add metadata: {}", _e);
-                    }
-                }
-
-                #[cfg(not(feature = "cache"))]
-                {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("Cache feature disabled, cannot retrieve video metadata");
-                    let _ = video_id; // Suppress unused warning
-                }
-            }
-        } else {
-            #[cfg(feature = "tracing")]
-            tracing::debug!(
-                "Skipping metadata for non-standalone format: will be added after combining"
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Retrieve a video by its ID, checking the cache first if available
-    ///
-    /// # Arguments
-    ///
-    /// * `video_id` - The ID of the video to find
-    ///
-    /// # Returns
-    ///
-    /// * `Option<Video>` - The video if found, None otherwise
-    pub async fn get_video_by_id(&self, video_id: &str) -> Option<Video> {
-        // First check if the video is in the cache
-        #[cfg(feature = "cache")]
-        if let Some(cache) = &self.cache
-            && let Ok(cached_video) = cache.get_by_id(video_id).await
-            && let Ok(video) = cached_video.video()
-        {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("Using cached video data for ID: {}", video_id);
-            return Some(video);
-        }
-
-        // If not in cache, try to fetch it using the ID-based URL
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Video not found in cache, trying to fetch it using ID: {}",
-            video_id
-        );
-
-        let url = format!("https://www.youtube.com/watch?v={}", video_id);
-
-        self.fetch_video_infos(url).await.ok().or({
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to fetch video by ID: {}", video_id);
-            None
-        })
-    }
-
-    /// Lists all available subtitle languages for a video.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to get subtitle languages from
-    ///
-    /// # Returns
-    ///
-    /// A vector of language codes that have subtitles available
-    pub fn list_subtitle_languages(&self, video: &Video) -> Vec<String> {
-        video.subtitles.keys().cloned().collect()
-    }
-
-    /// Checks if a video has subtitles in a specific language.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to check
-    /// * `language_code` - The language code to check for (e.g., "en", "fr")
-    ///
-    /// # Returns
-    ///
-    /// true if subtitles are available in the specified language
-    pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
-        video.subtitles.contains_key(language_code)
-    }
-
     /// Downloads a subtitle file for a specific language.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download subtitles from
-    /// * `language_code` - The language code of the subtitle (e.g., "en", "fr")
-    /// * `output` - The output filename
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the subtitle language is not available or download fails
-    ///
-    /// # Returns
-    ///
-    /// The path to the downloaded subtitle file
     pub async fn download_subtitle(
         &self,
         video: &Video,
@@ -1435,7 +701,7 @@ impl Downloader {
         );
 
         // Download the subtitle file
-        let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None);
+        let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None)?;
         fetcher.fetch_asset(&output_path).await?;
 
         // Cache the downloaded subtitle
@@ -1473,19 +739,6 @@ impl Downloader {
     }
 
     /// Downloads all available subtitles for a video.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download subtitles from
-    /// * `output_dir` - The directory to save subtitle files
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any subtitle download fails
-    ///
-    /// # Returns
-    ///
-    /// A vector of paths to the downloaded subtitle files
     pub async fn download_all_subtitles(
         &self,
         video: &Video,
@@ -1514,7 +767,7 @@ impl Downloader {
                     subtitle.url
                 );
 
-                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None);
+                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None)?;
                 fetcher.fetch_asset(&output_path).await?;
                 downloaded_files.push(output_path);
             }
@@ -1529,154 +782,7 @@ impl Downloader {
         Ok(downloaded_files)
     }
 
-    /// Embeds subtitle files into a video file using ffmpeg.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_path` - The path to the video file
-    /// * `subtitle_paths` - Paths to the subtitle files to embed
-    /// * `output` - The output filename for the video with embedded subtitles
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if ffmpeg execution fails
-    ///
-    /// # Returns
-    ///
-    /// The path to the output video file with embedded subtitles
-    pub async fn embed_subtitles_in_video(
-        &self,
-        video_path: impl AsRef<Path>,
-        subtitle_paths: &[PathBuf],
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
-        self.embed_subtitles_with_languages(video_path, subtitle_paths, &[], output)
-            .await
-    }
-
-    /// Embeds a single subtitle file into a video file using ffmpeg.
-    ///
-    /// This is a convenience wrapper around `embed_subtitles_in_video`.
-    pub async fn embed_subtitles(
-        &self,
-        video_path: impl AsRef<Path>,
-        subtitle_path: impl AsRef<Path>,
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
-        self.embed_subtitles_in_video(video_path, &[subtitle_path.as_ref().to_path_buf()], output)
-            .await
-    }
-
-    /// Embeds subtitle files into a video file with language metadata using ffmpeg.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_path` - The path to the video file
-    /// * `subtitle_paths` - Paths to the subtitle files to embed
-    /// * `language_codes` - Language codes for each subtitle (e.g., "en", "fr"). Must match subtitle_paths length.
-    /// * `output` - The output filename for the video with embedded subtitles
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if ffmpeg execution fails or if subtitle_paths and language_codes lengths don't match
-    ///
-    /// # Returns
-    ///
-    /// The path to the output video file with embedded subtitles
-    pub async fn embed_subtitles_with_languages(
-        &self,
-        video_path: impl AsRef<Path>,
-        subtitle_paths: &[PathBuf],
-        language_codes: &[&str],
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
-        let video_path = video_path.as_ref();
-        let output_path = self.output_dir.join(output.as_ref());
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            "Embedding {} subtitles into video {:?}",
-            subtitle_paths.len(),
-            video_path
-        );
-
-        // Build ffmpeg command
-        let mut args = vec!["-i".to_string(), video_path.to_string_lossy().to_string()];
-
-        // Add each subtitle file as input
-        for subtitle_path in subtitle_paths {
-            args.push("-i".to_string());
-            args.push(subtitle_path.to_string_lossy().to_string());
-        }
-
-        // Map video and audio streams
-        args.push("-map".to_string());
-        args.push("0:v".to_string());
-        args.push("-map".to_string());
-        args.push("0:a".to_string());
-
-        // Map subtitle streams
-        for i in 0..subtitle_paths.len() {
-            args.push("-map".to_string());
-            args.push(format!("{}:s", i + 1));
-        }
-
-        // Add language metadata for each subtitle stream
-        for (i, &language_code) in language_codes.iter().enumerate() {
-            if i < subtitle_paths.len() {
-                // Set language metadata for subtitle stream
-                args.push(format!("-metadata:s:s:{}", i));
-                args.push(format!("language={}", language_code));
-
-                #[cfg(feature = "tracing")]
-                tracing::debug!(
-                    "Setting language {} for subtitle stream {}",
-                    language_code,
-                    i
-                );
-            }
-        }
-
-        // Copy codecs
-        args.push("-c".to_string());
-        args.push("copy".to_string());
-
-        // Output file
-        args.push(output_path.to_string_lossy().to_string());
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Running ffmpeg with args: {:?}", args);
-
-        let executor = Executor::new(
-            self.libraries.ffmpeg.clone(),
-            utils::to_owned(args),
-            self.timeout,
-        );
-
-        executor.execute().await?;
-
-        #[cfg(feature = "tracing")]
-        tracing::info!(
-            "Successfully embedded subtitles into video at {:?}",
-            output_path
-        );
-
-        Ok(output_path)
-    }
-
     /// Fetches playlist information from a URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the playlist to fetch
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the playlist could not be fetched
-    ///
-    /// # Returns
-    ///
-    /// The playlist metadata
     pub async fn fetch_playlist_infos(
         &self,
         url: impl Into<String>,
@@ -1730,19 +836,6 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist.
-    ///
-    /// # Arguments
-    ///
-    /// * `playlist` - The playlist to download
-    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any video download fails
-    ///
-    /// # Returns
-    ///
-    /// A vector of paths to the downloaded videos
     pub async fn download_playlist(
         &self,
         playlist: &Playlist,
@@ -1798,20 +891,6 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist in parallel.
-    ///
-    /// # Arguments
-    ///
-    /// * `playlist` - The playlist to download
-    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
-    /// * `max_concurrent` - Maximum number of concurrent downloads (defaults to 3)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error containing all failed downloads if any occur
-    ///
-    /// # Returns
-    ///
-    /// A vector of results for each video download
     pub async fn download_playlist_parallel(
         &self,
         playlist: &Playlist,
@@ -1828,21 +907,6 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist in parallel with progress tracking.
-    ///
-    /// # Arguments
-    ///
-    /// * `playlist` - The playlist to download
-    /// * `output_pattern` - The output filename pattern (use %(playlist_index)s, %(title)s placeholders)
-    /// * `max_concurrent` - Maximum number of concurrent downloads (defaults to 3)
-    /// * `progress_callback` - Optional callback to receive progress updates
-    ///
-    /// # Errors
-    ///
-    /// Returns an error containing all failed downloads if any occur
-    ///
-    /// # Returns
-    ///
-    /// A vector of results for each video download
     pub async fn download_playlist_parallel_with_progress<F>(
         &self,
         playlist: &Playlist,
@@ -2003,20 +1067,6 @@ impl Downloader {
     }
 
     /// Downloads specific videos from a playlist by their indices.
-    ///
-    /// # Arguments
-    ///
-    /// * `playlist` - The playlist to download from
-    /// * `indices` - The indices of videos to download (0-based)
-    /// * `output_pattern` - The output filename pattern
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any video download fails
-    ///
-    /// # Returns
-    ///
-    /// A vector of paths to the downloaded videos
     pub async fn download_playlist_items(
         &self,
         playlist: &Playlist,
@@ -2070,21 +1120,6 @@ impl Downloader {
     }
 
     /// Downloads a range of videos from a playlist.
-    ///
-    /// # Arguments
-    ///
-    /// * `playlist` - The playlist to download from
-    /// * `start` - The starting index (0-based, inclusive)
-    /// * `end` - The ending index (0-based, inclusive)
-    /// * `output_pattern` - The output filename pattern
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any video download fails
-    ///
-    /// # Returns
-    ///
-    /// A vector of paths to the downloaded videos
     pub async fn download_playlist_range(
         &self,
         playlist: &Playlist,
@@ -2132,24 +1167,6 @@ impl Downloader {
     }
 
     /// Downloads a partial range of a video using hybrid approach (yt-dlp with ffmpeg fallback).
-    ///
-    /// This method first attempts to use yt-dlp's --download-sections feature.
-    /// If that fails, it falls back to downloading the full video and extracting
-    /// the desired segment using ffmpeg.
-    ///
-    /// # Arguments
-    ///
-    /// * `video` - The video to download
-    /// * `range` - The partial range to download (time or chapter based)
-    /// * `output` - The output filename
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if both yt-dlp and ffmpeg approaches fail
-    ///
-    /// # Returns
-    ///
-    /// The path to the downloaded partial video file
     pub async fn download_video_partial(
         &self,
         video: &crate::model::Video,

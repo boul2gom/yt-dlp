@@ -3,6 +3,7 @@
 //! This module provides a builder pattern for configuring and executing downloads.
 
 use crate::client::Downloader;
+use crate::client::streams::selection::VideoSelection;
 use crate::download::DownloadPriority;
 use crate::download::partial::PartialRange;
 use crate::error::Result;

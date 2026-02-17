@@ -309,7 +309,7 @@ impl WantedRelease {
             destination.as_ref().display()
         );
 
-        let fetcher = Fetcher::new(&self.url, None, None);
+        let fetcher = Fetcher::new(&self.url, None, None)?;
         fetcher
             .fetch_asset(destination.as_ref().to_path_buf())
             .await?;

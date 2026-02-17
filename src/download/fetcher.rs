@@ -91,7 +91,7 @@ impl Fetcher {
         url: impl AsRef<str>,
         proxy: Option<&ProxyConfig>,
         user_agent: Option<String>,
-    ) -> Self {
+    ) -> Result<Self> {
         // Create a shared HTTP client with optimized connection pooling and HTTP/2 support
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -113,9 +113,11 @@ impl Fetcher {
             builder = builder.proxy(proxy);
         }
 
-        let client = builder.build().expect("Failed to build HTTP client");
+        let client = builder
+            .build()
+            .map_err(|e| Error::Unknown(format!("Failed to build HTTP client: {}", e)))?;
 
-        Self {
+        Ok(Self {
             url: url.as_ref().to_string(),
             parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
             segment_size: DEFAULT_SEGMENT_SIZE,
@@ -128,7 +130,7 @@ impl Fetcher {
             client: Arc::new(client),
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
-        }
+        })
     }
 
     /// Configures the number of parallel segments for downloading.

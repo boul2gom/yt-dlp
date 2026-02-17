@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use crate::client::deps::{Libraries, LibraryInstaller};
+use crate::client::streams::selection::VideoSelection;
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
@@ -121,7 +122,7 @@ pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 #[derive(Debug)]
 pub struct Downloader {
     /// The video extractor (Youtube or Generic)
-    extractor: Box<dyn extractor::VideoExtractor>,
+    pub(crate) extractor: Box<dyn extractor::VideoExtractor>,
     /// The required libraries.
     pub libraries: Libraries,
 
@@ -152,10 +153,10 @@ pub struct Downloader {
     pub event_bus: events::EventBus,
     /// Hook registry for Rust hooks (feature: hooks).
     #[cfg(feature = "hooks")]
-    hook_registry: Option<events::HookRegistry>,
+    pub(crate) hook_registry: Option<events::HookRegistry>,
     /// Webhook delivery system (feature: webhooks).
     #[cfg(feature = "webhooks")]
-    webhook_delivery: Option<events::WebhookDelivery>,
+    pub(crate) webhook_delivery: Option<events::WebhookDelivery>,
 }
 
 impl Clone for Downloader {
@@ -1492,7 +1493,7 @@ impl Downloader {
     pub async fn download_video_with_quality_to_path(
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone,
         video_quality: VideoQuality,
         video_codec: VideoCodecPreference,
         audio_quality: AudioQuality,
@@ -1721,7 +1722,7 @@ impl Downloader {
     pub async fn download_video_stream_with_quality_to_path(
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone,
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Result<PathBuf> {
@@ -1844,7 +1845,7 @@ impl Downloader {
     pub async fn download_audio_stream_with_quality_to_path(
         &self,
         url: impl AsRef<str> + std::fmt::Debug + Display,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone,
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Result<PathBuf> {

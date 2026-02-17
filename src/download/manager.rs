@@ -804,15 +804,48 @@ impl DownloadManager {
                 }
 
                 // Create a fetcher for this task
-                let mut fetcher = Fetcher::new(
+                // Create a fetcher for this task
+                let fetcher_result = Fetcher::new(
                     &task.url,
                     config_clone.proxy.as_ref(),
                     config_clone.user_agent.clone(),
-                )
-                .with_segment_size(config_clone.segment_size)
-                .with_parallel_segments(config_clone.parallel_segments)
-                .with_retry_attempts(config_clone.retry_attempts)
-                .with_speed_profile(config_clone.speed_profile);
+                );
+
+                let mut fetcher = match fetcher_result {
+                    Ok(f) => f,
+                    Err(e) => {
+                        let reason = e.to_string();
+                        // Update status
+                        {
+                            let mut statuses = statuses_clone.lock().await;
+                            statuses.insert(
+                                task.id,
+                                DownloadStatus::Failed {
+                                    reason: reason.clone(),
+                                },
+                            );
+                        }
+                        // Emit event
+                        if let Some(ref bus) = event_bus_clone {
+                            bus.emit(crate::events::DownloadEvent::DownloadFailed {
+                                download_id: task.id,
+                                error: reason.clone(),
+                                retry_count: 0,
+                            });
+                        }
+                        // Notify completion
+                        let _ =
+                            completion_tx_clone.send((task.id, DownloadStatus::Failed { reason }));
+
+                        continue;
+                    }
+                };
+
+                fetcher = fetcher
+                    .with_segment_size(config_clone.segment_size)
+                    .with_parallel_segments(config_clone.parallel_segments)
+                    .with_retry_attempts(config_clone.retry_attempts)
+                    .with_speed_profile(config_clone.speed_profile);
 
                 // Add progress callback if available
                 let task_id = task.id;

@@ -163,6 +163,10 @@ pub enum Error {
     #[error("No subtitles available for video {video_id} in language '{language}'")]
     SubtitleNotAvailable { video_id: String, language: String },
 
+    /// The URL has expired and needs to be refreshed.
+    #[error("URL expired")]
+    UrlExpired,
+
     // ==================== Path & Security Errors ====================
     /// Path validation failed due to security concerns.
     ///
