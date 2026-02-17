@@ -66,4 +66,4 @@ jobs:
           sudo apt-get install -y wget
 
       - name: 📝 Check spelling
-        uses: crate-ci/typos@v1.43.4
+        uses: crate-ci/typos@v1.43.5
