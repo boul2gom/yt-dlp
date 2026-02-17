@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use crate::client::deps::{Libraries, LibraryInstaller};
-use crate::client::streams::selection::VideoSelection;
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
@@ -45,6 +44,7 @@ use crate::model::format::{Format, FormatType};
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
+pub use client::streams::selection::VideoSelection;
 pub use model::utils::{AllTraits, CommonTraits};
 
 // Re-export main types for easy access
@@ -771,6 +771,7 @@ impl Downloader {
     /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::VideoSelection;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -1107,7 +1108,7 @@ impl Downloader {
 
         let db_path = cache_dir.as_ref().join("playlists.db");
         let playlist_cache = if let Some(ttl_seconds) = ttl {
-            PlaylistCache::with_ttl(db_path, ttl_seconds).await?
+            PlaylistCache::with_ttl(db_path, ttl_seconds as u64).await?
         } else {
             PlaylistCache::new(db_path).await?
         };

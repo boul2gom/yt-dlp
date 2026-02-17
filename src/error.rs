@@ -85,7 +85,7 @@ pub enum Error {
     /// Database operation failed.
     ///
     /// Includes the specific operation and table/query context.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-sqlite")]
     #[error("Database error during {operation}: {source}")]
     Database {
         operation: String,
@@ -259,7 +259,7 @@ impl Error {
     }
 
     /// Create a database error with operation context.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-sqlite")]
     pub fn database(operation: impl Into<String>, source: sqlx::Error) -> Self {
         Self::Database {
             operation: operation.into(),
@@ -349,7 +349,7 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-sqlite")]
 impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Self {
         Self::Database {

@@ -87,7 +87,9 @@ This library puts a lot of functionality behind optional features in order to op
 compile time for the most common use cases. The following features are
 available.
 
-- **`cache`** (enabled by default) - Enables video metadata, files and thumbnails caching
+- **`cache`** (enabled by default) - Enables video metadata, files and thumbnails caching. Implies `cache-json`.
+- **`cache-json`** (enabled by default) - Uses JSON files for caching (stored in the file system).
+- **`cache-sqlite`** - Uses a SQLite database for caching (requires `sqlx`). Disabling this removes the `sqlx` dependency.
 - **`tracing`** (enabled by default) — <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> Enables profiling with the [```tracing```](https://crates.io/crates/tracing) crate.
   When this feature is enabled, the library will output span events at log levels `trace` and `debug`, depending on the importance of the called function.
 - **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
@@ -370,6 +372,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
+use yt_dlp::VideoSelection;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -401,6 +404,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
+use yt_dlp::VideoSelection;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -333,7 +333,7 @@ pub fn is_http_error_retryable(error: &reqwest::Error) -> bool {
 /// # Returns
 ///
 /// True if the error is likely transient and worth retrying.
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-sqlite")]
 pub fn is_database_error_retryable(error: &sqlx::Error) -> bool {
     matches!(
         error,

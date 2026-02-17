@@ -4,11 +4,11 @@
 //! Data is stored in HashMap and is not persisted.
 
 use super::{FileBackend, VideoBackend};
-use crate::cache::video::{CachedFile, CachedVideo};
+use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -20,6 +20,8 @@ use crate::model::selector::{
 
 /// Type alias for file cache storage.
 type FileStorage = Arc<RwLock<HashMap<String, (CachedFile, Vec<u8>)>>>;
+/// Type alias for thumbnail cache storage.
+type ThumbnailStorage = Arc<RwLock<HashMap<String, (CachedThumbnail, Vec<u8>)>>>;
 
 /// In-memory video cache implementation for testing.
 #[derive(Debug, Clone)]
@@ -102,6 +104,7 @@ impl VideoBackend for MemoryVideoCache {
 #[derive(Debug, Clone)]
 pub struct MemoryFileCache {
     files: FileStorage,
+    thumbnails: ThumbnailStorage,
     ttl: i64,
 }
 
@@ -110,6 +113,7 @@ impl FileBackend for MemoryFileCache {
     async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         Ok(Self {
             files: Arc::new(RwLock::new(HashMap::new())),
+            thumbnails: Arc::new(RwLock::new(HashMap::new())),
             ttl: ttl.unwrap_or(7 * 24 * 60 * 60) as i64,
         })
     }
@@ -188,10 +192,13 @@ impl FileBackend for MemoryFileCache {
         None
     }
 
-    async fn put(&self, file: CachedFile, content: &[u8]) -> Result<PathBuf> {
+    async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
         let mut files = self.files.write().await;
         let path = PathBuf::from(&file.relative_path);
-        files.insert(file.id.clone(), (file, content.to_vec()));
+
+        let content = tokio::fs::read(source_path).await?;
+
+        files.insert(file.id.clone(), (file, content));
         Ok(path)
     }
 
@@ -203,12 +210,69 @@ impl FileBackend for MemoryFileCache {
 
     async fn clean(&self) -> Result<()> {
         let mut files = self.files.write().await;
+        let mut thumbnails = self.thumbnails.write().await;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
 
         files.retain(|_, (cached, _)| cached.cached_at + self.ttl > now);
+        thumbnails.retain(|_, (cached, _)| cached.cached_at + self.ttl > now);
         Ok(())
+    }
+
+    async fn get_thumbnail_by_video_id(
+        &self,
+        video_id: &str,
+    ) -> Option<(CachedThumbnail, PathBuf)> {
+        let thumbnails = self.thumbnails.read().await;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        for (cached, _) in thumbnails.values() {
+            if cached.video_id == video_id && cached.cached_at + self.ttl > now {
+                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+            }
+        }
+        None
+    }
+
+    async fn put_thumbnail(
+        &self,
+        thumbnail: CachedThumbnail,
+        source_path: &Path,
+    ) -> Result<PathBuf> {
+        let mut thumbnails = self.thumbnails.write().await;
+        let path = PathBuf::from(&thumbnail.relative_path);
+        let content = tokio::fs::read(source_path).await?;
+        thumbnails.insert(thumbnail.id.clone(), (thumbnail, content));
+        Ok(path)
+    }
+
+    async fn get_subtitle_by_language(
+        &self,
+        video_id: &str,
+        language: &str,
+    ) -> Option<(CachedFile, PathBuf)> {
+        let files = self.files.read().await;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        for (cached, _) in files.values() {
+            // Check if it's a subtitle file and matches video_id and language
+            // Assuming file_type or format_id discriminates subtitles?
+            // CachedFile has language_code.
+            if cached.video_id.as_deref() == Some(video_id)
+                && cached.language_code.as_deref() == Some(language)
+                && cached.cached_at + self.ttl > now
+            {
+                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+            }
+        }
+        None
     }
 }

@@ -1,19 +1,23 @@
 //! Video cache wrapper using backend implementations.
 //!
 //! This module provides a high-level API for caching video metadata,
-//! using pluggable backend implementations (SQLite by default).
+//! using pluggable backend implementations.
 
+use crate::cache::backend::VideoBackend;
 use crate::error::Result;
 use crate::model::Video;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "cache")]
-use crate::cache::backend::{VideoBackend, sqlite::SqliteVideoCache};
+#[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
+use crate::cache::backend::json::JsonVideoCache;
+#[cfg(feature = "cache-sqlite")]
+use crate::cache::backend::sqlite::SqliteVideoCache;
 
 /// Structure for storing video metadata in cache.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedVideo {
     /// The ID of the video.
     pub id: String,
@@ -52,7 +56,8 @@ impl From<(String, Video)> for CachedVideo {
 }
 
 /// Structure for storing downloaded file metadata in cache.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedFile {
     /// The ID of the file (SHA-256 hash of the content).
     pub id: String,
@@ -101,6 +106,7 @@ pub enum CachedType {
 
 /// Structure for storing thumbnail metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedThumbnail {
     /// The ID of the thumbnail (SHA-256 hash of the content).
     pub id: String,
@@ -122,91 +128,65 @@ pub struct CachedThumbnail {
     pub cached_at: i64,
 }
 
-/// Video cache manager using SQLite backend by default.
-#[derive(Debug, Clone)]
+/// Video cache manager using pluggable backend.
+#[derive(Debug)]
 pub struct VideoCache {
-    backend: SqliteVideoCache,
+    backend: Box<dyn VideoBackend>,
 }
 
 impl VideoCache {
-    /// Creates a new video cache using SQLite backend.
-    ///
-    /// # Arguments
-    ///
-    /// * `cache_dir` - The directory where to store the cache database.
-    /// * `ttl` - The time-to-live for cache entries in seconds (default: 24 hours).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache directory cannot be created
-    /// or the database cannot be initialized.
+    /// Creates a new video cache.
     pub async fn new(
         cache_dir: impl AsRef<Path> + std::fmt::Debug,
         ttl: Option<u64>,
     ) -> Result<Self> {
-        let backend = SqliteVideoCache::new(cache_dir.as_ref().to_path_buf(), ttl).await?;
-        Ok(Self { backend })
+        let cache_dir = cache_dir.as_ref().to_path_buf();
+
+        #[cfg(feature = "cache-sqlite")]
+        {
+            let backend = SqliteVideoCache::new(cache_dir, ttl).await?;
+            Ok(Self {
+                backend: Box::new(backend),
+            })
+        }
+
+        #[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
+        {
+            let backend = JsonVideoCache::new(cache_dir, ttl).await?;
+            Ok(Self {
+                backend: Box::new(backend),
+            })
+        }
+
+        #[cfg(not(any(feature = "cache-sqlite", feature = "cache-json")))]
+        {
+            Err(crate::error::Error::Unknown(
+                "No cache backend enabled".to_string(),
+            ))
+        }
     }
 
     /// Retrieves a video from the cache by its URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to retrieve.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(Video)` if the video is in the cache and has not expired,
-    /// otherwise `None`.
     pub async fn get(&self, url: &str) -> Result<Option<Video>> {
         self.backend.get(url).await
     }
 
     /// Puts a video in the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video.
-    /// * `video` - The video metadata.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache cannot be written to the database.
     pub async fn put(&self, url: String, video: Video) -> Result<()> {
         self.backend.put(url, video).await
     }
 
     /// Removes a video from the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL of the video to remove.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache cannot be written to the database.
     pub async fn remove(&self, url: &str) -> Result<()> {
         self.backend.remove(url).await
     }
 
     /// Cleans the cache by removing expired entries.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache cannot be written to the database.
     pub async fn clean(&self) -> Result<()> {
         self.backend.clean().await
     }
 
     /// Retrieves a video from the cache by its ID.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the video to retrieve.
-    ///
-    /// # Returns
-    ///
-    /// Returns the cached video if it exists and has not expired, otherwise an error.
     pub async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
         self.backend.get_by_id(id).await
     }
