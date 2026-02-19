@@ -21,7 +21,19 @@ impl RetryStrategy {
     /// * `max_attempts` - Maximum number of retry attempts (0 means no retries)
     /// * `initial_delay` - Initial delay before first retry
     /// * `max_delay` - Maximum delay between retries
+    ///
+    /// # Returns
+    ///
+    /// A RetryStrategy with exponential backoff (2x multiplier)
     pub fn exponential(max_attempts: usize, initial_delay: Duration, max_delay: Duration) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            max_attempts = max_attempts,
+            initial_delay_ms = initial_delay.as_millis(),
+            max_delay_ms = max_delay.as_millis(),
+            "Creating exponential retry strategy"
+        );
+
         Self {
             max_attempts,
             initial_delay,
@@ -36,7 +48,18 @@ impl RetryStrategy {
     ///
     /// * `max_attempts` - Maximum number of retry attempts
     /// * `delay` - Fixed delay between retries
+    ///
+    /// # Returns
+    ///
+    /// A RetryStrategy with linear backoff (constant delay)
     pub fn linear(max_attempts: usize, delay: Duration) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            max_attempts = max_attempts,
+            delay_ms = delay.as_millis(),
+            "Creating linear retry strategy"
+        );
+
         Self {
             max_attempts,
             initial_delay: delay,
@@ -46,7 +69,14 @@ impl RetryStrategy {
     }
 
     /// Creates a strategy with no retries
+    ///
+    /// # Returns
+    ///
+    /// A RetryStrategy that never retries
     pub fn none() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating no-retry strategy");
+
         Self {
             max_attempts: 0,
             initial_delay: Duration::from_secs(0),
@@ -72,7 +102,16 @@ impl RetryStrategy {
         let delay_secs =
             self.initial_delay.as_secs_f64() * self.backoff_multiplier.powi(attempt as i32);
 
-        Duration::from_secs_f64(delay_secs.min(self.max_delay.as_secs_f64()))
+        let result = Duration::from_secs_f64(delay_secs.min(self.max_delay.as_secs_f64()));
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            attempt = attempt,
+            delay_ms = result.as_millis(),
+            "Calculated retry delay"
+        );
+
+        result
     }
 
     /// Returns true if retries should continue
@@ -80,8 +119,22 @@ impl RetryStrategy {
     /// # Arguments
     ///
     /// * `attempt` - The attempt number (0-indexed)
+    ///
+    /// # Returns
+    /// 
+    /// true if more retries are allowed, false otherwise
     pub fn should_retry(&self, attempt: usize) -> bool {
-        attempt < self.max_attempts
+        let should_retry = attempt < self.max_attempts;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            attempt = attempt,
+            max_attempts = self.max_attempts,
+            should_retry = should_retry,
+            "Checked if retry should continue"
+        );
+
+        should_retry
     }
 }
 
@@ -89,56 +142,5 @@ impl Default for RetryStrategy {
     fn default() -> Self {
         // Default: 3 retries with exponential backoff starting at 1 second, max 30 seconds
         Self::exponential(3, Duration::from_secs(1), Duration::from_secs(30))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_exponential_backoff() {
-        let strategy =
-            RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(10));
-
-        // First retry: 1 second
-        assert_eq!(strategy.delay_for_attempt(0).as_secs(), 1);
-
-        // Second retry: 2 seconds
-        assert_eq!(strategy.delay_for_attempt(1).as_secs(), 2);
-
-        // Third retry: 4 seconds
-        assert_eq!(strategy.delay_for_attempt(2).as_secs(), 4);
-
-        // Fourth retry would be 8 seconds, but we only have 3 max attempts
-        assert!(!strategy.should_retry(3));
-    }
-
-    #[test]
-    fn test_linear_backoff() {
-        let strategy = RetryStrategy::linear(3, Duration::from_secs(5));
-
-        // All retries should have the same delay
-        assert_eq!(strategy.delay_for_attempt(0).as_secs(), 5);
-        assert_eq!(strategy.delay_for_attempt(1).as_secs(), 5);
-        assert_eq!(strategy.delay_for_attempt(2).as_secs(), 5);
-    }
-
-    #[test]
-    fn test_max_delay() {
-        let strategy =
-            RetryStrategy::exponential(10, Duration::from_secs(1), Duration::from_secs(10));
-
-        // With exponential backoff of 2^10 = 1024 seconds, it should cap at 10 seconds
-        assert_eq!(strategy.delay_for_attempt(10).as_secs(), 0); // Exceeds max_attempts
-        assert_eq!(strategy.delay_for_attempt(9).as_secs(), 10); // Capped at max_delay
-    }
-
-    #[test]
-    fn test_no_retry() {
-        let strategy = RetryStrategy::none();
-
-        assert_eq!(strategy.max_attempts, 0);
-        assert!(!strategy.should_retry(0));
     }
 }

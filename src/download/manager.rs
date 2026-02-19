@@ -12,7 +12,7 @@ use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
@@ -381,10 +381,21 @@ impl DownloadManager {
     /// # Returns
     ///
     /// The ID of the download
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let manager = DownloadManager::new();
+    /// let id = manager.enqueue("https://example.com", "output.mp4", None).await;
+    /// # }
+    /// ```
     pub async fn enqueue(
         &self,
         url: impl AsRef<str>,
-        destination: impl AsRef<Path>,
+        destination: impl Into<PathBuf>,
         priority: Option<DownloadPriority>,
     ) -> u64 {
         let mut id_guard = self.next_id.lock().await;
@@ -393,7 +404,7 @@ impl DownloadManager {
         drop(id_guard);
 
         let url_str = url.as_ref().to_string();
-        let destination_path = destination.as_ref().to_path_buf();
+        let destination_path = destination.into();
         let task_priority = priority.unwrap_or(DownloadPriority::Normal);
 
         let task = DownloadTask {
@@ -403,6 +414,15 @@ impl DownloadManager {
             id,
             progress_callback: None,
         };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
+            id,
+            url_str,
+            destination_path,
+            task_priority
+        );
 
         // Add the task to the queue
         {
@@ -458,7 +478,7 @@ impl DownloadManager {
     pub async fn enqueue_with_progress<F>(
         &self,
         url: impl AsRef<str>,
-        destination: impl AsRef<Path>,
+        destination: impl Into<PathBuf>,
         priority: Option<DownloadPriority>,
         progress_callback: F,
     ) -> u64
@@ -472,7 +492,7 @@ impl DownloadManager {
 
         let task = DownloadTask {
             url: url.as_ref().to_string(),
-            destination: destination.as_ref().to_path_buf(),
+            destination: destination.into(),
             priority: priority.unwrap_or(DownloadPriority::Normal),
             id,
             progress_callback: Some(Arc::new(progress_callback)),
@@ -545,7 +565,23 @@ impl DownloadManager {
     /// # Returns
     ///
     /// true if the download was canceled, false if it doesn't exist or is already completed
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let manager = DownloadManager::new();
+    /// let id = manager.enqueue("https://example.com", "out.mp4", None).await;
+    /// let cancelled = manager.cancel(id).await;
+    /// assert!(cancelled);
+    /// # }
+    /// ```
     pub async fn cancel(&self, id: u64) -> bool {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(download_id = id, "Cancelling download");
+
         // Mark as cancelled first to prevent race conditions
         {
             let mut cancelled = self.cancelled.lock().await;
@@ -631,6 +667,20 @@ impl DownloadManager {
     /// # Returns
     ///
     /// The final download status, or None if the ID doesn't exist
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let manager = DownloadManager::new();
+    /// let id = manager.enqueue("https://example.com", "out.mp4", None).await;
+    /// if let Some(status) = manager.wait_for_completion(id).await {
+    ///     println!("Download finished with status: {:?}", status);
+    /// }
+    /// # }
+    /// ```
     pub async fn wait_for_completion(&self, id: u64) -> Option<DownloadStatus> {
         // First check if the download already completed
         if let Some(status) = self.get_status(id).await {
@@ -739,6 +789,11 @@ impl DownloadManager {
 
     /// Process the download queue
     fn process_queue(&self) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            max_concurrent = self.config.max_concurrent_downloads,
+            "Starting download queue processor"
+        );
         let queue_clone = self.queue.clone();
         let semaphore_clone = self.semaphore.clone();
         let statuses_clone = self.statuses.clone();
@@ -751,6 +806,11 @@ impl DownloadManager {
 
         tokio::spawn(async move {
             loop {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    max_concurrent = config_clone.max_concurrent_downloads,
+                    "Waiting for available download slot"
+                );
                 // Acquire a permit from the semaphore (blocks if the maximum number of downloads is reached)
                 let permit = match semaphore_clone.clone().acquire_owned().await {
                     Ok(permit) => permit,
@@ -762,6 +822,17 @@ impl DownloadManager {
                     let mut queue = queue_clone.lock().await;
                     queue.pop()
                 };
+
+                #[cfg(feature = "tracing")]
+                if let Some(ref t) = task {
+                    tracing::debug!(
+                        task_id = t.id,
+                        url = %t.url,
+                        destination = ?t.destination,
+                        priority = ?t.priority,
+                        "Popped task from download queue"
+                    );
+                }
 
                 // If the queue is empty, release the permit and stop
                 let task = match task {
@@ -936,6 +1007,7 @@ impl DownloadManager {
 
                 // Launch the download in a separate task
                 let destination = task.destination.clone();
+                let task_url = task.url.clone();
                 let statuses_for_task = statuses_clone.clone();
                 let tasks_for_task = tasks_clone.clone();
                 let completion_tx_for_task = completion_tx_clone.clone();
@@ -948,6 +1020,13 @@ impl DownloadManager {
                     let start_time = std::time::Instant::now();
 
                     // Download the file
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(
+                        task_id = task_id,
+                        url = %task_url,
+                        destination = ?destination,
+                        "Starting download attempt"
+                    );
                     let result = fetcher.fetch_asset(&destination).await;
 
                     let duration = start_time.elapsed();

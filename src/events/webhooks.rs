@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 
 use super::{DownloadEvent, EventFilter, RetryStrategy};
+use crate::utils::retry::RetryPolicy;
 
 /// HTTP method for webhook delivery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,8 +31,8 @@ pub struct WebhookConfig {
     headers: HashMap<String, String>,
     /// Event filter
     filter: EventFilter,
-    /// Retry strategy
-    retry_strategy: RetryStrategy,
+    /// Retry policy
+    retry_policy: RetryPolicy,
     /// Request timeout
     timeout: Duration,
     /// Whether to include full event data or just summary
@@ -44,13 +45,25 @@ impl WebhookConfig {
     /// # Arguments
     ///
     /// * `url` - The webhook URL
+    ///
+    /// # Returns
+    ///
+    /// A new WebhookConfig with default settings
     pub fn new(url: impl Into<String>) -> Self {
+        let url_string = url.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url_string,
+            "Creating new WebhookConfig"
+        );
+
         Self {
-            url: url.into(),
+            url: url_string,
             method: WebhookMethod::default(),
             headers: HashMap::new(),
             filter: EventFilter::all(),
-            retry_strategy: RetryStrategy::default(),
+            retry_policy: RetryPolicy::default(),
             timeout: Duration::from_secs(10),
             include_full_data: true,
         }
@@ -67,7 +80,16 @@ impl WebhookConfig {
     ///
     /// Some(WebhookConfig) if YTDLP_WEBHOOK_URL is set, None otherwise
     pub fn from_env() -> Option<Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Attempting to create WebhookConfig from environment variables");
+
         let url = std::env::var("YTDLP_WEBHOOK_URL").ok()?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            "Found YTDLP_WEBHOOK_URL in environment"
+        );
 
         let mut config = Self::new(url);
 
@@ -86,11 +108,33 @@ impl WebhookConfig {
             config.timeout = Duration::from_secs(timeout_secs);
         }
 
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %config.url,
+            method = ?config.method,
+            timeout_secs = config.timeout.as_secs(),
+            "WebhookConfig created from environment"
+        );
+
         Some(config)
     }
 
     /// Sets the HTTP method
+    ///
+    /// # Arguments
+    /// 
+    /// * `method` - The HTTP method to use
+    ///
+    /// # Returns
+    /// 
+    /// Self for method chaining
     pub fn with_method(mut self, method: WebhookMethod) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            method = ?method,
+            "Setting webhook HTTP method"
+        );
+
         self.method = method;
         self
     }
@@ -115,7 +159,11 @@ impl WebhookConfig {
 
     /// Sets the retry strategy
     pub fn with_retry_strategy(mut self, strategy: RetryStrategy) -> Self {
-        self.retry_strategy = strategy;
+        self.retry_policy = RetryPolicy::default()
+            .with_max_attempts(strategy.max_attempts as u32)
+            .with_initial_delay(strategy.initial_delay)
+            .with_max_delay(strategy.max_delay)
+            .with_backoff_factor(strategy.backoff_multiplier);
         self
     }
 
@@ -176,7 +224,14 @@ impl std::fmt::Debug for WebhookDelivery {
 
 impl WebhookDelivery {
     /// Creates a new webhook delivery system
+    ///
+    /// # Returns
+    ///
+    /// A new WebhookDelivery instance with a background worker
     pub fn new() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating new WebhookDelivery system");
+
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -188,14 +243,23 @@ impl WebhookDelivery {
 
         let client_clone = client.clone();
 
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Spawning webhook delivery worker task");
+
         // Spawn worker task to process webhook deliveries
         tokio::spawn(async move {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Webhook delivery worker started");
+
             while let Some((config, event)) = rx.recv().await {
                 let client = client_clone.clone();
                 tokio::spawn(async move {
                     Self::deliver_webhook(client, config, event).await;
                 });
             }
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Webhook delivery worker stopped");
         });
 
         Self {
@@ -211,8 +275,18 @@ impl WebhookDelivery {
     ///
     /// * `config` - The webhook configuration
     pub async fn register(&self, config: WebhookConfig) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %config.url,
+            method = ?config.method,
+            "Registering new webhook"
+        );
+
         let mut webhooks = self.webhooks.write().await;
         webhooks.push(config);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(total_webhooks = webhooks.len(), "Webhook registered");
     }
 
     /// Processes an event and delivers it to matching webhooks
@@ -221,17 +295,48 @@ impl WebhookDelivery {
     ///
     /// * `event` - The event to deliver
     pub async fn process_event(&self, event: &DownloadEvent) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            event_type = event.event_type(),
+            download_id = event.download_id(),
+            "Processing event for webhook delivery"
+        );
+
         let webhooks = self.webhooks.read().await;
+        let mut matched_count = 0;
 
         for webhook in webhooks.iter() {
             if webhook.filter.matches(event) {
+                matched_count += 1;
                 let _ = self.tx.send((webhook.clone(), event.clone()));
             }
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            event_type = event.event_type(),
+            total_webhooks = webhooks.len(),
+            matched_webhooks = matched_count,
+            "Event processed for webhook delivery"
+        );
     }
 
     /// Delivers a webhook with retry logic
+    ///
+    /// # Arguments
+    /// 
+    /// * `client` - HTTP client for sending requests
+    /// * `config` - Webhook configuration
+    /// * `event` - Event to deliver
     async fn deliver_webhook(client: Client, config: WebhookConfig, event: DownloadEvent) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %config.url,
+            event_type = event.event_type(),
+            download_id = event.download_id(),
+            "Starting webhook delivery"
+        );
+
         let payload = WebhookPayload {
             event_type: event.event_type().to_string(),
             download_id: event.download_id(),
@@ -243,54 +348,60 @@ impl WebhookDelivery {
             },
         };
 
-        let mut attempt = 0;
+        let policy = config.retry_policy.clone();
 
-        loop {
-            let result = Self::send_webhook(&client, &config, &payload).await;
+        let result = policy
+            .execute_with_condition(
+                || {
+                    let client = &client;
+                    let config = &config;
+                    let payload = &payload;
+                    async move { Self::send_webhook(client, config, payload).await }
+                },
+                |_| {
+                    // Determine if error is retryable (custom string error from send_webhook)
+                    // We'll treat all errors as retryable for now unless we parse the string
+                    true
+                },
+            )
+            .await;
 
-            match result {
-                Ok(_) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(
-                        "Webhook delivered successfully to {} (attempt {})",
-                        config.url,
-                        attempt + 1
-                    );
-                    break;
-                }
-                Err(e) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!(
-                        "Webhook delivery failed to {} (attempt {}): {}",
-                        config.url,
-                        attempt + 1,
-                        e
-                    );
-
-                    if !config.retry_strategy.should_retry(attempt) {
-                        #[cfg(feature = "tracing")]
-                        tracing::error!(
-                            "Webhook delivery to {} failed after {} attempts",
-                            config.url,
-                            attempt + 1
-                        );
-                        break;
-                    }
-
-                    let delay = config.retry_strategy.delay_for_attempt(attempt);
-                    tokio::time::sleep(delay).await;
-                    attempt += 1;
-                }
+        match result {
+            Ok(_) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Webhook delivered successfully to {}", config.url);
+            }
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::error!("Webhook delivery failed to {}: {}", config.url, e);
             }
         }
     }
 
     /// Sends a single webhook request
+    ///
+    /// # Arguments
+    /// 
+    /// * `client` - HTTP client
+    /// * `config` - Webhook configuration
+    /// * `payload` - Webhook payload to send
+    ///
+    /// # Returns
+    /// 
+    /// Ok(()) on success, Err with error message on failure
     async fn send_webhook(
         client: &Client,
         config: &WebhookConfig,
         payload: &WebhookPayload,
     ) -> Result<(), String> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %config.url,
+            method = ?config.method,
+            event_type = %payload.event_type,
+            "Sending webhook request"
+        );
+
         let mut request = match config.method {
             WebhookMethod::Post => client.post(&config.url),
             WebhookMethod::Put => client.put(&config.url),
@@ -319,13 +430,33 @@ impl WebhookDelivery {
 
         // Check status code
         if !response.status().is_success() {
-            return Err(format!("HTTP {}", response.status()));
+            let status = response.status();
+
+            #[cfg(feature = "tracing")]
+            tracing::warn!(
+                url = %config.url,
+                status_code = status.as_u16(),
+                "Webhook request failed with non-success status"
+            );
+
+            return Err(format!("HTTP {}", status));
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %config.url,
+            status_code = response.status().as_u16(),
+            "Webhook request succeeded"
+        );
 
         Ok(())
     }
 
     /// Returns the number of registered webhooks
+    ///
+    /// # Returns
+    /// 
+    /// The total number of registered webhooks
     pub async fn count(&self) -> usize {
         let webhooks = self.webhooks.read().await;
         webhooks.len()
@@ -333,8 +464,15 @@ impl WebhookDelivery {
 
     /// Clears all registered webhooks
     pub async fn clear(&self) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Clearing all registered webhooks");
+
         let mut webhooks = self.webhooks.write().await;
+        let count = webhooks.len();
         webhooks.clear();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(webhooks_cleared = count, "All webhooks cleared");
     }
 }
 
@@ -351,39 +489,5 @@ impl Clone for WebhookDelivery {
             webhooks: self.webhooks.clone(),
             tx: self.tx.clone(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_webhook_config() {
-        let config = WebhookConfig::new("https://example.com/webhook")
-            .with_method(WebhookMethod::Post)
-            .with_header("Authorization", "Bearer token")
-            .with_filter(EventFilter::only_completed())
-            .with_timeout(Duration::from_secs(5));
-
-        assert_eq!(config.url(), "https://example.com/webhook");
-        assert_eq!(config.method, WebhookMethod::Post);
-        assert_eq!(
-            config.headers.get("Authorization"),
-            Some(&"Bearer token".to_string())
-        );
-        assert_eq!(config.timeout, Duration::from_secs(5));
-    }
-
-    #[tokio::test]
-    async fn test_webhook_delivery() {
-        let delivery = WebhookDelivery::new();
-
-        let config = WebhookConfig::new("https://example.com/webhook")
-            .with_filter(EventFilter::only_completed());
-
-        delivery.register(config).await;
-
-        assert_eq!(delivery.count().await, 1);
     }
 }

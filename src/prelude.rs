@@ -11,7 +11,7 @@
 
 // Core types
 pub use crate::Downloader;
-pub use crate::YoutubeBuilder;
+pub use crate::DownloaderBuilder;
 pub use crate::error::{Error, Result};
 
 // Client types (new architecture)

@@ -98,7 +98,13 @@ impl PartialRange {
     ///
     /// A string in yt-dlp format (e.g., "*00:01:30-00:05:00")
     pub fn to_ytdlp_arg(&self) -> String {
-        match self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            range = %self,
+            "Converting partial range to yt-dlp argument"
+        );
+
+        let result = match self {
             Self::TimeRange { start, end } => {
                 format!("*{}-{}", format_time(*start), format_time(*end))
             }
@@ -110,7 +116,16 @@ impl PartialRange {
             Self::SingleChapter { index } => {
                 format!("chapters:{}-{}", index, index)
             }
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            range = %self,
+            ytdlp_arg = %result,
+            "Converted partial range to yt-dlp argument"
+        );
+
+        result
     }
 
     /// Checks if this range needs chapter metadata to be resolved.
@@ -136,14 +151,38 @@ impl PartialRange {
     ///
     /// Returns None if chapter indices are out of bounds
     pub fn to_time_range(&self, chapters: &[crate::model::chapter::Chapter]) -> Option<Self> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            range = %self,
+            chapter_count = chapters.len(),
+            "Converting partial range to time range using chapter metadata"
+        );
+
         match self {
             Self::TimeRange { .. } => Some(self.clone()),
             Self::ChapterRange { start, end } => {
                 if *end >= chapters.len() {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!(
+                        start = start,
+                        end = end,
+                        chapter_count = chapters.len(),
+                        "Chapter range end index out of bounds"
+                    );
                     return None;
                 }
                 let start_time = chapters[*start].start_time;
                 let end_time = chapters[*end].end_time;
+
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    start_chapter = start,
+                    end_chapter = end,
+                    start_time = start_time,
+                    end_time = end_time,
+                    "Converted chapter range to time range"
+                );
+
                 Some(Self::TimeRange {
                     start: start_time,
                     end: end_time,
@@ -151,10 +190,25 @@ impl PartialRange {
             }
             Self::SingleChapter { index } => {
                 if *index >= chapters.len() {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!(
+                        index = index,
+                        chapter_count = chapters.len(),
+                        "Single chapter index out of bounds"
+                    );
                     return None;
                 }
                 let start_time = chapters[*index].start_time;
                 let end_time = chapters[*index].end_time;
+
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    chapter_index = index,
+                    start_time = start_time,
+                    end_time = end_time,
+                    "Converted single chapter to time range"
+                );
+
                 Some(Self::TimeRange {
                     start: start_time,
                     end: end_time,
@@ -182,16 +236,16 @@ impl fmt::Display for PartialRange {
             Self::TimeRange { start, end } => {
                 write!(
                     f,
-                    "TimeRange({} - {})",
+                    "TimeRange(start={}, end={})",
                     format_time(*start),
                     format_time(*end)
                 )
             }
             Self::ChapterRange { start, end } => {
-                write!(f, "ChapterRange({} - {})", start, end)
+                write!(f, "ChapterRange(start={}, end={})", start, end)
             }
             Self::SingleChapter { index } => {
-                write!(f, "SingleChapter({})", index)
+                write!(f, "SingleChapter(index={})", index)
             }
         }
     }

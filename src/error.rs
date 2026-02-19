@@ -216,94 +216,290 @@ pub enum ArchiveError {
 
 impl Error {
     /// Create an IO error with operation context.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation` - Description of the operation that failed
+    /// * `source` - The underlying IO error
+    ///
+    /// # Returns
+    ///
+    /// An Error::IO variant with the provided context
     pub fn io(operation: impl Into<String>, source: std::io::Error) -> Self {
+        let operation_str = operation.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            operation = %operation_str,
+            error = %source,
+            "IO error occurred"
+        );
+
         Self::IO {
-            operation: operation.into(),
+            operation: operation_str,
             path: None,
             source,
         }
     }
 
     /// Create an IO error with operation and path context.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation` - Description of the operation that failed
+    /// * `path` - The file path involved in the operation
+    /// * `source` - The underlying IO error
+    ///
+    /// # Returns
+    ///
+    /// An Error::IO variant with the provided context and path
     pub fn io_with_path(
         operation: impl Into<String>,
         path: impl Into<PathBuf>,
         source: std::io::Error,
     ) -> Self {
+        let operation_str = operation.into();
+        let path_buf = path.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            operation = %operation_str,
+            path = ?path_buf,
+            error = %source,
+            "IO error occurred with path"
+        );
+
         Self::IO {
-            operation: operation.into(),
-            path: Some(path.into()),
+            operation: operation_str,
+            path: Some(path_buf),
             source,
         }
     }
 
     /// Create an HTTP error with URL context.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL that was being accessed
+    /// * `context` - Additional context about the operation
+    /// * `source` - The underlying reqwest error
+    ///
+    /// # Returns
+    ///
+    /// An Error::Http variant with the provided context
     pub fn http(
         url: impl Into<String>,
         context: impl Into<String>,
         source: reqwest::Error,
     ) -> Self {
+        let url_str = url.into();
+        let context_str = context.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = %url_str,
+            context = %context_str,
+            error = %source,
+            is_timeout = source.is_timeout(),
+            is_connect = source.is_connect(),
+            status = ?source.status(),
+            "HTTP error occurred"
+        );
+
         Self::Http {
-            url: url.into(),
-            context: context.into(),
+            url: url_str,
+            context: context_str,
             source,
         }
     }
 
     /// Create a JSON parsing error with context.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Description of what was being parsed/serialized
+    /// * `source` - The underlying serde_json error
+    ///
+    /// # Returns
+    ///
+    /// An Error::Json variant with the provided context
     pub fn json(context: impl Into<String>, source: serde_json::Error) -> Self {
+        let context_str = context.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            context = %context_str,
+            error = %source,
+            line = source.line(),
+            column = source.column(),
+            "JSON error occurred"
+        );
+
         Self::Json {
-            context: context.into(),
+            context: context_str,
             source,
         }
     }
 
     /// Create a database error with operation context.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation` - Description of the database operation that failed
+    /// * `source` - The underlying sqlx error
+    ///
+    /// # Returns
+    ///
+    /// An Error::Database variant with the provided context
     #[cfg(feature = "cache-sqlite")]
     pub fn database(operation: impl Into<String>, source: sqlx::Error) -> Self {
+        let operation_str = operation.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            operation = %operation_str,
+            error = %source,
+            "Database error occurred"
+        );
+
         Self::Database {
-            operation: operation.into(),
+            operation: operation_str,
             source,
         }
     }
 
     /// Create a runtime error with context.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Description of the task that failed
+    /// * `source` - The underlying tokio JoinError
+    ///
+    /// # Returns
+    ///
+    /// An Error::Runtime variant with the provided context
     pub fn runtime(context: impl Into<String>, source: tokio::task::JoinError) -> Self {
+        let context_str = context.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::error!(
+            context = %context_str,
+            error = %source,
+            is_cancelled = source.is_cancelled(),
+            is_panic = source.is_panic(),
+            "Runtime task error occurred"
+        );
+
         Self::Runtime {
-            context: context.into(),
+            context: context_str,
             source,
         }
     }
 
     /// Create a video fetch error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL that failed to fetch
+    /// * `reason` - The reason for the fetch failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::VideoFetch variant with the provided details
     pub fn video_fetch(url: impl Into<String>, reason: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let reason_str = reason.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = %url_str,
+            reason = %reason_str,
+            "Video fetch failed"
+        );
+
         Self::VideoFetch {
-            url: url.into(),
-            reason: reason.into(),
+            url: url_str,
+            reason: reason_str,
         }
     }
 
     /// Create a path validation error.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path that failed validation
+    /// * `reason` - The reason for validation failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::PathValidation variant with the provided details
     pub fn path_validation(path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
+        let path_buf = path.into();
+        let reason_str = reason.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            path = ?path_buf,
+            reason = %reason_str,
+            "Path validation failed"
+        );
+
         Self::PathValidation {
-            path: path.into(),
-            reason: reason.into(),
+            path: path_buf,
+            reason: reason_str,
         }
     }
 
     /// Create a URL validation error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL that failed validation
+    /// * `reason` - The reason for validation failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::UrlValidation variant with the provided details
     pub fn url_validation(url: impl Into<String>, reason: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let reason_str = reason.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = %url_str,
+            reason = %reason_str,
+            "URL validation failed"
+        );
+
         Self::UrlValidation {
-            url: url.into(),
-            reason: reason.into(),
+            url: url_str,
+            reason: reason_str,
         }
     }
 
     /// Create a download failed error.
+    ///
+    /// # Arguments
+    ///
+    /// * `download_id` - The ID of the download that failed
+    /// * `reason` - The reason for the download failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::DownloadFailed variant with the provided details
     pub fn download_failed(download_id: u64, reason: impl Into<String>) -> Self {
+        let reason_str = reason.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::error!(
+            download_id = download_id,
+            reason = %reason_str,
+            "Download failed"
+        );
+
         Self::DownloadFailed {
             download_id,
-            reason: reason.into(),
+            reason: reason_str,
         }
     }
 }
@@ -312,6 +508,14 @@ impl Error {
 
 impl From<tokio::task::JoinError> for Error {
     fn from(err: tokio::task::JoinError) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::error!(
+            error = %err,
+            is_cancelled = err.is_cancelled(),
+            is_panic = err.is_panic(),
+            "Task execution failed (automatic conversion)"
+        );
+
         Self::Runtime {
             context: "Task execution".to_string(),
             source: err,
@@ -321,6 +525,13 @@ impl From<tokio::task::JoinError> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            error = %err,
+            kind = ?err.kind(),
+            "IO error (automatic conversion)"
+        );
+
         Self::IO {
             operation: "File operation".to_string(),
             path: None,
@@ -332,6 +543,17 @@ impl From<std::io::Error> for Error {
 impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
         let url = err.url().map(|u| u.to_string()).unwrap_or_default();
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = %url,
+            error = %err,
+            is_timeout = err.is_timeout(),
+            is_connect = err.is_connect(),
+            status = ?err.status(),
+            "HTTP error (automatic conversion)"
+        );
+
         Self::Http {
             url,
             context: "HTTP request".to_string(),
@@ -342,6 +564,14 @@ impl From<reqwest::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            error = %err,
+            line = err.line(),
+            column = err.column(),
+            "JSON error (automatic conversion)"
+        );
+
         Self::Json {
             context: "JSON parsing".to_string(),
             source: err,
@@ -352,6 +582,12 @@ impl From<serde_json::Error> for Error {
 #[cfg(feature = "cache-sqlite")]
 impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            error = %err,
+            "Database error (automatic conversion)"
+        );
+
         Self::Database {
             operation: "Database operation".to_string(),
             source: err,
@@ -361,6 +597,12 @@ impl From<sqlx::Error> for Error {
 
 impl From<zip::result::ZipError> for Error {
     fn from(err: zip::result::ZipError) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            error = %err,
+            "ZIP archive error (automatic conversion)"
+        );
+
         Self::Archive {
             file: "unknown".to_string(),
             source: ArchiveError::Zip(err),

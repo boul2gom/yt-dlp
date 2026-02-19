@@ -6,7 +6,7 @@ use crate::error::{Error, Result};
 use crate::utils::fs;
 use crate::utils::platform::{Architecture, Platform};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Information about FFmpeg binary extraction based on platform
 #[derive(Debug, Clone)]
@@ -20,9 +20,13 @@ struct Extraction {
 /// The ffmpeg fetcher is responsible for fetching the ffmpeg binary for the current platform and architecture.
 /// It can also extract the binary from the downloaded archive.
 ///
+/// # Architecture
+///
+/// Uses GitHub Releases from boul2gom/ffmpeg-builds to find pre-built FFmpeg binaries compatible with the current OS and CPU architecture.
+///
 /// # Example
 ///
-/// ```rust, no_run
+/// ```rust,no_run
 /// # use yt_dlp::client::deps::ffmpeg::BuildFetcher;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
@@ -48,14 +52,32 @@ impl fmt::Display for BuildFetcher {
 
 impl BuildFetcher {
     /// Create a new fetcher for ffmpeg.
+    ///
+    /// # Returns
+    ///
+    /// A new `BuildFetcher` instance.
     pub fn new() -> Self {
         Self
     }
 
     /// Fetch the ffmpeg binary for the current platform and architecture.
+    ///
+    /// # Returns
+    ///
+    /// A `WantedRelease` containing the URL and other info for the compatible binary.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - The platform/architecture is not supported.
+    /// - The release cannot be found on GitHub.
     pub async fn fetch_binary(&self) -> Result<WantedRelease> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching ffmpeg binary");
+        tracing::debug!(
+            platform = ?Platform::detect(),
+            architecture = ?Architecture::detect(),
+            "Fetching ffmpeg binary for current platform"
+        );
 
         let platform = Platform::detect();
         let architecture = Architecture::detect();
@@ -76,9 +98,10 @@ impl BuildFetcher {
     ) -> Result<WantedRelease> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Fetching ffmpeg binary for platform: {:?}, architecture: {:?}",
-            platform,
-            architecture
+            platform = ?platform,
+            architecture = ?architecture,
+            repo = "boul2gom/ffmpeg-builds",
+            "Fetching ffmpeg binary from GitHub"
         );
 
         match platform {
@@ -111,11 +134,26 @@ impl BuildFetcher {
     }
 
     /// Get extraction information for the given platform and architecture
+    ///
+    /// # Arguments
+    ///
+    /// * `platform` - The target platform
+    /// * `architecture` - The target architecture
+    ///
+    /// # Returns
+    ///
+    /// Extraction information if the platform is supported, None otherwise
     fn get_extraction_info(
         &self,
         platform: &Platform,
         architecture: &Architecture,
     ) -> Option<Extraction> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            platform = ?platform,
+            architecture = ?architecture,
+            "Getting extraction info for platform"
+        );
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg.exe"),
@@ -139,14 +177,14 @@ impl BuildFetcher {
     /// Extract the ffmpeg binary from the downloaded archive, for the current platform and architecture.
     /// The resulting binary will be placed in the same directory as the archive.
     /// The archive will be deleted after the binary has been extracted.
-    pub async fn extract_binary(
-        &self,
-        archive: impl AsRef<Path> + std::fmt::Debug,
-    ) -> Result<PathBuf> {
+    pub async fn extract_binary(&self, archive: impl Into<PathBuf>) -> Result<PathBuf> {
+        let archive: PathBuf = archive.into();
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Extracting ffmpeg binary from archive: {:?}",
-            archive.as_ref()
+            archive = ?archive,
+            platform = ?Platform::detect(),
+            architecture = ?Architecture::detect(),
+            "Extracting ffmpeg binary from archive"
         );
 
         let platform = Platform::detect();
@@ -167,19 +205,20 @@ impl BuildFetcher {
     /// * `architecture` - The architecture to extract the binary for.
     pub async fn extract_binary_for_platform(
         &self,
-        archive: impl AsRef<Path> + std::fmt::Debug,
+        archive: impl Into<PathBuf>,
         platform: Platform,
         architecture: Architecture,
     ) -> Result<PathBuf> {
+        let archive: PathBuf = archive.into();
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Extracting ffmpeg binary for platform: {:?}, architecture: {:?}, from archive: {:?}",
-            platform,
-            architecture,
-            archive.as_ref()
+            archive = ?archive,
+            platform = ?platform,
+            architecture = ?architecture,
+            "Extracting ffmpeg binary for specified platform"
         );
 
-        let archive_path = archive.as_ref().to_path_buf();
+        let archive_path = archive.clone();
         let destination = archive_path.with_extension("");
 
         let extraction_info =
@@ -195,6 +234,21 @@ impl BuildFetcher {
     }
 
     /// Extract the archive and move the binary to the correct location
+    ///
+    /// # Arguments
+    ///
+    /// * `archive` - Path to the archive file
+    /// * `destination` - Destination directory for extraction
+    /// * `extraction_info` - Information about where to find the binary in the archive
+    /// * `platform` - The target platform (for setting executable permissions)
+    ///
+    /// # Returns
+    ///
+    /// Path to the extracted binary
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extraction fails or the binary is not found
     async fn extract_archive(
         &self,
         archive: PathBuf,
@@ -202,6 +256,15 @@ impl BuildFetcher {
         extraction_info: Extraction,
         platform: Platform,
     ) -> Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            archive = ?archive,
+            destination = ?destination,
+            executable_path = ?extraction_info.executable_path,
+            platform = ?platform,
+            "Extracting archive and locating ffmpeg binary"
+        );
+
         fs::extract_zip(&archive, &destination).await?;
 
         // Get the parent directory of the destination

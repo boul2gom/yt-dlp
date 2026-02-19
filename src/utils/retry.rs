@@ -149,7 +149,7 @@ impl RetryPolicy {
     pub async fn execute<F, Fut, T, E>(&self, mut operation: F) -> Result<T, E>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, E>>,
+        Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
         let mut last_error = None;
@@ -213,7 +213,7 @@ impl RetryPolicy {
     ) -> Result<T, E>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, E>>,
+        Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
         P: Fn(&E) -> bool,
     {

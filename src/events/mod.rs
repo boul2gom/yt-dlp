@@ -22,7 +22,7 @@
 //! ```ignore
 //! use tokio_stream::StreamExt;
 //!
-//! let downloader = Downloader::new(libraries, output_dir).await?;
+//! let downloader = Downloader::builder(libraries, output_dir).build().await?;
 //! let mut stream = downloader.event_stream();
 //!
 //! while let Some(Ok(event)) = stream.next().await {
@@ -44,9 +44,9 @@
 //! // Use filter with hooks or custom stream processing
 //! ```
 
-mod bus;
-mod filters;
-mod types;
+pub mod bus;
+pub mod filters;
+pub mod types;
 
 pub use bus::EventBus;
 pub use filters::EventFilter;

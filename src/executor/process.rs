@@ -1,7 +1,7 @@
 //! Process execution and output handling.
 
 use crate::error::{Error, Result};
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 /// Represents the output of a process.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,19 +26,78 @@ pub struct ProcessOutput {
 ///
 /// Returns an error if the command fails, times out, or cannot be executed
 pub async fn execute_command(
-    executable_path: &std::path::Path,
+    executable_path: impl Into<PathBuf>,
     args: &[String],
     timeout: Duration,
 ) -> Result<ProcessOutput> {
+    execute_command_internal(executable_path, args, timeout, None).await
+}
+
+/// Executes a command and redirects stdout to a file.
+///
+/// # Arguments
+///
+/// * `executable_path` - Path to the executable
+/// * `args` - Arguments to pass to the command
+/// * `timeout` - Maximum duration to wait for the process
+/// * `output_path` - Path to the file where stdout will be written
+///
+/// # Errors
+///
+/// Returns an error if the command fails, times out, or cannot be executed
+pub async fn execute_command_to_file(
+    executable_path: impl Into<PathBuf>,
+    args: &[String],
+    timeout: Duration,
+    output_path: impl Into<PathBuf>,
+) -> Result<ProcessOutput> {
+    execute_command_internal(executable_path, args, timeout, Some(output_path.into())).await
+}
+
+/// Internal command execution with optional file output
+///
+/// # Arguments
+///
+/// * `executable_path` - Path to the executable
+/// * `args` - Arguments to pass to the command
+/// * `timeout` - Maximum duration to wait for the process
+/// * `output_path` - Optional path to redirect stdout to a file
+///
+/// # Returns
+///
+/// ProcessOutput containing stdout (if not redirected), stderr, and exit code
+///
+/// # Errors
+///
+/// Returns an error if the command fails, times out, or cannot be executed
+async fn execute_command_internal(
+    executable_path: impl Into<PathBuf>,
+    args: &[String],
+    timeout: Duration,
+    output_path: Option<PathBuf>,
+) -> Result<ProcessOutput> {
+    let executable_path: PathBuf = executable_path.into();
+
     #[cfg(feature = "tracing")]
     tracing::debug!(
-        "Executing command: {:?} with args: {:?}",
-        executable_path,
-        args
+        executable = ?executable_path,
+        arg_count = args.len(),
+        timeout_secs = timeout.as_secs(),
+        output_to_file = output_path.is_some(),
+        output_path = ?output_path,
+        "Starting command execution"
     );
 
-    let mut command = tokio::process::Command::new(executable_path);
-    command.stdout(std::process::Stdio::piped());
+    let mut command = tokio::process::Command::new(&executable_path);
+
+    // Configure stdout: either pipe (memory) or file
+    if let Some(path) = &output_path {
+        let file = std::fs::File::create(path)?;
+        command.stdout(std::process::Stdio::from(file));
+    } else {
+        command.stdout(std::process::Stdio::piped());
+    }
+
     command.stderr(std::process::Stdio::piped());
 
     #[cfg(target_os = "windows")]
@@ -48,47 +107,73 @@ pub async fn execute_command(
     }
 
     command.args(args);
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        "Spawning child process"
+    );
+
     let mut child = command.spawn()?;
 
-    // Read stdout and stderr asynchronously
-    let stdout_handle = child
-        .stdout
-        .take()
-        .ok_or_else(|| Error::Unknown("Failed to capture stdout".to_string()))?;
-    let stderr_handle = child
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        pid = ?child.id(),
+        "Child process spawned"
+    );
+
+    // Read streams asynchronously
+    let stdout_task = if output_path.is_none() {
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Unknown("Failed to capture stdout".to_string()))?;
+
+        Some(tokio::spawn(read_stream(stdout)))
+    } else {
+        None
+    };
+
+    let stderr = child
         .stderr
         .take()
         .ok_or_else(|| Error::Unknown("Failed to capture stderr".to_string()))?;
 
-    // Create tasks to read stdout and stderr asynchronously
-    let stdout_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        tokio::io::copy(&mut tokio::io::BufReader::new(stdout_handle), &mut buffer).await?;
-        Ok::<Vec<u8>, std::io::Error>(buffer)
-    });
+    let stderr_task = tokio::spawn(read_stream(stderr));
 
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        tokio::io::copy(&mut tokio::io::BufReader::new(stderr_handle), &mut buffer).await?;
-        Ok::<Vec<u8>, std::io::Error>(buffer)
-    });
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        timeout_secs = timeout.as_secs(),
+        "Waiting for process to complete"
+    );
 
     // Wait for the process to finish with timeout
     let exit_status = match tokio::time::timeout(timeout, child.wait()).await {
         Ok(result) => result?,
         Err(_) => {
             #[cfg(feature = "tracing")]
-            tracing::warn!("Process timed out after {:?}, killing it", timeout);
+            tracing::warn!(
+                executable = ?executable_path,
+                timeout_secs = timeout.as_secs(),
+                "Process timed out, killing it"
+            );
 
             if let Err(_e) = child.kill().await {
                 #[cfg(feature = "tracing")]
-                tracing::error!("Failed to kill process after timeout: {}", _e);
-            } else {
-                // Wait for the process to actually exit to prevent zombies
-                if let Err(_e) = child.wait().await {
-                    #[cfg(feature = "tracing")]
-                    tracing::error!("Failed to wait for process after kill: {}", _e);
-                }
+                tracing::error!(
+                    executable = ?executable_path,
+                    error = %_e,
+                    "Failed to kill process after timeout"
+                );
+            } else if let Err(_e) = child.wait().await {
+                #[cfg(feature = "tracing")]
+                tracing::error!(
+                    executable = ?executable_path,
+                    error = %_e,
+                    "Failed to wait for process after kill"
+                );
             }
 
             return Err(Error::Timeout {
@@ -98,25 +183,53 @@ pub async fn execute_command(
         }
     };
 
-    // Get the results of the read tasks
-    let stdout_result = match stdout_task.await {
-        Ok(Ok(buffer)) => buffer,
-        Ok(Err(e)) => return Err(Error::io("reading command stdout", e)),
-        Err(e) => return Err(Error::runtime("reading command stdout task", e)),
-    };
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        exit_code = exit_status.code().unwrap_or(-1),
+        success = exit_status.success(),
+        "Process completed"
+    );
 
+    // Read stderr stream
     let stderr_result = match stderr_task.await {
         Ok(Ok(buffer)) => buffer,
         Ok(Err(e)) => return Err(Error::io("reading command stderr", e)),
         Err(e) => return Err(Error::runtime("reading command stderr task", e)),
     };
 
+    let stdout_result = if let Some(task) = stdout_task {
+        match task.await {
+            Ok(Ok(buffer)) => buffer,
+            Ok(Err(e)) => return Err(Error::io("reading command stdout", e)),
+            Err(e) => return Err(Error::runtime("reading command stdout task", e)),
+        }
+    } else {
+        Vec::new()
+    };
+
     // Convert the buffers to Strings (lossy to avoid errors on non-UTF8 output)
     let stdout = String::from_utf8_lossy(&stdout_result).to_string();
     let stderr = String::from_utf8_lossy(&stderr_result).to_string();
-
     let code = exit_status.code().unwrap_or(-1);
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        exit_code = code,
+        stdout_len = stdout.len(),
+        stderr_len = stderr.len(),
+        "Command output captured"
+    );
+
     if exit_status.success() {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            executable = ?executable_path,
+            exit_code = code,
+            "Command execution succeeded"
+        );
+
         return Ok(ProcessOutput {
             stdout,
             stderr,
@@ -124,9 +237,48 @@ pub async fn execute_command(
         });
     }
 
+    #[cfg(feature = "tracing")]
+    tracing::warn!(
+        executable = ?executable_path,
+        exit_code = code,
+        stderr_preview = if stderr.len() > 100 {
+            &stderr[..100]
+        } else {
+            &stderr
+        },
+        "Command execution failed"
+    );
+
     Err(Error::CommandFailed {
         command: executable_path.display().to_string(),
         exit_code: code,
         stderr,
     })
+}
+
+/// Helper function to read a stream into a buffer
+///
+/// # Arguments
+///
+/// * `stream` - An async readable stream (stdout or stderr)
+///
+/// # Returns
+///
+/// A vector of bytes containing all data read from the stream
+///
+/// # Errors
+///
+/// Returns an IO error if reading fails
+async fn read_stream<R>(mut stream: R) -> std::io::Result<Vec<u8>>
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let mut buffer = Vec::new();
+    let bytes_read =
+        tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(bytes_read = bytes_read, "Stream read completed");
+
+    Ok(buffer)
 }

@@ -1,6 +1,6 @@
-//! Builder pattern for Youtube struct.
+//! Builder pattern for Downloader struct.
 //!
-//! This module provides a fluent API for constructing Youtube instances with various configurations.
+//! This module provides a fluent API for constructing Downloader instances with various configurations.
 
 #[cfg(feature = "cache")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
@@ -9,23 +9,25 @@ use crate::client::{Downloader, Libraries};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
+#[cfg(feature = "cache")]
+use crate::utils::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Builder for creating Youtube instances with a fluent API.
+/// Builder for creating Downloader instances with a fluent API.
 ///
 /// # Examples
 ///
 /// ```rust,no_run
-/// # use yt_dlp::YoutubeBuilder;
+/// # use yt_dlp::DownloaderBuilder;
 /// # use yt_dlp::client::deps::Libraries;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
 ///
-/// let youtube = YoutubeBuilder::new(libraries, PathBuf::from("output"))
+/// let downloader = DownloaderBuilder::new(libraries, PathBuf::from("output"))
 ///     .with_args(vec!["--no-playlist".to_string()])
 ///     .with_timeout(std::time::Duration::from_secs(120))
 ///     .build()
@@ -34,7 +36,7 @@ use std::time::Duration;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct YoutubeBuilder {
+pub struct DownloaderBuilder {
     libraries: Libraries,
     output_dir: PathBuf,
     args: Vec<String>,
@@ -45,7 +47,7 @@ pub struct YoutubeBuilder {
     download_manager_config: Option<ManagerConfig>,
 }
 
-impl YoutubeBuilder {
+impl DownloaderBuilder {
     /// Create a new builder with required parameters.
     ///
     /// # Arguments
@@ -53,9 +55,18 @@ impl YoutubeBuilder {
     /// * `libraries` - The required libraries (yt-dlp and ffmpeg paths)
     /// * `output_dir` - The directory where videos will be downloaded
     pub fn new(libraries: Libraries, output_dir: impl Into<PathBuf>) -> Self {
+        let output_dir = output_dir.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            output_dir = ?output_dir,
+            timeout = ?crate::client::DEFAULT_TIMEOUT,
+            "Creating new DownloaderBuilder"
+        );
+
         Self {
             libraries,
-            output_dir: output_dir.into(),
+            output_dir,
             args: Vec::new(),
             timeout: crate::client::DEFAULT_TIMEOUT,
             proxy: None,
@@ -71,6 +82,13 @@ impl YoutubeBuilder {
     ///
     /// * `args` - The arguments to pass to yt-dlp
     pub fn with_args(mut self, args: Vec<String>) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            args = ?args,
+            arg_count = args.len(),
+            "Setting custom yt-dlp arguments"
+        );
+
         self.args = args;
         self
     }
@@ -91,6 +109,12 @@ impl YoutubeBuilder {
     ///
     /// * `timeout` - The timeout duration
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            timeout = ?timeout,
+            "Setting command execution timeout"
+        );
+
         self.timeout = timeout;
         self
     }
@@ -101,6 +125,14 @@ impl YoutubeBuilder {
     ///
     /// * `proxy` - The proxy configuration
     pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            proxy_type = ?proxy.proxy_type(),
+            proxy_url = proxy.url(),
+            has_auth = proxy.username().is_some(),
+            "Setting proxy configuration"
+        );
+
         self.proxy = Some(proxy);
         self
     }
@@ -112,7 +144,15 @@ impl YoutubeBuilder {
     /// * `cache_dir` - The directory to store cache files
     #[cfg(feature = "cache")]
     pub fn with_cache(mut self, cache_dir: impl Into<PathBuf>) -> Self {
-        self.cache_dir = Some(cache_dir.into());
+        let cache_dir = cache_dir.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            "Enabling cache with directory"
+        );
+
+        self.cache_dir = Some(cache_dir);
         self
     }
 
@@ -150,7 +190,7 @@ impl YoutubeBuilder {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use yt_dlp::YoutubeBuilder;
+    /// # use yt_dlp::DownloaderBuilder;
     /// # use yt_dlp::client::deps::Libraries;
     /// # use yt_dlp::download::SpeedProfile;
     /// # use std::path::PathBuf;
@@ -159,7 +199,7 @@ impl YoutubeBuilder {
     /// let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     ///
     /// // Use aggressive profile for high-speed connections
-    /// let youtube = YoutubeBuilder::new(libraries, PathBuf::from("output"))
+    /// let downloader = DownloaderBuilder::new(libraries, PathBuf::from("output"))
     ///     .with_speed_profile(SpeedProfile::Aggressive)
     ///     .build()
     ///     .await?;
@@ -167,6 +207,16 @@ impl YoutubeBuilder {
     /// # }
     /// ```
     pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = ?profile,
+            max_concurrent = profile.max_concurrent_downloads(),
+            segment_size = profile.segment_size(),
+            parallel_segments = profile.parallel_segments(),
+            max_buffer_size = profile.max_buffer_size(),
+            "Setting speed profile"
+        );
+
         if let Some(config) = &mut self.download_manager_config {
             config.max_concurrent_downloads = profile.max_concurrent_downloads();
             config.segment_size = profile.segment_size();
@@ -195,6 +245,28 @@ impl YoutubeBuilder {
     /// - The cache directories cannot be created (if caching is enabled)
     /// - The download manager cannot be initialized
     pub async fn build(self) -> Result<Downloader> {
+        #[cfg(feature = "tracing")]
+        {
+            #[cfg(feature = "cache")]
+            tracing::debug!(
+                output_dir = ?self.output_dir,
+                args_count = self.args.len(),
+                timeout = ?self.timeout,
+                has_proxy = self.proxy.is_some(),
+                has_cache = self.cache_dir.is_some(),
+                "Building Downloader instance"
+            );
+
+            #[cfg(not(feature = "cache"))]
+            tracing::debug!(
+                output_dir = ?self.output_dir,
+                args_count = self.args.len(),
+                timeout = ?self.timeout,
+                has_proxy = self.proxy.is_some(),
+                "Building Downloader instance"
+            );
+        }
+
         // Create output directory if it doesn't exist
         if !self.output_dir.exists() {
             tokio::fs::create_dir_all(&self.output_dir).await?;
@@ -231,6 +303,10 @@ impl YoutubeBuilder {
         // Create caches if enabled
         #[cfg(feature = "cache")]
         let (cache, download_cache, playlist_cache) = if let Some(cache_dir) = self.cache_dir {
+            // Ensure cache directory exists
+            if !cache_dir.exists() {
+                fs::create_dir(&cache_dir).await?;
+            }
             (
                 Some(Arc::new(VideoCache::new(cache_dir.clone(), None).await?)),
                 Some(Arc::new(DownloadCache::new(cache_dir.clone(), None).await?)),
@@ -242,11 +318,13 @@ impl YoutubeBuilder {
             (None, None, None)
         };
 
-        // Create Generic extractor (supports all sites including YouTube)
-        let extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
+        // Create extractors
+        let youtube_extractor = crate::extractor::Youtube::new(self.libraries.youtube.clone());
+        let generic_extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
 
         Ok(Downloader {
-            extractor: Box::new(extractor),
+            youtube_extractor,
+            generic_extractor,
             libraries: self.libraries,
             output_dir: self.output_dir,
             args,

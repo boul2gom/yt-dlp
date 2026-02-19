@@ -7,7 +7,7 @@ use crate::{
     error::{Error, Result},
     ternary,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Validates a YouTube URL.
 ///
@@ -39,6 +39,9 @@ use std::path::{Path, PathBuf};
 /// assert!(validate_youtube_url("file:///etc/passwd").is_err());
 /// ```
 pub fn validate_youtube_url(url: &str) -> Result<()> {
+    #[cfg(feature = "tracing")]
+    tracing::trace!(url = url, "Validating YouTube URL");
+
     // Try to parse the URL
     let parsed = url::Url::parse(url)
         .map_err(|e| Error::url_validation(url, format!("Invalid URL format: {}", e)))?;
@@ -69,11 +72,20 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
         || host.ends_with(".youtube-nocookie.com");
 
     if !is_youtube {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = url,
+            host = host,
+            "URL validation failed: not a YouTube domain"
+        );
         return Err(Error::url_validation(
             url,
             format!("URL must be from YouTube (got: {})", host),
         ));
     }
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(url = url, host = host, "YouTube URL validated successfully");
 
     Ok(())
 }
@@ -105,8 +117,14 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
 /// assert!(sanitize_path("../../../etc/passwd").is_err());
 /// assert!(sanitize_path("/etc/passwd").is_err());
 /// ```
-pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
-    let path = path.as_ref();
+pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
+    let path = path.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        "Sanitizing file path"
+    );
 
     // Check for absolute paths (not allowed for user-provided paths)
     if path.is_absolute() {
@@ -126,10 +144,8 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
                 // Check for hidden directory traversal in filenames
                 let part_str = part.to_string_lossy();
                 if part_str.contains("..") {
-                    return Err(Error::path_validation(
-                        path,
-                        format!("Path contains suspicious component: {}", part_str),
-                    ));
+                    let msg = format!("Path contains suspicious component: {}", part_str);
+                    return Err(Error::path_validation(path, msg));
                 }
                 sanitized.push(part);
             }
@@ -156,10 +172,8 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
 
     // Reject paths with parent directory references
     if has_parent_ref {
-        return Err(Error::path_validation(
-            path,
-            format!("Path traversal detected (..): {}", path.display()),
-        ));
+        let msg = format!("Path traversal detected (..): {}", path.display());
+        return Err(Error::path_validation(path, msg));
     }
 
     // Ensure the sanitized path is not empty
@@ -169,6 +183,13 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
             "Empty path after sanitization",
         ));
     }
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        original_path = ?path,
+        sanitized_path = ?sanitized,
+        "Path sanitized successfully"
+    );
 
     Ok(sanitized)
 }
@@ -192,6 +213,9 @@ pub fn sanitize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
 /// assert_eq!(sanitize_filename("file:name.mp4"), "filename.mp4");
 /// ```
 pub fn sanitize_filename(filename: &str) -> String {
+    #[cfg(feature = "tracing")]
+    tracing::trace!(filename = filename, "Sanitizing filename");
+
     let sanitized = filename
         .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "")
         .replace("..", "")
@@ -201,5 +225,14 @@ pub fn sanitize_filename(filename: &str) -> String {
         .trim()
         .to_string();
 
-    ternary!(sanitized.is_empty(), "download".to_string(), sanitized)
+    let result = ternary!(sanitized.is_empty(), "download".to_string(), sanitized);
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        original_filename = filename,
+        sanitized_filename = %result,
+        "Filename sanitized"
+    );
+
+    result
 }

@@ -81,3 +81,4 @@ tracing = { version = "0.1.44", optional = true }
 cfg-if = "1.0.4"
 serde_with = "3.16.0"
 downcast-rs = "2.0.2"
+tempfile = "3.25.0"

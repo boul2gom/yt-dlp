@@ -3,6 +3,7 @@
 //! This module provides async-safe SQLite implementations using sqlx.
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
+use crate::cache::current_timestamp;
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -12,7 +13,6 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "cache")]
 use crate::model::selector::{
@@ -20,6 +20,20 @@ use crate::model::selector::{
 };
 
 /// SQLite-backed playlist cache implementation.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use yt_dlp::cache::backend::sqlite::SqlitePlaylistCache;
+/// use yt_dlp::cache::backend::PlaylistBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = SqlitePlaylistCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct SqlitePlaylistCache {
     pool: SqlitePool,
@@ -30,7 +44,11 @@ pub struct SqlitePlaylistCache {
 impl PlaylistBackend for SqlitePlaylistCache {
     async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Creating new SQLite playlist cache in {:?}", &cache_dir);
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ?ttl,
+            "Creating new SQLite playlist cache"
+        );
 
         if !&cache_dir.exists() {
             tokio::fs::create_dir_all(&cache_dir).await?;
@@ -82,12 +100,13 @@ impl PlaylistBackend for SqlitePlaylistCache {
 
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for playlist in cache: {}", url);
+        tracing::debug!(
+            url = url,
+            ttl = self.ttl,
+            "Looking for playlist in SQLite cache by URL"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cached = sqlx::query_as::<_, CachedPlaylist>(
             "SELECT id, title, url, playlist_json, cached_at
@@ -108,12 +127,13 @@ impl PlaylistBackend for SqlitePlaylistCache {
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for playlist in cache by ID: {}", id);
+        tracing::debug!(
+            playlist_id = id,
+            ttl = self.ttl,
+            "Looking for playlist in SQLite cache by ID"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cached = sqlx::query_as::<_, CachedPlaylist>(
             "SELECT id, title, url, playlist_json, cached_at
@@ -134,7 +154,13 @@ impl PlaylistBackend for SqlitePlaylistCache {
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching playlist: {}", playlist.id);
+        tracing::debug!(
+            url = %url,
+            playlist_id = %playlist.id,
+            playlist_title = %playlist.title,
+            entry_count = playlist.entries.len(),
+            "Caching playlist to SQLite backend"
+        );
 
         let cached = CachedPlaylist::from((url, playlist));
 
@@ -155,6 +181,8 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url, "Invalidating playlist in SQLite cache");
         sqlx::query("DELETE FROM playlist_cache WHERE url = ?")
             .bind(url)
             .execute(&self.pool)
@@ -166,10 +194,9 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        #[cfg(feature = "tracing")]
+        tracing::debug!(ttl = self.ttl, "Cleaning SQLite playlist cache");
+        let now = current_timestamp();
 
         sqlx::query("DELETE FROM playlist_cache WHERE cached_at < ?")
             .bind(now - self.ttl)
@@ -189,6 +216,20 @@ impl PlaylistBackend for SqlitePlaylistCache {
 }
 
 /// SQLite-backed video cache implementation.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use yt_dlp::cache::backend::sqlite::SqliteVideoCache;
+/// use yt_dlp::cache::backend::VideoBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = SqliteVideoCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct SqliteVideoCache {
     pool: SqlitePool,
@@ -199,7 +240,11 @@ pub struct SqliteVideoCache {
 impl VideoBackend for SqliteVideoCache {
     async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Creating new SQLite video cache in {:?}", &cache_dir);
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ?ttl,
+            "Creating new SQLite video cache"
+        );
 
         // Create the cache directory if it doesn't exist
         if !&cache_dir.exists() {
@@ -253,12 +298,13 @@ impl VideoBackend for SqliteVideoCache {
 
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for video in cache: {}", url);
+        tracing::debug!(
+            url = url,
+            ttl = self.ttl,
+            "Looking for video in SQLite cache by URL"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -276,13 +322,18 @@ impl VideoBackend for SqliteVideoCache {
         match cached {
             Some(cv) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Cache hit for video: {}", url);
+                tracing::debug!(
+                    url = url,
+                    video_id = %cv.id,
+                    video_title = %cv.title,
+                    "Cache hit for video"
+                );
 
                 Ok(Some(cv.video()?))
             }
             None => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Cache miss for video: {}", url);
+                tracing::debug!(url = url, "Cache miss for video");
 
                 Ok(None)
             }
@@ -291,7 +342,12 @@ impl VideoBackend for SqliteVideoCache {
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching video: {}", url);
+        tracing::debug!(
+            url = %url,
+            video_id = %video.id,
+            video_title = %video.title,
+            "Caching video to SQLite backend"
+        );
 
         let cached = CachedVideo::from((url, video));
 
@@ -313,7 +369,7 @@ impl VideoBackend for SqliteVideoCache {
 
     async fn remove(&self, url: &str) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Removing video from cache: {}", url);
+        tracing::debug!(url = url, "Removing video from SQLite cache");
 
         sqlx::query("DELETE FROM videos WHERE url = ?")
             .bind(url)
@@ -326,12 +382,9 @@ impl VideoBackend for SqliteVideoCache {
 
     async fn clean(&self) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Cleaning video cache");
+        tracing::debug!(ttl = self.ttl, "Cleaning SQLite video cache");
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -346,12 +399,13 @@ impl VideoBackend for SqliteVideoCache {
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for video in cache by ID: {}", id);
+        tracing::debug!(
+            video_id = id,
+            ttl = self.ttl,
+            "Looking for video in SQLite cache by ID"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -369,13 +423,17 @@ impl VideoBackend for SqliteVideoCache {
         match cached {
             Some(cv) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Cache hit for video ID: {}", id);
+                tracing::debug!(
+                    video_id = id,
+                    video_title = %cv.title,
+                    "Cache hit for video ID"
+                );
 
                 Ok(cv)
             }
             None => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Cache miss for video ID: {}", id);
+                tracing::debug!(video_id = id, "Cache miss for video ID");
 
                 Err(crate::error::Error::Unknown(format!(
                     "Video with ID {} not found or expired in cache",
@@ -387,6 +445,20 @@ impl VideoBackend for SqliteVideoCache {
 }
 
 /// SQLite-backed file cache implementation.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use yt_dlp::cache::backend::sqlite::SqliteFileCache;
+/// use yt_dlp::cache::backend::FileBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = SqliteFileCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct SqliteFileCache {
     pool: SqlitePool,
@@ -398,7 +470,11 @@ pub struct SqliteFileCache {
 impl FileBackend for SqliteFileCache {
     async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Creating new SQLite file cache in {:?}", &cache_dir);
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ?ttl,
+            "Creating new SQLite file cache"
+        );
 
         // Create the cache directory if it doesn't exist
         if !&cache_dir.exists() {
@@ -496,12 +572,13 @@ impl FileBackend for SqliteFileCache {
 
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for file in cache by hash: {}", hash);
+        tracing::debug!(
+            hash = hash,
+            ttl = self.ttl,
+            "Looking for file in SQLite cache by hash"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -530,15 +607,13 @@ impl FileBackend for SqliteFileCache {
     ) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Looking for file in cache by video_id={} and format_id={}",
-            video_id,
-            format_id
+            video_id = video_id,
+            format_id = format_id,
+            ttl = self.ttl,
+            "Looking for file in SQLite cache by video and format"
         );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -572,14 +647,16 @@ impl FileBackend for SqliteFileCache {
     ) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Looking for file in cache by preferences for video_id={}",
-            video_id
+            video_id = video_id,
+            video_quality = ?video_quality,
+            audio_quality = ?audio_quality,
+            video_codec = ?video_codec,
+            audio_codec = ?audio_codec,
+            ttl = self.ttl,
+            "Looking for file in SQLite cache by preferences"
         );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -617,7 +694,15 @@ impl FileBackend for SqliteFileCache {
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching file: {}", file.filename);
+        tracing::debug!(
+            filename = %file.filename,
+            file_id = %file.id,
+            source_path = ?source_path,
+            video_id = ?file.video_id,
+            format_id = ?file.format_id,
+            filesize = file.filesize,
+            "Caching file to SQLite backend"
+        );
 
         // Write file to disk (copy from source)
         let file_path = self.cache_dir.join(&file.relative_path);
@@ -657,7 +742,7 @@ impl FileBackend for SqliteFileCache {
 
     async fn remove(&self, id: &str) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Removing file from cache: {}", id);
+        tracing::debug!(file_id = id, "Removing file from SQLite cache");
 
         // Get file path before deleting from database
         if let Some((_cached, path)) = self.get_by_hash(id).await {
@@ -679,13 +764,9 @@ impl FileBackend for SqliteFileCache {
 
     async fn clean(&self) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Cleaning file cache");
+        tracing::debug!(ttl = self.ttl, "Cleaning SQLite file cache");
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
+        let now = current_timestamp();
         let cutoff = now - self.ttl;
 
         // Get all expired files
@@ -749,12 +830,13 @@ impl FileBackend for SqliteFileCache {
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Looking for thumbnail in cache by video ID: {}", video_id);
+        tracing::debug!(
+            video_id = video_id,
+            ttl = self.ttl,
+            "Looking for thumbnail in SQLite cache by video ID"
+        );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = current_timestamp();
 
         let cutoff = now - self.ttl;
 
@@ -781,7 +863,15 @@ impl FileBackend for SqliteFileCache {
         source_path: &Path,
     ) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching thumbnail: {}", thumbnail.filename);
+        tracing::debug!(
+            filename = %thumbnail.filename,
+            thumbnail_id = %thumbnail.id,
+            video_id = %thumbnail.video_id,
+            source_path = ?source_path,
+            width = ?thumbnail.width,
+            height = ?thumbnail.height,
+            "Caching thumbnail to SQLite backend"
+        );
 
         let file_path = self.cache_dir.join(&thumbnail.relative_path);
         if let Some(parent) = file_path.parent() {
@@ -816,16 +906,13 @@ impl FileBackend for SqliteFileCache {
     ) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Looking for subtitle in cache by video_id={} and language={}",
-            video_id,
-            language
+            video_id = video_id,
+            language = language,
+            ttl = self.ttl,
+            "Looking for subtitle in SQLite cache by video ID and language"
         );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
+        let now = current_timestamp();
         let cutoff = now - self.ttl;
 
         let result = sqlx::query_as::<_, CachedFile>(

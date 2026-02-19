@@ -177,7 +177,7 @@ impl fmt::Display for Video {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Video(id = {}, title = \"{}\", channel = \"{}\", formats = {})",
+            "Video(id={}, title={:?}, channel={:?}, formats={})",
             self.id,
             self.title,
             self.channel.as_deref().unwrap_or("Unknown"),
@@ -191,7 +191,7 @@ impl fmt::Display for ExtractorInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ExtractorInfo(extractor = {}, key = {})",
+            "ExtractorInfo(extractor={}, key={})",
             self.extractor, self.extractor_key
         )
     }
@@ -202,7 +202,7 @@ impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Version(version = {}, repository = {})",
+            "Version(version={}, repository={})",
             self.version, self.repository
         )
     }

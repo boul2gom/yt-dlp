@@ -53,7 +53,26 @@ impl Executor {
     /// * `executable_path` - Path to the executable
     /// * `args` - Arguments to pass to the command
     /// * `timeout` - Timeout for the command
-    pub fn new(executable_path: PathBuf, args: Vec<String>, timeout: Duration) -> Self {
+    ///
+    /// # Returns
+    ///
+    /// A new Executor instance
+    pub fn new<I, S>(executable_path: impl Into<PathBuf>, args: I, timeout: Duration) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let executable_path = executable_path.into();
+        let args: Vec<String> = args.into_iter().map(Into::into).collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            executable = ?executable_path,
+            arg_count = args.len(),
+            timeout_secs = timeout.as_secs(),
+            "Creating new Executor"
+        );
+
         Self {
             executable_path,
             args,
@@ -62,26 +81,122 @@ impl Executor {
     }
 
     /// Returns the executable path.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the executable path
     pub fn executable_path(&self) -> &PathBuf {
         &self.executable_path
     }
 
     /// Returns the arguments.
+    ///
+    /// # Returns
+    ///
+    /// Slice of command arguments
     pub fn args(&self) -> &[String] {
         &self.args
     }
 
     /// Returns the timeout.
+    ///
+    /// # Returns
+    ///
+    /// Timeout duration for command execution
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
 
     /// Executes the command and returns the output.
     ///
+    /// # Returns
+    ///
+    /// ProcessOutput containing stdout, stderr, and exit code
+    ///
     /// # Errors
     ///
     /// This function will return an error if the command could not be executed, or if the process timed out.
     pub async fn execute(&self) -> Result<ProcessOutput> {
-        execute_command(&self.executable_path, &self.args, self.timeout).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            executable = ?self.executable_path,
+            arg_count = self.args.len(),
+            timeout_secs = self.timeout.as_secs(),
+            "Executing command"
+        );
+
+        let result = execute_command(&self.executable_path, &self.args, self.timeout).await;
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(output) => tracing::debug!(
+                executable = ?self.executable_path,
+                exit_code = output.code,
+                stdout_len = output.stdout.len(),
+                stderr_len = output.stderr.len(),
+                "Command execution completed successfully"
+            ),
+            Err(e) => tracing::warn!(
+                executable = ?self.executable_path,
+                error = %e,
+                "Command execution failed"
+            ),
+        }
+
+        result
+    }
+
+    /// Executes the command and redirects stdout to a file.
+    ///
+    /// # Arguments
+    ///
+    /// * `output_path` - The path where stdout will be written
+    ///
+    /// # Returns
+    ///
+    /// ProcessOutput containing stderr and exit code (stdout is written to file)
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the command could not be executed, if the process timed out,
+    /// or if the output file could not be created.
+    pub async fn execute_to_file(&self, output_path: impl Into<PathBuf>) -> Result<ProcessOutput> {
+        let output_path = output_path.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            executable = ?self.executable_path,
+            arg_count = self.args.len(),
+            output_path = ?output_path,
+            timeout_secs = self.timeout.as_secs(),
+            "Executing command to file"
+        );
+
+        let result = process::execute_command_to_file(
+            &self.executable_path,
+            &self.args,
+            self.timeout,
+            &output_path,
+        )
+        .await;
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(output) => tracing::debug!(
+                executable = ?self.executable_path,
+                output_path = ?output_path,
+                exit_code = output.code,
+                stderr_len = output.stderr.len(),
+                "Command execution to file completed successfully"
+            ),
+            Err(e) => tracing::warn!(
+                executable = ?self.executable_path,
+                output_path = ?output_path,
+                error = %e,
+                "Command execution to file failed"
+            ),
+        }
+
+        result
     }
 }

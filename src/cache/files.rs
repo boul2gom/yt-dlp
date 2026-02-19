@@ -40,14 +40,25 @@ impl DownloadCache {
     ///
     /// * `cache_path` - The path to the cache directory.
     /// * `ttl` - The time-to-live for cache entries in seconds (optional, defaults to 7 days).
-    pub async fn new(
-        cache_path: impl AsRef<Path> + std::fmt::Debug,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Creating download cache at {:?}", cache_path);
+    ///
+    /// # Returns
+    ///
+    /// A new `DownloadCache` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cache backend initialization fails or no backend is enabled.
+    pub async fn new(cache_path: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
+        let cache_dir: PathBuf = cache_path.into();
+        let ttl_value = ttl.unwrap_or(7 * 24 * 60 * 60);
 
-        let cache_dir = cache_path.as_ref().to_path_buf();
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ttl_value,
+            "Creating download cache"
+        );
+
         #[allow(unused_assignments)]
         let mut backend: Option<Box<dyn FileBackend>> = None;
 
@@ -84,11 +95,23 @@ impl DownloadCache {
     }
 
     /// Calculates the SHA-256 hash of a file.
-    pub async fn calculate_file_hash(
-        file_path: impl AsRef<Path> + std::fmt::Debug,
-    ) -> Result<String> {
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to hash.
+    ///
+    /// # Returns
+    ///
+    /// The SHA-256 hash as a hex string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
+    pub async fn calculate_file_hash(file_path: impl Into<PathBuf>) -> Result<String> {
+        let file_path: PathBuf = file_path.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Calculating hash for file {:?}", file_path);
+        tracing::debug!(file_path = ?file_path, "Calculating SHA-256 hash for file");
 
         let mut file = File::open(&file_path).await?;
         let mut buffer = Vec::new();
@@ -98,28 +121,63 @@ impl DownloadCache {
         hasher.update(&buffer);
         let hash = hasher.finalize();
 
-        Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+        let hash_str: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            hash = %hash_str,
+            file_size = buffer.len(),
+            "Calculated file hash"
+        );
+
+        Ok(hash_str)
     }
 
-    /// Sanitize a filename to prevent path traversal attacks
+    /// Sanitize a filename to prevent path traversal attacks.
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - The filename to sanitize.
+    ///
+    /// # Returns
+    ///
+    /// A sanitized filename with dangerous characters removed.
     fn sanitize_filename(filename: &str) -> String {
-        filename
+        let sanitized = filename
             .replace("..", "")
             .replace(['/', '\\', ':'], "")
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
-            .collect()
+            .collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            original = filename,
+            sanitized = %sanitized,
+            "Sanitized filename"
+        );
+
+        sanitized
     }
 
     /// Determines the MIME type of a file based on its extension.
-    fn determine_mime_type(file_path: impl AsRef<Path>) -> String {
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file.
+    ///
+    /// # Returns
+    ///
+    /// The MIME type as a string.
+    fn determine_mime_type(file_path: impl Into<PathBuf>) -> String {
+        let file_path: PathBuf = file_path.into();
         let extension = file_path
-            .as_ref()
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("");
 
-        match extension.to_lowercase().as_str() {
+        let mime_type = match extension.to_lowercase().as_str() {
             "mp4" => "video/mp4".to_string(),
             "webm" => "video/webm".to_string(),
             "mp3" => "audio/mpeg".to_string(),
@@ -130,24 +188,89 @@ impl DownloadCache {
             "srt" => "application/x-subrip".to_string(),
             "ass" | "ssa" => "text/x-ssa".to_string(),
             _ => "application/octet-stream".to_string(),
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            extension = extension,
+            mime_type = %mime_type,
+            "Determined MIME type"
+        );
+
+        mime_type
     }
 
     /// Cleans the cache by removing expired entries.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cleanup operation fails.
     pub async fn clean(&self) -> Result<()> {
-        self.backend.clean().await
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Cleaning download cache");
+
+        let result = self.backend.clean().await;
+
+        #[cfg(feature = "tracing")]
+        if result.is_ok() {
+            tracing::debug!("Successfully cleaned download cache");
+        } else {
+            tracing::debug!("Failed to clean download cache");
+        }
+
+        result
     }
 
     /// Gets a file from the cache by hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_hash` - SHA-256 hash of the file.
+    ///
+    /// # Returns
+    ///
+    /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_by_hash(&self, file_hash: &str) -> Option<(CachedFile, PathBuf)> {
-        self.backend.get_by_hash(file_hash).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(hash = file_hash, "Getting file from cache by hash");
+
+        let result = self.backend.get_by_hash(file_hash).await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            hash = file_hash,
+            found = result.is_some(),
+            "File cache lookup by hash completed"
+        );
+
+        result
     }
 
     /// Puts a file in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source file to cache.
+    /// * `filename` - Original filename.
+    /// * `video_id` - Associated video ID (if any).
+    /// * `format` - Format information (if any).
+    ///
+    /// # Returns
+    ///
+    /// The `CachedFile` metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be cached.
     pub async fn put_file(
         &self,
-        source_path: impl AsRef<Path> + std::fmt::Debug,
-        filename: impl AsRef<str> + std::fmt::Debug,
+        source_path: impl Into<PathBuf>,
+        filename: impl Into<String>,
         video_id: Option<String>,
         format: Option<&Format>,
     ) -> Result<CachedFile> {
@@ -164,12 +287,31 @@ impl DownloadCache {
         .await
     }
 
-    /// Puts a file in the cache with preferences.
+    /// Puts a file in the cache with quality and codec preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source file to cache.
+    /// * `filename` - Original filename.
+    /// * `video_id` - Associated video ID (if any).
+    /// * `format` - Format information (if any).
+    /// * `video_quality` - Video quality preference.
+    /// * `audio_quality` - Audio quality preference.
+    /// * `video_codec` - Video codec preference.
+    /// * `audio_codec` - Audio codec preference.
+    ///
+    /// # Returns
+    ///
+    /// The `CachedFile` metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be cached.
     #[allow(clippy::too_many_arguments)]
     pub async fn put_file_with_preferences(
         &self,
-        source_path: impl AsRef<Path> + std::fmt::Debug,
-        filename: impl AsRef<str> + std::fmt::Debug,
+        source_path: impl Into<PathBuf>,
+        filename: impl Into<String>,
         video_id: Option<String>,
         format: Option<&Format>,
         video_quality: Option<VideoQuality>,
@@ -177,16 +319,28 @@ impl DownloadCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Result<CachedFile> {
-        let source_path = source_path.as_ref();
+        let source_path: PathBuf = source_path.into();
+        let filename: String = filename.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching file {:?}", source_path);
+        tracing::debug!(
+            source_path = ?source_path,
+            filename = %filename,
+            video_id = ?video_id,
+            has_format = format.is_some(),
+            video_quality = ?video_quality,
+            audio_quality = ?audio_quality,
+            video_codec = ?video_codec,
+            audio_codec = ?audio_codec,
+            "Caching file with preferences"
+        );
 
-        let file_hash = Self::calculate_file_hash(source_path).await?;
-        let metadata = tokio::fs::metadata(source_path).await?;
+        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
+        let metadata = tokio::fs::metadata(&source_path).await?;
         let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path);
+        let mime_type = Self::determine_mime_type(source_path.clone());
 
-        let filename_str = filename.as_ref();
+        let filename_str = &filename;
         let sanitized_filename = Self::sanitize_filename(filename_str);
         let extension = Path::new(&sanitized_filename)
             .extension()
@@ -233,7 +387,7 @@ impl DownloadCache {
 
         let cached_file = CachedFile {
             id: file_hash.clone(),
-            filename: filename_str.to_string(),
+            filename: filename.clone(),
             relative_path,
             video_id,
             file_type,
@@ -250,23 +404,62 @@ impl DownloadCache {
         };
 
         // Delegate to backend
-        self.backend.put(cached_file.clone(), source_path).await?;
+        self.backend.put(cached_file.clone(), &source_path).await?;
 
         Ok(cached_file)
     }
 
     /// Gets a file from cache by video ID and format ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - Video ID to search for.
+    /// * `format_id` - Format ID to search for.
+    ///
+    /// # Returns
+    ///
+    /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_by_video_and_format(
         &self,
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        self.backend
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            format_id = format_id,
+            "Getting file from cache by video and format"
+        );
+
+        let result = self
+            .backend
             .get_by_video_and_format(video_id, format_id)
-            .await
+            .await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            format_id = format_id,
+            found = result.is_some(),
+            "File cache lookup by video and format completed"
+        );
+
+        result
     }
 
-    /// Gets a file from cache by video ID and preferences.
+    /// Gets a file from cache by video ID and quality/codec preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - Video ID to search for.
+    /// * `video_quality` - Video quality preference.
+    /// * `audio_quality` - Audio quality preference.
+    /// * `video_codec` - Video codec preference.
+    /// * `audio_codec` - Audio codec preference.
+    ///
+    /// # Returns
+    ///
+    /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     #[cfg(feature = "cache")]
     pub async fn get_by_video_and_preferences(
         &self,
@@ -276,7 +469,18 @@ impl DownloadCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
-        self.backend
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            video_quality = ?video_quality,
+            audio_quality = ?audio_quality,
+            video_codec = ?video_codec,
+            audio_codec = ?audio_codec,
+            "Getting file from cache by video and preferences"
+        );
+
+        let result = self
+            .backend
             .get_by_video_and_preferences(
                 video_id,
                 video_quality,
@@ -284,31 +488,60 @@ impl DownloadCache {
                 video_codec,
                 audio_codec,
             )
-            .await
+            .await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            found = result.is_some(),
+            "File cache lookup by preferences completed"
+        );
+
+        result
     }
 
-    // For non-cache feature build (if get_by_video_and_preferences is not available in trait)
-    // we can omit it or shim it. But trait has #[cfg(feature = "cache")] on that method too.
-    // So we should gate it here too.
-
     /// Puts a thumbnail in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source thumbnail file.
+    /// * `filename` - Original filename.
+    /// * `video_id` - Associated video ID.
+    /// * `thumbnail` - Thumbnail metadata.
+    ///
+    /// # Returns
+    ///
+    /// The `CachedThumbnail` metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the thumbnail cannot be cached.
     pub async fn put_thumbnail(
         &self,
-        source_path: impl AsRef<Path> + std::fmt::Debug,
-        filename: impl AsRef<str> + std::fmt::Debug,
+        source_path: impl Into<PathBuf>,
+        filename: impl Into<String>,
         video_id: String,
         thumbnail: &Thumbnail,
     ) -> Result<CachedThumbnail> {
-        let source_path = source_path.as_ref();
+        let source_path: PathBuf = source_path.into();
+        let filename: String = filename.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching thumbnail {:?}", source_path);
+        tracing::debug!(
+            source_path = ?source_path,
+            filename = %filename,
+            video_id = %video_id,
+            width = ?thumbnail.width,
+            height = ?thumbnail.height,
+            "Caching thumbnail"
+        );
 
-        let file_hash = Self::calculate_file_hash(source_path).await?;
-        let metadata = tokio::fs::metadata(source_path).await?;
+        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
+        let metadata = tokio::fs::metadata(&source_path).await?;
         let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path);
+        let mime_type = Self::determine_mime_type(source_path.clone());
 
-        let filename_str = filename.as_ref();
+        let filename_str = &filename;
         let extension = Path::new(filename_str)
             .extension()
             .and_then(|ext| ext.to_str())
@@ -326,7 +559,7 @@ impl DownloadCache {
 
         let cached_thumbnail = CachedThumbnail {
             id: file_hash.clone(),
-            filename: filename_str.to_string(),
+            filename: filename.clone(),
             relative_path,
             video_id,
             filesize,
@@ -337,49 +570,122 @@ impl DownloadCache {
         };
 
         self.backend
-            .put_thumbnail(cached_thumbnail.clone(), source_path)
+            .put_thumbnail(cached_thumbnail.clone(), &source_path)
             .await?;
 
         Ok(cached_thumbnail)
     }
 
     /// Gets a thumbnail from cache by video ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - Video ID to search for.
+    ///
+    /// # Returns
+    ///
+    /// `Some((CachedThumbnail, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_thumbnail_by_video_id(
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
-        self.backend.get_thumbnail_by_video_id(video_id).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            "Getting thumbnail from cache by video ID"
+        );
+
+        let result = self.backend.get_thumbnail_by_video_id(video_id).await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            found = result.is_some(),
+            "Thumbnail cache lookup completed"
+        );
+
+        result
     }
 
     /// Gets a subtitle from cache by video ID and language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - Video ID to search for.
+    /// * `language` - Language code to search for.
+    ///
+    /// # Returns
+    ///
+    /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_subtitle_by_language(
         &self,
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        self.backend
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            language = language,
+            "Getting subtitle from cache by video ID and language"
+        );
+
+        let result = self
+            .backend
             .get_subtitle_by_language(video_id, language)
-            .await
+            .await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = video_id,
+            language = language,
+            found = result.is_some(),
+            "Subtitle cache lookup completed"
+        );
+
+        result
     }
 
     /// Puts a subtitle file in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source subtitle file.
+    /// * `filename` - Original filename.
+    /// * `video_id` - Associated video ID.
+    /// * `language` - Language code.
+    ///
+    /// # Returns
+    ///
+    /// The `CachedFile` metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subtitle cannot be cached.
     pub async fn put_subtitle_file(
         &self,
-        source_path: impl AsRef<Path> + std::fmt::Debug,
-        filename: impl AsRef<str> + std::fmt::Debug,
+        source_path: impl Into<PathBuf>,
+        filename: impl Into<String>,
         video_id: String,
         language: String,
     ) -> Result<CachedFile> {
-        let source_path = source_path.as_ref();
+        let source_path: PathBuf = source_path.into();
+        let filename: String = filename.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Caching subtitle file {:?}", source_path);
+        tracing::debug!(
+            source_path = ?source_path,
+            filename = %filename,
+            video_id = %video_id,
+            language = %language,
+            "Caching subtitle file"
+        );
 
-        let file_hash = Self::calculate_file_hash(source_path).await?;
-        let metadata = tokio::fs::metadata(source_path).await?;
+        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
+        let metadata = tokio::fs::metadata(&source_path).await?;
         let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path);
+        let mime_type = Self::determine_mime_type(source_path.clone());
 
-        let filename_str = filename.as_ref();
+        let filename_str = &filename;
         let sanitized_filename = Self::sanitize_filename(filename_str);
         let extension = Path::new(&sanitized_filename)
             .extension()
@@ -397,7 +703,7 @@ impl DownloadCache {
 
         let cached_file = CachedFile {
             id: file_hash.clone(),
-            filename: filename_str.to_string(),
+            filename: filename.clone(),
             relative_path,
             video_id: Some(video_id),
             file_type: serde_json::to_string(&CachedType::Subtitle).unwrap_or_default(),
@@ -414,7 +720,7 @@ impl DownloadCache {
         };
 
         // Delegate to backend
-        self.backend.put(cached_file.clone(), source_path).await?;
+        self.backend.put(cached_file.clone(), &source_path).await?;
 
         Ok(cached_file)
     }

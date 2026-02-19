@@ -55,9 +55,18 @@ impl ProxyConfig {
     ///
     /// A new ProxyConfig instance
     pub fn new(proxy_type: ProxyType, url: impl Into<String>) -> Self {
+        let url = url.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            proxy_type = ?proxy_type,
+            url = %url,
+            "Creating new ProxyConfig"
+        );
+
         Self {
             proxy_type,
-            url: url.into(),
+            url,
             username: None,
             password: None,
             no_proxy: Vec::new(),
@@ -75,7 +84,15 @@ impl ProxyConfig {
     ///
     /// Self for method chaining
     pub fn with_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
-        self.username = Some(username.into());
+        let username = username.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            username = %username,
+            "Adding authentication to proxy"
+        );
+
+        self.username = Some(username);
         self.password = Some(password.into());
         self
     }
@@ -90,6 +107,13 @@ impl ProxyConfig {
     ///
     /// Self for method chaining
     pub fn with_no_proxy(mut self, no_proxy: Vec<String>) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            no_proxy = ?no_proxy,
+            count = no_proxy.len(),
+            "Setting no-proxy list"
+        );
+
         self.no_proxy = no_proxy;
         self
     }
@@ -125,6 +149,9 @@ impl ProxyConfig {
     ///
     /// The proxy URL with embedded authentication credentials if provided
     pub fn build_url(&self) -> String {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(has_auth = self.username.is_some(), "Building proxy URL");
+
         if let (Some(username), Some(password)) = (&self.username, &self.password) {
             // URL-encode username and password
             let username_enc =
@@ -176,7 +203,8 @@ impl ProxyConfig {
     ///
     /// # Returns
     ///
-    /// The proxy URL in yt-dlp format
+    /// The proxy URL in the format expected by yt-dlp's `--proxy` argument.
+    /// Includes authentication credentials if configured.
     pub fn to_ytdlp_arg(&self) -> String {
         self.build_url()
     }
@@ -186,7 +214,7 @@ impl fmt::Display for ProxyConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ProxyConfig: type={:?}, url={}, auth={}",
+            "ProxyConfig {{ type: {:?}, url: {:?}, auth_configured: {} }}",
             self.proxy_type,
             self.url,
             self.username.is_some()

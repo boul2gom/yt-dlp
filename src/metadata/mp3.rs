@@ -7,8 +7,8 @@ use crate::error::{Error, Result};
 use crate::model::Video;
 use crate::model::format::Format;
 use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
-use std::fmt::Debug;
-use std::path::Path;
+
+use std::path::{Path, PathBuf};
 
 use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 
@@ -27,14 +27,34 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if ID3 tags cannot be read or written
-    pub(super) async fn add_metadata_to_mp3<P: AsRef<Path> + Debug + Copy + Send + Sync>(
-        file_path: P,
+    pub(super) async fn add_metadata_to_mp3(
+        file_path: impl Into<PathBuf>,
         video: &Video,
         audio_format: Option<&Format>,
         playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
+        let file_path = file_path.into();
+
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to MP3 file: {:?}", file_path);
+        {
+            let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
+            let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
+            let playlist_title = playlist.map(|p| &p.title);
+            let playlist_index = playlist.map(|p| p.index);
+
+            tracing::debug!(
+                file_path = ?file_path,
+                video_id = %video.id,
+                title = %video.title,
+                has_audio_format = audio_format.is_some(),
+                audio_bitrate = ?audio_bitrate,
+                audio_codec = ?audio_codec,
+                has_playlist = playlist.is_some(),
+                playlist_title = ?playlist_title,
+                playlist_index = ?playlist_index,
+                "Adding metadata to MP3 file"
+            );
+        }
 
         Self::log_metadata_debug(format!("Adding metadata to MP3 file: {:?}", file_path));
 
@@ -46,14 +66,12 @@ impl MetadataManager {
             playlist.map(|pl| (pl.title.clone(), pl.index, pl.total, pl.id.clone()));
         let audio_info =
             audio_format.map(|f| (f.rates_info.audio_rate, f.codec_info.audio_codec.clone()));
-        let path = file_path.as_ref().to_path_buf();
+        let file_path_clone = file_path.clone();
 
         tokio::task::spawn_blocking(move || {
             // Load existing tag or create a new one
-            let mut tag = match ID3Tag::read_from_path(&path) {
-                Ok(tag) => tag,
-                Err(_) => ID3Tag::new(),
-            };
+            let mut tag =
+                ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
 
             // Add basic metadata
             for (key, value) in metadata {
@@ -111,13 +129,20 @@ impl MetadataManager {
             }
 
             // Save changes
-            tag.write_to_path(&path, ID3Version::Id3v24)
+            tag.write_to_path(&file_path_clone, ID3Version::Id3v24)
                 .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
 
             Ok::<_, Error>(())
         })
         .await
         .map_err(|e| Error::Unknown(e.to_string()))??;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            video_id = %video.id,
+            "Metadata added successfully to MP3 file"
+        );
 
         Ok(())
     }
@@ -132,12 +157,18 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the ID3 tags cannot be written
-    pub(super) async fn add_thumbnail_to_mp3<P: AsRef<Path> + Debug + Copy + Send + Sync>(
-        file_path: P,
+    pub(super) async fn add_thumbnail_to_mp3(
+        file_path: impl Into<PathBuf>,
         thumbnail_path: &Path,
     ) -> Result<()> {
+        let file_path = file_path.into();
+
         #[cfg(feature = "tracing")]
-        tracing::trace!("Adding thumbnail to MP3 file: {:?}", file_path);
+        tracing::debug!(
+            file_path = ?file_path,
+            thumbnail_path = ?thumbnail_path,
+            "Adding thumbnail to MP3 file"
+        );
 
         // Read thumbnail content
         let image_data = tokio::fs::read(thumbnail_path)
@@ -152,14 +183,19 @@ impl MetadataManager {
         };
         let mime_type = mime_type.to_string();
 
-        let path = file_path.as_ref().to_path_buf();
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            thumbnail_path = ?thumbnail_path,
+            mime_type = %mime_type,
+            image_size_bytes = image_data.len(),
+            "Thumbnail loaded with MIME type"
+        );
 
+        let file_path_clone = file_path.clone();
         tokio::task::spawn_blocking(move || {
             // Load existing tag or create a new one
-            let mut tag = match ID3Tag::read_from_path(&path) {
-                Ok(tag) => tag,
-                Err(_) => ID3Tag::new(),
-            };
+            let mut tag =
+                ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
 
             // Create picture frame
             let picture = ID3Frame::with_content(
@@ -175,7 +211,7 @@ impl MetadataManager {
             tag.add_frame(picture);
 
             // Save the tag
-            tag.write_to_path(&path, ID3Version::Id3v24)
+            tag.write_to_path(&file_path_clone, ID3Version::Id3v24)
                 .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
 
             Ok::<_, Error>(())
@@ -184,7 +220,10 @@ impl MetadataManager {
         .map_err(|e| Error::Unknown(e.to_string()))??;
 
         #[cfg(feature = "tracing")]
-        tracing::debug!("Added thumbnail to MP3 file: {:?}", file_path);
+        tracing::debug!(
+            file_path = ?file_path,
+            "Thumbnail added successfully to MP3 file"
+        );
 
         Ok(())
     }

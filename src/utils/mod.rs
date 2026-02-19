@@ -22,18 +22,57 @@ pub use subtitle::subtitle_validator::{ValidationResult, is_format_compatible, v
 pub use url_expiry::{ExpiryConfig, UrlStatus, check_download_error, should_refresh_url};
 
 /// Converts a vector of string slices to a vector of owned strings.
+///
+/// # Arguments
+///
+/// * `vec` - The vector of string references to convert
+///
+/// # Returns
+///
+/// A vector of owned strings
 pub fn to_owned(vec: Vec<impl AsRef<str>>) -> Vec<String> {
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        input_count = vec.len(),
+        "Converting vector of string slices to owned strings"
+    );
+
     vec.into_iter().map(|s| s.as_ref().to_owned()).collect()
 }
 
 /// Find the name of the executable for the given platform.
+///
+/// # Arguments
+///
+/// * `name` - The base name of the executable
+///
+/// # Returns
+///
+/// The platform-specific executable name (with .exe extension on Windows)
 pub fn find_executable(name: impl AsRef<str>) -> String {
     let platform = Platform::detect();
+    let name_str = name.as_ref();
 
-    match platform {
-        Platform::Windows => format!("{}.exe", name.as_ref()),
-        _ => name.as_ref().to_string(),
-    }
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        name = name_str,
+        platform = %platform,
+        "Finding executable name for platform"
+    );
+
+    let executable = match platform {
+        Platform::Windows => format!("{}.exe", name_str),
+        _ => name_str.to_string(),
+    };
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        name = name_str,
+        executable = %executable,
+        "Executable name resolved"
+    );
+
+    executable
 }
 
 /// Awaits two futures and returns a tuple of their results.
@@ -55,6 +94,9 @@ pub async fn await_two<T: std::fmt::Debug>(
     let first = first_result?;
     let second = second_result?;
 
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Both futures completed successfully");
+
     Ok((first, second))
 }
 
@@ -63,7 +105,15 @@ pub async fn await_two<T: std::fmt::Debug>(
 ///
 /// # Arguments
 ///
-/// * `handles` - The futures to await.
+/// * `handles` - The futures to await
+///
+/// # Returns
+///
+/// A vector containing all the results
+///
+/// # Errors
+///
+/// Returns an error if any future fails
 pub async fn await_all<T, I>(handles: I) -> Result<Vec<T>>
 where
     I: IntoIterator<Item = JoinHandle<Result<T>>> + std::fmt::Debug,
@@ -74,5 +124,15 @@ where
 
     let results = futures_util::future::try_join_all(handles).await?;
 
-    results.into_iter().collect()
+    let result_vec: Result<Vec<T>> = results.into_iter().collect();
+
+    #[cfg(feature = "tracing")]
+    if let Ok(ref vec) = result_vec {
+        tracing::debug!(
+            completed_count = vec.len(),
+            "All futures completed successfully"
+        );
+    }
+
+    result_vec
 }

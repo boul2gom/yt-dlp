@@ -6,10 +6,11 @@ use crate::download::Fetcher;
 use crate::error::Result;
 use crate::utils::fs;
 use crate::{ternary, utils};
+
 use derive_more::Constructor;
 use serde::Deserialize;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -70,25 +71,40 @@ pub struct Libraries {
 
 impl LibraryInstaller {
     /// Install yt-dlp from the main repository.
+    ///
+    /// # Arguments
+    ///
+    /// * `custom_name` - Optional custom name for the executable.
     pub async fn install_youtube(&self, custom_name: Option<String>) -> Result<PathBuf> {
         self.install_youtube_from_repo("yt-dlp", "yt-dlp", None, custom_name)
             .await
     }
 
     /// Install yt-dlp from a custom repository, assuming releases assets are named correctly.
+    ///
+    /// # Arguments
+    ///
+    /// * `owner` - The owner of the repository.
+    /// * `repo` - The name of the repository.
+    /// * `auth_token` - Optional GitHub token to avoid rate limits.
+    /// * `custom_name` - Optional custom name for the executable.
     pub async fn install_youtube_from_repo(
         &self,
-        owner: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
-        repo: impl AsRef<str> + std::fmt::Debug + std::fmt::Display,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
         auth_token: Option<String>,
         custom_name: Option<String>,
     ) -> Result<PathBuf> {
+        let owner: String = owner.into();
+        let repo: String = repo.into();
+
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Installing yt-dlp from {}/{}, with custom executable name: {:?}",
-            owner,
-            repo,
-            custom_name
+            owner = %owner,
+            repo = %repo,
+            custom_name = ?custom_name,
+            destination = ?self.destination,
+            "Installing yt-dlp from repository"
         );
 
         fs::create_dir(self.destination.clone()).await?;
@@ -105,11 +121,16 @@ impl LibraryInstaller {
     }
 
     /// Install ffmpeg from static builds.
+    ///
+    /// # Arguments
+    ///
+    /// * `custom_name` - Optional custom name for the executable.
     pub async fn install_ffmpeg(&self, custom_name: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Installing ffmpeg with custom executable name: {:?}",
-            custom_name
+            custom_name = ?custom_name,
+            destination = ?self.destination,
+            "Installing ffmpeg from static builds"
         );
 
         fs::create_dir(self.destination.clone()).await?;
@@ -136,7 +157,11 @@ impl Libraries {
     /// Install the required dependencies.
     pub async fn install_dependencies(&self) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Installing required dependencies");
+        tracing::debug!(
+            youtube_path = ?self.youtube,
+            ffmpeg_path = ?self.ffmpeg,
+            "Installing required dependencies"
+        );
 
         let youtube = self.install_youtube().await?;
         let ffmpeg = self.install_ffmpeg().await?;
@@ -154,7 +179,12 @@ impl Libraries {
         auth_token: impl Into<String>,
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Installing required dependencies with token");
+        tracing::debug!(
+            youtube_path = ?self.youtube,
+            ffmpeg_path = ?self.ffmpeg,
+            has_token = true,
+            "Installing required dependencies with authentication token"
+        );
 
         let token = auth_token.into();
         let youtube = self.install_youtube_with_token(token.clone()).await?;
@@ -178,7 +208,11 @@ impl Libraries {
 
     async fn install_youtube_internal(&self, auth_token: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Installing yt-dlp");
+        tracing::debug!(
+            youtube_path = ?self.youtube,
+            has_token = auth_token.is_some(),
+            "Installing yt-dlp binary"
+        );
 
         let parent = fs::try_parent(self.youtube.clone())?;
         let installer = LibraryInstaller::new(parent);
@@ -211,7 +245,10 @@ impl Libraries {
 
     async fn install_ffmpeg_internal(&self, _auth_token: Option<String>) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Installing ffmpeg");
+        tracing::debug!(
+            ffmpeg_path = ?self.ffmpeg,
+            "Installing ffmpeg binary"
+        );
 
         let parent = fs::try_parent(self.ffmpeg.clone())?;
         let installer = LibraryInstaller::new(parent);
@@ -298,27 +335,29 @@ impl WantedRelease {
     ///
     /// This function will return an error if the asset could not be downloaded, written to the destination,
     /// or if the checksum verification fails.
-    pub async fn download(
-        &self,
-        destination: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
-    ) -> Result<()> {
+    pub async fn download(&self, destination: impl Into<PathBuf>) -> Result<()> {
+        let destination: PathBuf = destination.into();
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Downloading asset from {} to {}",
-            self.url,
-            destination.as_ref().display()
+            url = %self.url,
+            destination = ?destination,
+            asset_name = %self.name,
+            has_checksum = self.checksum.is_some(),
+            "Downloading release asset"
         );
 
         let fetcher = Fetcher::new(&self.url, None, None)?;
-        fetcher
-            .fetch_asset(destination.as_ref().to_path_buf())
-            .await?;
+        fetcher.fetch_asset(destination.clone()).await?;
 
         if let Some(expected_checksum) = &self.checksum {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Verifying checksum for {}", destination.as_ref().display());
+            tracing::debug!(
+                destination = ?destination,
+                expected_checksum = %expected_checksum,
+                "Verifying asset checksum"
+            );
 
-            let dest_path = destination.as_ref().to_path_buf();
+            let dest_path = destination.clone();
             let actual_checksum = tokio::task::spawn_blocking(move || {
                 let file = File::open(&dest_path).map_err(|e| {
                     crate::error::Error::io_with_path(
@@ -353,7 +392,7 @@ impl WantedRelease {
 
             if actual_checksum != *expected_checksum {
                 // Delete the invalid file
-                let _ = tokio::fs::remove_file(destination.as_ref()).await;
+                let _ = tokio::fs::remove_file(&destination).await;
                 return Err(crate::error::Error::Unknown(format!(
                     "Checksum verification failed. Expected: {}, Actual: {}",
                     expected_checksum, actual_checksum
@@ -361,7 +400,11 @@ impl WantedRelease {
             }
 
             #[cfg(feature = "tracing")]
-            tracing::debug!("Checksum verification passed");
+            tracing::debug!(
+                expected = %expected_checksum,
+                actual = %actual_checksum,
+                "Checksum verification passed"
+            );
         }
 
         Ok(())

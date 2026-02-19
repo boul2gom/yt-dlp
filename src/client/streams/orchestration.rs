@@ -8,90 +8,237 @@ use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 use crate::model::{AudioCodecPreference, AudioQuality, Video, VideoCodecPreference, VideoQuality};
 use crate::utils;
-use std::fmt::Display;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 impl Downloader {
     /// Helper to check if a video is in the cache by URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The video URL to check
+    ///
+    /// # Returns
+    ///
+    /// `Some(Video)` if found in cache and not expired, `None` otherwise
     async fn check_video_cache(&self, url: &str) -> Option<Video> {
         #[cfg(feature = "cache")]
         {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(url = url, "Checking video cache");
+
             let cache = self.cache.as_ref()?;
-            cache.get(url).await.ok().flatten()
+            let result = cache.get(url).await.ok().flatten();
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                url = url,
+                cache_hit = result.is_some(),
+                "Video cache check completed"
+            );
+
+            result
         }
         #[cfg(not(feature = "cache"))]
-        None
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(url = url, "Cache feature disabled");
+
+            None
+        }
+    }
+
+    /// Helper to determine the correct extractor for a given URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The video URL
+    ///
+    /// # Returns
+    ///
+    /// Reference to the appropriate video extractor (YouTube or Generic)
+    fn get_extractor(&self, url: &str) -> &dyn crate::extractor::VideoExtractor {
+        let is_youtube = crate::extractor::Youtube::supports_url(url);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            is_youtube = is_youtube,
+            "Selecting video extractor"
+        );
+
+        if is_youtube {
+            &self.youtube_extractor
+        } else {
+            &self.generic_extractor
+        }
     }
 
     /// Fetch the video information from the given URL.
-    pub async fn fetch_video_infos(&self, url: String) -> crate::error::Result<Video> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching video infos for {}", url);
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    ///
+    /// # Returns
+    ///
+    /// A `Video` struct containing metadata about the video.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the yt-dlp command fails or the output cannot be parsed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=dQw4w9WgXcQ").await?;
+    /// println!("Video title: {}", video.title);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fetch_video_infos(&self, url: impl AsRef<str>) -> crate::error::Result<Video> {
+        let url_str = url.as_ref();
 
-        if let Some(video) = self.check_video_cache(&url).await {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url_str, "Fetching video information");
+
+        if let Some(video) = self.check_video_cache(url_str).await {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Cache hit for {}", url);
+            tracing::debug!(
+                url = url_str,
+                video_id = %video.id,
+                video_title = %video.title,
+                "Cache hit, returning cached video"
+            );
             return Ok(video);
         }
 
-        let args = vec!["-j", "--flat-playlist", &url];
-        let executor = Executor::new(
-            self.libraries.youtube.clone(),
-            utils::to_owned(args),
-            self.timeout,
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url_str, "Cache miss, fetching from extractor");
+
+        let video = self.get_extractor(url_str).fetch_video(url_str).await?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url_str,
+            video_id = %video.id,
+            video_title = %video.title,
+            format_count = video.formats.len(),
+            "Video information fetched successfully"
         );
-        let output = executor.execute().await?;
-        let output = output.stdout;
-        let video: Video =
-            serde_json::from_str(&output).map_err(|e| Error::Unknown(e.to_string()))?;
 
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
-            let _ = cache.put(url.clone(), video.clone()).await;
+            #[cfg(feature = "tracing")]
+            tracing::debug!(video_id = %video.id, "Storing video in cache");
+
+            let _ = cache.put(url_str.to_string(), video.clone()).await;
         }
 
         Ok(video)
     }
 
     /// Fetch the video information from the given URL, bypassing the cache.
-    /// Fetch the video information from the given URL, bypassing the cache.
-    pub async fn fetch_video_infos_fresh(&self, url: &str) -> crate::error::Result<Video> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching fresh video infos for {}", url);
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    ///
+    /// # Returns
+    ///
+    /// A `Video` struct containing metadata about the video.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the yt-dlp command fails or the output cannot be parsed.
+    pub async fn fetch_video_infos_fresh(
+        &self,
+        url: impl AsRef<str>,
+    ) -> crate::error::Result<Video> {
+        let url_str = url.as_ref();
 
-        let args = vec!["-j", "--flat-playlist", url];
-        let executor = Executor::new(
-            self.libraries.youtube.clone(),
-            utils::to_owned(args),
-            self.timeout,
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url_str,
+            "Fetching fresh video information (bypassing cache)"
         );
-        let output = executor.execute().await?;
-        let output = output.stdout;
-        let video: Video =
-            serde_json::from_str(&output).map_err(|e| Error::Unknown(e.to_string()))?;
+
+        let video = self.get_extractor(url_str).fetch_video(url_str).await?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url_str,
+            video_id = %video.id,
+            video_title = %video.title,
+            format_count = video.formats.len(),
+            "Fresh video information fetched successfully"
+        );
 
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.cache {
-            let _ = cache.put(url.to_string(), video.clone()).await;
+            #[cfg(feature = "tracing")]
+            tracing::debug!(video_id = %video.id, "Updating cache with fresh video data");
+
+            let _ = cache.put(url_str.to_string(), video.clone()).await;
         }
 
         Ok(video)
     }
 
     /// Helper to get video by ID from cache (if available)
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The video ID.
+    ///
+    /// # Returns
+    ///
+    /// `Some(Video)` if found in cache, `None` otherwise.
     pub async fn get_video_by_id(&self, id: &str) -> Option<Video> {
         #[cfg(feature = "cache")]
         {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(video_id = id, "Getting video from cache by ID");
+
             let cache = self.cache.as_ref()?;
             let cached_video = cache.get_by_id(id).await.ok()?;
-            cached_video.video().ok()
+            let video = cached_video.video().ok();
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                video_id = id,
+                found = video.is_some(),
+                "Video cache lookup by ID completed"
+            );
+
+            video
         }
         #[cfg(not(feature = "cache"))]
-        None
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(video_id = id, "Cache feature disabled");
+
+            None
+        }
     }
 
     /// Helper to execute an action with automatic URL expiry retry.
+    ///
+    /// This method will execute the given action. If it fails with `Error::UrlExpired`,
+    /// it will refresh the video metadata and retry the action once.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `action` - A closure that takes a `Video` and returns a Future.
     pub async fn execute_with_retry<T, F, Fut>(
         &self,
         url: String,
@@ -99,7 +246,7 @@ impl Downloader {
     ) -> crate::error::Result<T>
     where
         F: Fn(Video) -> Fut + Send + Sync + Clone,
-        Fut: std::future::Future<Output = crate::error::Result<T>> + Send,
+        Fut: Future<Output = crate::error::Result<T>> + Send,
     {
         // First attempt with potentially cached metadata
         let video = self.fetch_video_infos(url.clone()).await?;
@@ -121,11 +268,40 @@ impl Downloader {
 
     /// Retrieve a video by its ID, checking the cache first if available
     /// Fetch the video from the given URL, download it (video with audio) and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let path = downloader.download_video_from_url(
+    ///     "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+    ///     "my_video.mp4"
+    /// ).await?;
+    /// println!("Downloaded to: {:?}", path);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn download_video_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
+        let output = output.as_ref().to_string();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL: {}", url);
 
@@ -138,11 +314,39 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download it (video with audio) to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The absolute or relative path to save the video to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let path = downloader.download_video_from_url_to_path(
+    ///     "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+    ///     PathBuf::from("/tmp/video.mp4")
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn download_video_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
+        let output: PathBuf = output.into();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL to path: {}", url);
 
@@ -155,25 +359,59 @@ impl Downloader {
     }
 
     /// Fetch the video, download it (video with audio) and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=dQw4w9WgXcQ").await?;
+    /// let path = downloader.download_video(&video, "downloaded_video.mp4").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn download_video(
         &self,
         video: &Video,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_video_to_path(video, &output_path).await
     }
 
     /// Fetch the video, download it (video with audio) to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The absolute or relative path to save the video to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_video_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
 
-        let path = output.as_ref().to_path_buf();
+        let path = output.into();
 
         // Check if the video is in the cache
         #[cfg(feature = "cache")]
@@ -205,52 +443,21 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        // Create temporary names for audio and video files
-        let audio_name = format!("temp_audio_{}.m4a", video.id);
-        let video_name = format!("temp_video_{}.mp4", video.id);
-
-        // Download audio and video streams in parallel
-        let (audio_result, video_result) = tokio::join!(
-            self.download_format(best_audio, &audio_name),
-            self.download_format(best_video, &video_name)
-        );
-
-        // Check the results
-        let _audio_path = audio_result?;
-        let _video_path = video_result?;
-
-        // Combine audio and video streams
-        let output_path = self
-            .combine_audio_and_video(
-                &audio_name,
-                &video_name,
-                path.file_name()
-                    .and_then(|f| f.to_str())
-                    .unwrap_or("output.mp4"),
-            )
-            .await?;
-
-        // If the user specified a different directory than output_dir, move the file
-        if output_path != path {
-            if let Some(parent) = path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            if (tokio::fs::rename(&output_path, &path).await).is_err() {
-                // rename fails across filesystems, fall back to copy+delete
-                tokio::fs::copy(&output_path, &path).await?;
-                tokio::fs::remove_file(&output_path).await?;
-            }
-        }
-
-        // Clean up temporary files
-        if let Err(_e) = tokio::fs::remove_file(&_video_path).await {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to remove temporary video file: {}", _e);
-        }
-        if let Err(_e) = tokio::fs::remove_file(&_audio_path).await {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to remove temporary audio file: {}", _e);
-        }
+        // Download and combine video and audio
+        self.download_and_combine_formats(
+            best_video,
+            best_audio,
+            &path,
+            #[cfg(feature = "cache")]
+            None,
+            #[cfg(feature = "cache")]
+            None,
+            #[cfg(feature = "cache")]
+            None,
+            #[cfg(feature = "cache")]
+            None,
+        )
+        .await?;
 
         // Cache the downloaded file if caching is enabled
         #[cfg(feature = "cache")]
@@ -277,11 +484,21 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download it and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_video_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
+        let output = output.as_ref().to_string();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL: {}", url);
 
@@ -294,11 +511,21 @@ impl Downloader {
     }
 
     /// Fetch the video from the given URL, download the video stream to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The absolute or relative path to save the video to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_video_stream_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
+        let output: PathBuf = output.into();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL to path: {}", url);
 
@@ -315,10 +542,19 @@ impl Downloader {
     }
 
     /// Download the video only, and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_video_stream(
         &self,
         video: &Video,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream {}", video.title);
@@ -335,10 +571,19 @@ impl Downloader {
     }
 
     /// Download the video stream to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The absolute or relative path to save the video to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_video_stream_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream to path {}", video.title);
@@ -355,11 +600,21 @@ impl Downloader {
     }
 
     /// Fetch the audio stream from the given URL, download it and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_audio_stream_from_url(
         &self,
         url: String,
-        output: impl AsRef<str> + std::fmt::Debug + Display + Clone + Send + Sync + 'static,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
+        let output = output.as_ref().to_string();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL: {}", url);
 
@@ -372,11 +627,21 @@ impl Downloader {
     }
 
     /// Fetch the audio stream from the given URL, download it to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The absolute or relative path to save the audio to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_audio_stream_from_url_to_path(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
+        let output: PathBuf = output.into();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL to path: {}", url);
 
@@ -393,11 +658,21 @@ impl Downloader {
     }
 
     /// Fetch the thumbnail from the given URL and download it to the specified path.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `output` - The absolute or relative path to save the thumbnail to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_thumbnail_from_url(
         &self,
         url: String,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync + Clone + 'static,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
+        let output: PathBuf = output.into();
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail from URL: {}", url);
 
@@ -406,8 +681,8 @@ impl Downloader {
         if let Some(thumbnail_url) = &video.thumbnail {
             let fetcher =
                 Fetcher::new(thumbnail_url, self.proxy.as_ref(), self.user_agent.clone())?;
-            fetcher.fetch_asset(output.clone()).await?;
-            Ok(output.as_ref().to_path_buf())
+            fetcher.fetch_asset(&output).await?;
+            Ok(output)
         } else {
             Err(Error::Unknown(
                 "No thumbnail found for this video".to_string(),
@@ -416,10 +691,19 @@ impl Downloader {
     }
 
     /// Fetch the audio stream, download it and returns its path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_audio_stream(
         &self,
         video: &Video,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_audio_stream_to_path(video, &output_path)
@@ -427,10 +711,19 @@ impl Downloader {
     }
 
     /// Fetch the audio stream, download it to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output` - The absolute or relative path to save the audio to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_audio_stream_to_path(
         &self,
         video: &Video,
-        output: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
@@ -447,25 +740,43 @@ impl Downloader {
     }
 
     /// Downloads a format.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to download.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_format(
         &self,
         format: &Format,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_format_to_path(format, &output_path).await
     }
 
     /// Downloads a format to a specific path.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to download.
+    /// * `output` - The absolute or relative path to save the format to.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_format_to_path(
         &self,
         format: &Format,
-        output: impl AsRef<Path> + std::fmt::Debug,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!("Downloading format {}", format.format_id);
 
-        let output_path = output.as_ref().to_path_buf();
+        let output_path = output.into();
 
         // Use the internal function to download the format without preferences
         cfg_if::cfg_if! {
@@ -478,10 +789,23 @@ impl Downloader {
     }
 
     /// Downloads a format with specific quality and codec preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format to download.
+    /// * `output` - The output filename/path relative to the download directory.
+    /// * `video_quality` - Optional video quality preference (if caching is enabled).
+    /// * `audio_quality` - Optional audio quality preference (if caching is enabled).
+    /// * `video_codec` - Optional video codec preference (if caching is enabled).
+    /// * `audio_codec` - Optional audio codec preference (if caching is enabled).
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded file.
     pub async fn download_format_with_preferences(
         &self,
         format: &Format,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
         #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
         #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
         #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
@@ -632,11 +956,21 @@ impl Downloader {
         Ok(path.clone())
     }
     /// Downloads a subtitle file for a specific language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `language_code` - The language code (e.g., "en", "es").
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded subtitle file.
     pub async fn download_subtitle(
         &self,
         video: &Video,
         language_code: impl AsRef<str>,
-        output: impl AsRef<str> + std::fmt::Debug + Display,
+        output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let language_code = language_code.as_ref();
 
@@ -739,6 +1073,15 @@ impl Downloader {
     }
 
     /// Downloads all available subtitles for a video.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `output_dir` - The directory to save the subtitles to.
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded subtitle files.
     pub async fn download_all_subtitles(
         &self,
         video: &Video,
@@ -783,43 +1126,72 @@ impl Downloader {
     }
 
     /// Fetches playlist information from a URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the playlist.
+    ///
+    /// # Returns
+    ///
+    /// A `Playlist` struct containing metadata about the playlist and its videos.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the playlist cannot be fetched or parsed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PL...").await?;
+    /// println!("Playlist title: {}", playlist.title);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_playlist_infos(
         &self,
-        url: impl Into<String>,
+        url: impl AsRef<str>,
     ) -> crate::error::Result<Playlist> {
-        let url = url.into();
+        let url_str = url.as_ref();
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching playlist information from {}", url);
+        tracing::debug!("Fetching playlist information from {}", url_str);
 
         // Check if the playlist is in the cache
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.playlist_cache
-            && let Some(playlist) = cache.get(&url).await?
+            && let Some(playlist) = cache.get(url_str).await?
         {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Using cached playlist information for {}", url);
+            tracing::debug!("Using cached playlist information for {}", url_str);
             return Ok(playlist);
         }
 
         // Delegate to the extractor
+        let extractor = self.get_extractor(url_str);
         #[cfg(feature = "tracing")]
         tracing::debug!(
             "Fetching playlist information using {} extractor",
-            self.extractor.name()
+            extractor.name()
         );
 
-        let mut playlist = self.extractor.fetch_playlist(&url).await?;
+        let mut playlist = extractor.fetch_playlist(url_str).await?;
 
         // Store the URL in the playlist for caching purposes
-        playlist.url = Some(url.clone());
+        playlist.url = Some(url_str.to_string());
 
         // Cache the playlist if caching is enabled
         #[cfg(feature = "cache")]
         if let Some(cache) = &self.playlist_cache {
             #[cfg(feature = "tracing")]
-            tracing::debug!("Caching playlist information for {}", url);
+            tracing::debug!("Caching playlist information for {}", url_str);
 
-            if let Err(_e) = cache.put(url.clone(), playlist.clone()).await {
+            if let Err(_e) = cache.put(url_str.to_string(), playlist.clone()).await {
                 #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache playlist information: {}", _e);
             }
@@ -836,6 +1208,35 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist.
+    ///
+    /// This method uses the `download_playlist_parallel` method internally with default concurrency settings.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The `Playlist` metadata struct.
+    /// * `output_pattern` - pattern for output filenames (e.g., "%(title)s.%(ext)s").
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded video files.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use std::path::PathBuf;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PL...").await?;
+    ///
+    /// // Download all videos in the playlist
+    /// let paths = downloader.download_playlist(&playlist, "%(title)s.%(ext)s").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn download_playlist(
         &self,
         playlist: &Playlist,
@@ -891,6 +1292,16 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist in parallel.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The `Playlist` metadata struct.
+    /// * `output_pattern` - pattern for output filenames.
+    /// * `max_concurrent` - Optional limit on concurrent downloads (defaults to 3).
+    ///
+    /// # Returns
+    ///
+    /// A vector of Results, each containing the path to a downloaded video or an error.
     pub async fn download_playlist_parallel(
         &self,
         playlist: &Playlist,
@@ -907,6 +1318,17 @@ impl Downloader {
     }
 
     /// Downloads all videos from a playlist in parallel with progress tracking.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The `Playlist` metadata struct.
+    /// * `output_pattern` - pattern for output filenames.
+    /// * `max_concurrent` - Optional limit on concurrent downloads.
+    /// * `progress_callback` - Optional closure called with `PlaylistDownloadProgress` updates.
+    ///
+    /// # Returns
+    ///
+    /// A vector of Results, each containing the path to a downloaded video or an error.
     pub async fn download_playlist_parallel_with_progress<F>(
         &self,
         playlist: &Playlist,
@@ -1067,6 +1489,16 @@ impl Downloader {
     }
 
     /// Downloads specific videos from a playlist by their indices.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The `Playlist` metadata struct.
+    /// * `indices` - A slice of indices (0-based) of videos to download.
+    /// * `output_pattern` - pattern for output filenames.
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded video files.
     pub async fn download_playlist_items(
         &self,
         playlist: &Playlist,
@@ -1120,6 +1552,17 @@ impl Downloader {
     }
 
     /// Downloads a range of videos from a playlist.
+    ///
+    /// # Arguments
+    ///
+    /// * `playlist` - The `Playlist` metadata struct.
+    /// * `start` - The start index (inclusive).
+    /// * `end` - The end index (inclusive).
+    /// * `output_pattern` - pattern for output filenames.
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded video files.
     pub async fn download_playlist_range(
         &self,
         playlist: &Playlist,
@@ -1167,9 +1610,19 @@ impl Downloader {
     }
 
     /// Downloads a partial range of a video using hybrid approach (yt-dlp with ffmpeg fallback).
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `range` - The partial range (time or chapters) to download.
+    /// * `output` - The output filename/path relative to the download directory.
+    ///
+    /// # Returns
+    ///
+    /// The path to the downloaded partial video file.
     pub async fn download_video_partial(
         &self,
-        video: &crate::model::Video,
+        video: &Video,
         range: &crate::download::partial::PartialRange,
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
@@ -1217,7 +1670,7 @@ impl Downloader {
     /// Attempts to download a partial video using yt-dlp's --download-sections.
     async fn try_download_partial_ytdlp(
         &self,
-        video: &crate::model::Video,
+        video: &Video,
         range: &crate::download::partial::PartialRange,
         output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
@@ -1250,7 +1703,7 @@ impl Downloader {
     /// Downloads full video and extracts partial range using ffmpeg.
     async fn download_partial_ffmpeg(
         &self,
-        video: &crate::model::Video,
+        video: &Video,
         range: &crate::download::partial::PartialRange,
         output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
@@ -1260,7 +1713,7 @@ impl Downloader {
             .ok_or_else(|| Error::Unknown("Cannot extract times from range".to_string()))?;
 
         // Download full video to temporary file
-        let temp_filename = format!("temp_full_{}.mp4", crate::utils::fs::random_filename(8));
+        let temp_filename = format!("temp_full_{}.mp4", utils::fs::random_filename(8));
         let temp_path = self.download_video(video, &temp_filename).await?;
 
         // Extract segment using ffmpeg
@@ -1302,6 +1755,94 @@ impl Downloader {
 
         // Clean up temporary file
         tokio::fs::remove_file(&temp_path).await.ok();
+
+        Ok(output_path.to_path_buf())
+    }
+
+    /// Helper to download and combine video and audio formats.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn download_and_combine_formats(
+        &self,
+        video_format: &Format,
+        audio_format: &Format,
+        output_path: &Path,
+        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
+    ) -> crate::error::Result<PathBuf> {
+        // Generate temporary filenames
+        let video_ext = format!("{:?}", video_format.download_info.ext);
+        let video_filename = format!("temp_video_{}.{}", utils::fs::random_filename(8), video_ext);
+        let audio_ext = format!("{:?}", audio_format.download_info.ext);
+        let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
+
+        // Download video and audio in parallel
+        #[cfg(feature = "cache")]
+        let (video_result, audio_result) = tokio::join!(
+            self.download_format_with_preferences(
+                video_format,
+                &video_filename,
+                video_quality,
+                None,
+                video_codec,
+                None
+            ),
+            self.download_format_with_preferences(
+                audio_format,
+                &audio_filename,
+                None,
+                audio_quality,
+                None,
+                audio_codec
+            )
+        );
+
+        #[cfg(not(feature = "cache"))]
+        let (video_result, audio_result) = tokio::join!(
+            self.download_format(video_format, &video_filename),
+            self.download_format(audio_format, &audio_filename)
+        );
+
+        // Check results
+        let video_temp_path = video_result?;
+        let audio_temp_path = audio_result?;
+
+        // Combine audio and video
+        let output_filename = output_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("output.mp4");
+
+        let combined_path = self
+            .combine_audio_and_video(&audio_filename, &video_filename, output_filename)
+            .await?;
+
+        // If the user specified a different directory than output_dir, move the file
+        if combined_path != output_path {
+            if let Some(parent) = output_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            if tokio::fs::rename(&combined_path, output_path)
+                .await
+                .is_err()
+            {
+                // rename fails across filesystems, fall back to copy+delete
+                tokio::fs::copy(&combined_path, output_path).await?;
+                tokio::fs::remove_file(&combined_path).await?;
+            }
+        }
+
+        // Clean up temporary files
+        if let Err(_e) = tokio::fs::remove_file(&video_temp_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary video file: {}", _e);
+        }
+
+        if let Err(_e) = tokio::fs::remove_file(&audio_temp_path).await {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("Failed to remove temporary audio file: {}", _e);
+        }
 
         Ok(output_path.to_path_buf())
     }

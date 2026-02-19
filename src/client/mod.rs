@@ -8,7 +8,7 @@ pub mod download_builder;
 pub mod proxy;
 pub mod streams;
 
-pub use builder::YoutubeBuilder;
+pub use builder::DownloaderBuilder;
 pub use deps::{Libraries, LibraryInstaller};
 pub use download_builder::DownloadBuilder;
 pub use proxy::{ProxyConfig, ProxyType};

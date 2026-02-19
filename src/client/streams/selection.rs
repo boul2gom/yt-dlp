@@ -33,7 +33,11 @@ impl VideoSelection for Video {
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn best_video_format(&self) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Selecting best video format for video: {}", self.id);
+        tracing::debug!(
+            video_id = %self.id,
+            format_count = self.formats.len(),
+            "Selecting best video format"
+        );
 
         self.formats
             .iter()
@@ -45,7 +49,11 @@ impl VideoSelection for Video {
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn best_audio_format(&self) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Selecting best audio format for video: {}", self.id);
+        tracing::debug!(
+            video_id = %self.id,
+            format_count = self.formats.len(),
+            "Selecting best audio format"
+        );
 
         self.formats
             .iter()
@@ -57,7 +65,11 @@ impl VideoSelection for Video {
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn worst_video_format(&self) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Selecting worst video format for video: {}", self.id);
+        tracing::debug!(
+            video_id = %self.id,
+            format_count = self.formats.len(),
+            "Selecting worst video format"
+        );
 
         self.formats
             .iter()
@@ -69,7 +81,11 @@ impl VideoSelection for Video {
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn worst_audio_format(&self) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!("Selecting worst audio format for video: {}", self.id);
+        tracing::debug!(
+            video_id = %self.id,
+            format_count = self.formats.len(),
+            "Selecting worst audio format"
+        );
 
         self.formats
             .iter()
@@ -164,10 +180,12 @@ impl VideoSelection for Video {
         codec: VideoCodecPreference,
     ) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Selecting video format with quality: {:?}, codec: {:?}",
-            quality,
-            codec
+        tracing::debug!(
+            video_id = %self.id,
+            quality = ?quality,
+            codec = ?codec,
+            total_formats = self.formats.len(),
+            "Selecting video format with preferences"
         );
 
         let video_formats: Vec<&Format> = self
@@ -237,10 +255,12 @@ impl VideoSelection for Video {
         codec: AudioCodecPreference,
     ) -> Option<&Format> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Selecting audio format with quality: {:?}, codec: {:?}",
-            quality,
-            codec
+        tracing::debug!(
+            video_id = %self.id,
+            quality = ?quality,
+            codec = ?codec,
+            total_formats = self.formats.len(),
+            "Selecting audio format with preferences"
         );
 
         let audio_formats: Vec<&Format> = self
@@ -301,15 +321,27 @@ impl VideoSelection for Video {
 }
 
 /// Selects the video format with the closest height to the target
+///
+/// # Arguments
+///
+/// * `formats` - List of video formats to choose from
+/// * `target_height` - Target height in pixels
+/// * `video` - The video being processed (for quality comparisons)
+///
+/// # Returns
+///
+/// The format with the closest height to the target, or None if no formats available
 fn select_closest_video_height<'a>(
     formats: Vec<&'a Format>,
     target_height: u32,
     video: &Video,
 ) -> Option<&'a Format> {
     #[cfg(feature = "tracing")]
-    tracing::trace!(
-        "Selecting video format closest to height: {}",
-        target_height
+    tracing::debug!(
+        target_height = target_height,
+        available_formats = formats.len(),
+        video_id = %video.id,
+        "Selecting video format closest to target height"
     );
 
     if formats.is_empty() {
@@ -362,13 +394,28 @@ fn select_closest_video_height<'a>(
 }
 
 /// Selects the video format with the closest width to the target
+///
+/// # Arguments
+///
+/// * `formats` - List of video formats to choose from
+/// * `target_width` - Target width in pixels
+/// * `video` - The video being processed (for quality comparisons)
+///
+/// # Returns
+///
+/// The format with the closest width to the target, or None if no formats available
 fn select_closest_video_width<'a>(
     formats: Vec<&'a Format>,
     target_width: u32,
     video: &Video,
 ) -> Option<&'a Format> {
     #[cfg(feature = "tracing")]
-    tracing::trace!("Selecting video format closest to width: {}", target_width);
+    tracing::debug!(
+        target_width = target_width,
+        available_formats = formats.len(),
+        video_id = %video.id,
+        "Selecting video format closest to target width"
+    );
 
     if formats.is_empty() {
         return None;
@@ -420,15 +467,27 @@ fn select_closest_video_width<'a>(
 }
 
 /// Selects the audio format with the closest bitrate to the target
+///
+/// # Arguments
+///
+/// * `formats` - List of audio formats to choose from
+/// * `target_bitrate` - Target bitrate in kbps
+/// * `video` - The video being processed (for quality comparisons)
+///
+/// # Returns
+///
+/// The format with the closest bitrate to the target, or None if no formats available
 fn select_closest_audio_bitrate<'a>(
     formats: Vec<&'a Format>,
     target_bitrate: u32,
     video: &Video,
 ) -> Option<&'a Format> {
     #[cfg(feature = "tracing")]
-    tracing::trace!(
-        "Selecting audio format closest to bitrate: {}",
-        target_bitrate
+    tracing::debug!(
+        target_bitrate = target_bitrate,
+        available_formats = formats.len(),
+        video_id = %video.id,
+        "Selecting audio format closest to target bitrate"
     );
 
     if formats.is_empty() {
@@ -481,12 +540,49 @@ fn select_closest_audio_bitrate<'a>(
 
 impl Downloader {
     /// Lists all available subtitle languages for a video.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to list subtitle languages for
+    ///
+    /// # Returns
+    ///
+    /// A vector of language codes
     pub fn list_subtitle_languages(&self, video: &Video) -> Vec<String> {
-        video.subtitles.keys().cloned().collect()
+        let languages: Vec<String> = video.subtitles.keys().cloned().collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = %video.id,
+            language_count = languages.len(),
+            languages = ?languages,
+            "Listing subtitle languages"
+        );
+
+        languages
     }
 
     /// Checks if a video has subtitles in a specific language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video to check
+    /// * `language_code` - The language code to check for
+    ///
+    /// # Returns
+    ///
+    /// `true` if subtitles are available in the specified language
     pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
-        video.subtitles.contains_key(language_code)
+        let has_language = video.subtitles.contains_key(language_code);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = %video.id,
+            language_code = language_code,
+            has_language = has_language,
+            "Checking for subtitle language"
+        );
+
+        has_language
     }
 }

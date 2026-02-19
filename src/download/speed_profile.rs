@@ -78,39 +78,93 @@ impl fmt::Display for SpeedProfile {
 
 impl SpeedProfile {
     /// Get the maximum number of concurrent downloads for this profile
+    ///
+    /// # Returns
+    ///
+    /// Maximum number of concurrent downloads
     pub fn max_concurrent_downloads(&self) -> usize {
-        match self {
+        let result = match self {
             Self::Conservative => CONSERVATIVE_CONCURRENT,
             Self::Balanced => BALANCED_CONCURRENT,
             Self::Aggressive => AGGRESSIVE_CONCURRENT,
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            max_concurrent = result,
+            "Retrieved max concurrent downloads for profile"
+        );
+
+        result
     }
 
     /// Get the segment size in bytes for this profile
+    ///
+    /// # Returns
+    ///
+    /// Segment size in bytes
     pub fn segment_size(&self) -> usize {
-        match self {
+        let result = match self {
             Self::Conservative => CONSERVATIVE_SEGMENT_SIZE,
             Self::Balanced => BALANCED_SEGMENT_SIZE,
             Self::Aggressive => AGGRESSIVE_SEGMENT_SIZE,
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            segment_size = result,
+            segment_size_mb = result / (1024 * 1024),
+            "Retrieved segment size for profile"
+        );
+
+        result
     }
 
     /// Get the number of parallel segments per download for this profile
+    ///
+    /// # Returns
+    ///
+    /// Number of parallel segments
     pub fn parallel_segments(&self) -> usize {
-        match self {
+        let result = match self {
             Self::Conservative => CONSERVATIVE_PARALLEL,
             Self::Balanced => BALANCED_PARALLEL,
             Self::Aggressive => AGGRESSIVE_PARALLEL,
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            parallel_segments = result,
+            "Retrieved parallel segments for profile"
+        );
+
+        result
     }
 
     /// Get the maximum buffer size in bytes for this profile
+    ///
+    /// # Returns
+    ///
+    /// Maximum buffer size in bytes
     pub fn max_buffer_size(&self) -> usize {
-        match self {
+        let result = match self {
             Self::Conservative => CONSERVATIVE_BUFFER,
             Self::Balanced => BALANCED_BUFFER,
             Self::Aggressive => AGGRESSIVE_BUFFER,
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            buffer_size = result,
+            buffer_size_mb = result / (1024 * 1024),
+            "Retrieved max buffer size for profile"
+        );
+
+        result
     }
 
     /// Get the maximum parallel segments for large files (> 2 GB)
@@ -137,6 +191,16 @@ impl SpeedProfile {
     pub fn calculate_optimal_segments(&self, file_size: u64, segment_size: u64) -> usize {
         let total_segments = file_size.div_ceil(segment_size);
         let file_size_mb = file_size / (1024 * 1024);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            file_size = file_size,
+            file_size_mb = file_size_mb,
+            segment_size = segment_size,
+            total_segments = total_segments,
+            "Calculating optimal segments for file"
+        );
 
         let max_parallel_segments = match self {
             Self::Conservative => match file_size_mb {
@@ -168,7 +232,18 @@ impl SpeedProfile {
             },
         };
 
-        std::cmp::min(total_segments as usize, max_parallel_segments)
+        let result = std::cmp::min(total_segments as usize, max_parallel_segments);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            profile = %self,
+            file_size_mb = file_size_mb,
+            max_parallel_segments = max_parallel_segments,
+            optimal_segments = result,
+            "Calculated optimal segments for file"
+        );
+
+        result
     }
 
     /// Get the maximum number of concurrent downloads for playlists

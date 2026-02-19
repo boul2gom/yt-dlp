@@ -7,6 +7,7 @@ use crate::client::streams::selection::VideoSelection;
 use crate::download::DownloadPriority;
 use crate::download::partial::PartialRange;
 use crate::error::Result;
+use crate::model::Video;
 use crate::model::format::FormatType;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
@@ -41,13 +42,23 @@ impl<'a> DownloadBuilder<'a> {
     /// * `output` - Output path for the downloaded file
     pub fn new(
         downloader: &'a Downloader,
-        url: impl Into<String>,
+        url: impl AsRef<str>,
         output: impl Into<PathBuf>,
     ) -> Self {
+        let url = url.as_ref().to_string();
+        let output = output.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            output = ?output,
+            "Creating new DownloadBuilder"
+        );
+
         Self {
             downloader,
-            url: url.into(),
-            output: output.into(),
+            url,
+            output,
             video_quality: None,
             audio_quality: None,
             video_codec: None,
@@ -60,30 +71,45 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the desired video quality.
     pub fn video_quality(mut self, quality: VideoQuality) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(quality = ?quality, "Setting video quality");
+
         self.video_quality = Some(quality);
         self
     }
 
     /// Sets the desired audio quality.
     pub fn audio_quality(mut self, quality: AudioQuality) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(quality = ?quality, "Setting audio quality");
+
         self.audio_quality = Some(quality);
         self
     }
 
     /// Sets the preferred video codec.
     pub fn video_codec(mut self, codec: VideoCodecPreference) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(codec = ?codec, "Setting video codec preference");
+
         self.video_codec = Some(codec);
         self
     }
 
     /// Sets the preferred audio codec.
     pub fn audio_codec(mut self, codec: AudioCodecPreference) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(codec = ?codec, "Setting audio codec preference");
+
         self.audio_codec = Some(codec);
         self
     }
 
     /// Sets the download priority.
     pub fn priority(mut self, priority: DownloadPriority) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(priority = ?priority, "Setting download priority");
+
         self.priority = priority;
         self
     }
@@ -105,6 +131,9 @@ impl<'a> DownloadBuilder<'a> {
     ///
     /// * `range` - The partial range to download (time range or chapter range)
     pub fn partial(mut self, range: PartialRange) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(range = ?range, "Setting partial download range");
+
         self.partial_range = Some(range);
         self
     }
@@ -153,26 +182,49 @@ impl<'a> DownloadBuilder<'a> {
         let video_codec = self.video_codec.unwrap_or(VideoCodecPreference::Any);
         let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
 
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %self.url,
+            output = ?self.output,
+            video_quality = ?video_quality,
+            audio_quality = ?audio_quality,
+            video_codec = ?video_codec,
+            audio_codec = ?audio_codec,
+            priority = ?self.priority,
+            has_progress_callback = self.progress_callback.is_some(),
+            has_partial_range = self.partial_range.is_some(),
+            "Executing download"
+        );
+
         // Fetch video information
         let video = self.downloader.fetch_video_infos(self.url.clone()).await?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_id = %video.id,
+            video_title = %video.title,
+            format_count = video.formats.len(),
+            "Fetched video information"
+        );
 
         // Select video format based on quality and codec preferences
         let video_format = video
             .select_video_format(video_quality, video_codec.clone())
-            .ok_or_else(|| crate::error::Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Video,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+            .ok_or_else(|| Self::format_not_available(&video, FormatType::Video))?;
 
         // Select audio format based on quality and codec preferences
         let audio_format = video
             .select_audio_format(audio_quality, audio_codec.clone())
-            .ok_or_else(|| crate::error::Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Audio,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+            .ok_or_else(|| Self::format_not_available(&video, FormatType::Audio))?;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_format_id = %video_format.format_id,
+            audio_format_id = %audio_format.format_id,
+            video_ext = ?video_format.download_info.ext,
+            audio_ext = ?audio_format.download_info.ext,
+            "Selected video and audio formats"
+        );
 
         // Generate temporary filenames for video and audio
         let video_ext = format!("{:?}", video_format.download_info.ext);
@@ -190,19 +242,17 @@ impl<'a> DownloadBuilder<'a> {
         );
 
         // Get download URLs
-        let video_url = video_format.download_info.url.as_ref().ok_or_else(|| {
-            crate::error::Error::FormatNoUrl {
-                video_id: video.id.clone(),
-                format_id: video_format.format_id.clone(),
-            }
-        })?;
+        let video_url = video_format
+            .download_info
+            .url
+            .as_ref()
+            .ok_or_else(|| Self::format_no_url(&video.id, &video_format.format_id))?;
 
-        let audio_url = audio_format.download_info.url.as_ref().ok_or_else(|| {
-            crate::error::Error::FormatNoUrl {
-                video_id: video.id.clone(),
-                format_id: audio_format.format_id.clone(),
-            }
-        })?;
+        let audio_url = audio_format
+            .download_info
+            .url
+            .as_ref()
+            .ok_or_else(|| Self::format_no_url(&video.id, &audio_format.format_id))?;
 
         // Create output paths
         let video_path = self.downloader.output_dir.join(&video_filename);
@@ -276,6 +326,13 @@ impl<'a> DownloadBuilder<'a> {
         };
 
         // Wait for both downloads to complete
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            video_download_id = video_download_id,
+            audio_download_id = audio_download_id,
+            "Waiting for downloads to complete"
+        );
+
         let video_status = self.downloader.wait_for_download(video_download_id).await;
         let audio_status = self.downloader.wait_for_download(audio_download_id).await;
 
@@ -283,6 +340,12 @@ impl<'a> DownloadBuilder<'a> {
         use crate::download::DownloadStatus;
         match (video_status, audio_status) {
             (Some(DownloadStatus::Completed), Some(DownloadStatus::Completed)) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    output = ?self.output,
+                    "Both downloads completed, combining audio and video"
+                );
+
                 // Both downloads completed successfully, combine them
                 if self.output.is_absolute() {
                     // Use the absolute path directly, bypassing output_dir
@@ -320,6 +383,21 @@ impl<'a> DownloadBuilder<'a> {
             _ => Err(crate::error::Error::Unknown(
                 "Unexpected download status".to_string(),
             )),
+        }
+    }
+
+    fn format_not_available(video: &Video, format_type: FormatType) -> crate::error::Error {
+        crate::error::Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        }
+    }
+
+    fn format_no_url(video_id: &str, format_id: &str) -> crate::error::Error {
+        crate::error::Error::FormatNoUrl {
+            video_id: video_id.to_string(),
+            format_id: format_id.to_string(),
         }
     }
 }

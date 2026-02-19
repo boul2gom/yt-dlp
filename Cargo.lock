@@ -464,6 +464,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+
+[[package]]
 name = "filetime"
 version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2110,6 +2116,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempfile"
+version = "3.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.1",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3059,6 +3078,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",

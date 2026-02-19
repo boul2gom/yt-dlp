@@ -6,8 +6,8 @@
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::format::{Extension, Format};
-use std::fmt::Debug;
-use std::path::Path;
+use std::path::PathBuf;
+
 use std::str::FromStr;
 
 use super::MetadataManager;
@@ -26,34 +26,76 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the file format is unsupported or if metadata writing fails
-    pub async fn add_metadata(
-        &self,
-        file_path: impl AsRef<Path> + Send + Sync,
-        video: &Video,
-    ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Adding metadata to file: {:?}", file_path.as_ref());
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::metadata::MetadataManager;
+    /// # use yt_dlp::model::Video;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let manager = MetadataManager::new();
+    /// # let video: Video = todo!();
+    /// // video obtained from a fetch_video_infos call
+    /// manager.add_metadata("video.mp4", &video).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn add_metadata(&self, file_path: impl Into<PathBuf>, video: &Video) -> Result<()> {
+        let file_path: std::path::PathBuf = file_path.into();
 
-        let file_format = Self::get_file_extension(file_path.as_ref())?;
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            video_id = %video.id,
+            title = %video.title,
+            "Adding metadata to file"
+        );
+
+        let file_format = Self::get_file_extension(&file_path)?;
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        match extension {
-            Extension::Mp3 => {
-                Self::add_metadata_to_mp3(file_path.as_ref(), video, None, None).await
-            }
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            file_format = %file_format,
+            extension = ?extension,
+            "Detected file format and extension"
+        );
+
+        let result = match extension {
+            Extension::Mp3 => Self::add_metadata_to_mp3(&file_path, video, None, None).await,
             Extension::M4A | Extension::Mp4 => {
-                Self::add_metadata_to_m4a(file_path.as_ref(), video, None, None, None).await
+                Self::add_metadata_to_m4a(&file_path, video, None, None, None).await
             }
             Extension::Webm => {
-                self.add_metadata_to_webm(file_path.as_ref(), video, None, None, None)
+                self.add_metadata_to_webm(&file_path, video, None, None, None)
                     .await
             }
             _ => {
-                self.add_ffmpeg_metadata(file_path.as_ref(), video, &file_format, None, None, None)
+                self.add_ffmpeg_metadata(&file_path, video, &file_format, None, None, None)
                     .await
             }
+        };
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(()) => tracing::debug!(
+                file_path = ?file_path,
+                video_id = %video.id,
+                "Metadata added successfully"
+            ),
+            Err(e) => tracing::warn!(
+                file_path = ?file_path,
+                video_id = %video.id,
+                error = %e,
+                "Failed to add metadata"
+            ),
         }
+
+        result
     }
 
     /// Add metadata to a file with format details for audio and video.
@@ -74,48 +116,49 @@ impl MetadataManager {
     /// Returns an error if the file format is unsupported or if metadata writing fails
     pub async fn add_metadata_with_format(
         &self,
-        file_path: impl AsRef<Path>,
+        file_path: impl Into<PathBuf>,
         video: &Video,
         video_format: Option<&Format>,
         audio_format: Option<&Format>,
     ) -> Result<()> {
+        let file_path: PathBuf = file_path.into();
+
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "Adding metadata with format to file: {:?}",
-            file_path.as_ref()
+        tracing::debug!(
+            file_path = ?file_path,
+            video_id = %video.id,
+            title = %video.title,
+            has_video_format = video_format.is_some(),
+            has_audio_format = audio_format.is_some(),
+            "Adding metadata with format details to file"
         );
 
-        let file_format = Self::get_file_extension(file_path.as_ref())?;
+        let file_format = Self::get_file_extension(&file_path)?;
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        match extension {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            file_format = %file_format,
+            extension = ?extension,
+            "Detected file format and extension"
+        );
+
+        let result = match extension {
             Extension::Mp3 => {
-                Self::add_metadata_to_mp3(file_path.as_ref(), video, audio_format, None).await
+                Self::add_metadata_to_mp3(&file_path, video, audio_format, None).await
             }
             Extension::M4A | Extension::Mp4 => {
-                Self::add_metadata_to_m4a(
-                    file_path.as_ref(),
-                    video,
-                    audio_format,
-                    video_format,
-                    None,
-                )
-                .await
+                Self::add_metadata_to_m4a(&file_path, video, audio_format, video_format, None).await
             }
             Extension::Webm => {
-                self.add_metadata_to_webm(
-                    file_path.as_ref(),
-                    video,
-                    video_format,
-                    audio_format,
-                    None,
-                )
-                .await
+                self.add_metadata_to_webm(&file_path, video, video_format, audio_format, None)
+                    .await
             }
             _ => {
                 self.add_ffmpeg_metadata(
-                    file_path.as_ref(),
+                    &file_path,
                     video,
                     &file_format,
                     video_format,
@@ -124,7 +167,24 @@ impl MetadataManager {
                 )
                 .await
             }
+        };
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(()) => tracing::debug!(
+                file_path = ?file_path,
+                video_id = %video.id,
+                "Metadata with format added successfully"
+            ),
+            Err(e) => tracing::warn!(
+                file_path = ?file_path,
+                video_id = %video.id,
+                error = %e,
+                "Failed to add metadata with format"
+            ),
         }
+
+        result
     }
 
     /// Add a thumbnail to a file based on its format.
@@ -139,34 +199,78 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the file format doesn't support thumbnails or if embedding fails
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::metadata::MetadataManager;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let manager = MetadataManager::new();
+    /// manager.add_thumbnail_to_file("video.mp3", "cover.jpg").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn add_thumbnail_to_file(
         &self,
-        file_path: impl AsRef<Path> + Debug + Copy,
-        thumbnail_path: impl AsRef<Path>,
+        file_path: impl Into<PathBuf>,
+        thumbnail_path: impl Into<PathBuf>,
     ) -> Result<()> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Adding thumbnail to file: {:?}", file_path.as_ref());
+        let file_path: PathBuf = file_path.into();
+        let thumbnail_path: PathBuf = thumbnail_path.into();
 
-        let file_format = Self::get_file_extension(file_path.as_ref())?;
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            thumbnail_path = ?thumbnail_path,
+            "Adding thumbnail to file"
+        );
+
+        let file_format = Self::get_file_extension(&file_path)?;
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        match extension {
-            Extension::Mp3 => {
-                Self::add_thumbnail_to_mp3(file_path.as_ref(), thumbnail_path.as_ref()).await
-            }
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_path = ?file_path,
+            file_format = %file_format,
+            extension = ?extension,
+            "Detected file format for thumbnail"
+        );
+
+        let result = match extension {
+            Extension::Mp3 => Self::add_thumbnail_to_mp3(&file_path, &thumbnail_path).await,
             Extension::M4A | Extension::Mp4 => {
-                Self::add_thumbnail_to_m4a(file_path.as_ref(), thumbnail_path.as_ref()).await
+                Self::add_thumbnail_to_m4a(&file_path, &thumbnail_path).await
             }
             Extension::Webm => {
-                self.add_thumbnail_to_webm(file_path.as_ref(), thumbnail_path.as_ref())
+                self.add_thumbnail_to_webm(&file_path, &thumbnail_path)
                     .await
             }
             _ => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Thumbnails not supported for file format: {}", file_format);
+                tracing::debug!(
+                    file_format = %file_format,
+                    "Thumbnails not supported for file format"
+                );
                 Ok(())
             }
+        };
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(()) => tracing::debug!(
+                file_path = ?file_path,
+                "Thumbnail added successfully"
+            ),
+            Err(e) => tracing::warn!(
+                file_path = ?file_path,
+                error = %e,
+                "Failed to add thumbnail"
+            ),
         }
+
+        result
     }
 }

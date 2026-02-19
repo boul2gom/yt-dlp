@@ -23,3 +23,48 @@ pub use video::{CachedFile, CachedThumbnail, CachedVideo};
 pub use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Returns the current timestamp in seconds since UNIX epoch.
+///
+/// # Returns
+///
+/// Unix timestamp in seconds as i64.
+pub fn current_timestamp() -> i64 {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(timestamp = timestamp, "Retrieved current timestamp");
+
+    timestamp
+}
+
+/// Checks if a timestamp is expired given a TTL.
+///
+/// # Arguments
+///
+/// * `cached_at` - The timestamp when the item was cached (Unix timestamp in seconds)
+/// * `ttl` - Time-to-live in seconds
+///
+/// # Returns
+///
+/// `true` if the cached item has expired, `false` otherwise.
+pub fn is_expired(cached_at: i64, ttl: u64) -> bool {
+    let now = current_timestamp();
+    let expired = (now - cached_at) > ttl as i64;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        cached_at = cached_at,
+        ttl = ttl,
+        now = now,
+        expired = expired,
+        "Checking cache expiration"
+    );
+
+    expired
+}

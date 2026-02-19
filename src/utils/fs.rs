@@ -1,7 +1,7 @@
 //! Tools for working with the file system.
 
 use crate::error::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tar::Archive;
 use tokio::fs::{File, OpenOptions};
 use uuid::Uuid;
@@ -9,47 +9,143 @@ use xz2::read::XzDecoder;
 use zip::ZipArchive;
 
 /// Returns the name of the given path.
-pub fn try_name(path: impl AsRef<Path>) -> Result<String> {
+///
+/// # Arguments
+///
+/// * `path` - The path to extract the name from
+///
+/// # Returns
+///
+/// The file name as a string
+///
+/// # Errors
+///
+/// Returns an error if the path has no file name or contains invalid UTF-8
+pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
+    let path: PathBuf = path.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        "Extracting file name from path"
+    );
+
     let name = path
-        .as_ref()
         .file_name()
         .ok_or(Error::Unknown("Failed to get name".to_string()))?;
     let name = name
         .to_str()
         .ok_or(Error::Unknown("Failed to convert name".to_string()))?;
 
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        name = name,
+        "File name extracted"
+    );
+
     Ok(name.to_string())
 }
 
 /// Returns the name of the given path without the extension.
-pub fn try_without_extension(path: impl AsRef<Path>) -> Result<String> {
+///
+/// # Arguments
+///
+/// * `path` - The path to extract the name from
+///
+/// # Returns
+///
+/// The file name without extension
+///
+/// # Errors
+///
+/// Returns an error if the path has no file stem or contains invalid UTF-8
+pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
+    let path: PathBuf = path.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        "Extracting file stem from path"
+    );
+
     let name = path
-        .as_ref()
         .file_stem()
         .ok_or(Error::Unknown("Failed to get file stem".to_string()))?;
     let name = name.to_str().ok_or(Error::Unknown(
         "Failed to convert file stem to string".to_string(),
     ))?;
 
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        stem = name,
+        "File stem extracted"
+    );
+
     Ok(name.to_string())
 }
 
 /// Returns the parent directory of the given path.
-pub fn try_parent(path: impl AsRef<Path>) -> Result<PathBuf> {
+///
+/// # Arguments
+///
+/// * `path` - The path to extract the parent from
+///
+/// # Returns
+///
+/// The parent directory path
+///
+/// # Errors
+///
+/// Returns an error if the path has no parent
+pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
+    let path: PathBuf = path.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        "Extracting parent directory from path"
+    );
+
     let parent = path
-        .as_ref()
         .parent()
         .ok_or(Error::Unknown("Failed to get parent".to_string()))?;
 
-    Ok(parent.to_path_buf())
+    let parent_buf = parent.to_path_buf();
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        path = ?path,
+        parent = ?parent_buf,
+        "Parent directory extracted"
+    );
+
+    Ok(parent_buf)
 }
 
 /// Creates a new file at the given destination.
 ///
 /// # Arguments
 ///
-/// * `destination` - The path to create the file at.
-pub async fn create_file(destination: impl AsRef<Path> + Send + Sync) -> Result<File> {
+/// * `destination` - The path to create the file at
+///
+/// # Returns
+///
+/// An opened file handle
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created
+pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
+    let destination: PathBuf = destination.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "Creating new file"
+    );
+
     let mut open_options = OpenOptions::new();
     open_options.read(true);
     open_options.write(true);
@@ -60,7 +156,14 @@ pub async fn create_file(destination: impl AsRef<Path> + Send + Sync) -> Result<
         open_options.mode(0o755);
     }
 
-    let file = open_options.open(destination).await?;
+    let file = open_options.open(&destination).await?;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "File created successfully"
+    );
+
     Ok(file)
 }
 
@@ -69,9 +172,32 @@ pub async fn create_file(destination: impl AsRef<Path> + Send + Sync) -> Result<
 ///
 /// # Arguments
 ///
-/// * `destination` - The path to create the directory at.
-pub async fn create_dir(destination: impl AsRef<Path> + Send + Sync) -> Result<()> {
-    tokio::fs::create_dir_all(destination).await?;
+/// * `destination` - The path to create the directory at
+///
+/// # Returns
+///
+/// Ok(()) if the directory was created or already exists
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created
+pub async fn create_dir(destination: impl Into<PathBuf>) -> Result<()> {
+    let destination: PathBuf = destination.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "Creating directory"
+    );
+
+    tokio::fs::create_dir_all(&destination).await?;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "Directory created successfully"
+    );
+
     Ok(())
 }
 
@@ -80,13 +206,45 @@ pub async fn create_dir(destination: impl AsRef<Path> + Send + Sync) -> Result<(
 ///
 /// # Arguments
 ///
-/// * `destination` - The path to create the parent directory for.
-pub async fn create_parent_dir(destination: impl AsRef<Path> + Send + Sync) -> Result<()> {
-    if let Some(parent) = destination.as_ref().parent() {
+/// * `destination` - The path to create the parent directory for
+///
+/// # Returns
+///
+/// Ok(()) if the parent directory was created or already exists
+///
+/// # Errors
+///
+/// Returns an error if the parent directory cannot be created
+pub async fn create_parent_dir(destination: impl Into<PathBuf>) -> Result<()> {
+    let destination: PathBuf = destination.into();
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "Creating parent directory"
+    );
+
+    if let Some(parent) = destination.parent() {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            parent = ?parent,
+            "Creating parent directory"
+        );
         tokio::fs::create_dir_all(parent).await?;
     } else {
-        tokio::fs::create_dir_all(destination.as_ref()).await?;
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            destination = ?destination,
+            "No parent, creating destination as directory"
+        );
+        tokio::fs::create_dir_all(&destination).await?;
     }
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        destination = ?destination,
+        "Parent directory created successfully"
+    );
 
     Ok(())
 }
@@ -98,18 +256,21 @@ pub async fn create_parent_dir(destination: impl AsRef<Path> + Send + Sync) -> R
 /// * `zip_path` - The path to the zip file.
 /// * `destination` - The path to extract the zip file to.
 pub async fn extract_zip(
-    zip_path: impl AsRef<Path> + std::fmt::Debug,
-    destination: impl AsRef<Path> + std::fmt::Debug,
+    zip_path: impl Into<PathBuf>,
+    destination: impl Into<PathBuf>,
 ) -> Result<()> {
+    let zip_path: PathBuf = zip_path.into();
+    let destination: PathBuf = destination.into();
+
     #[cfg(feature = "tracing")]
     tracing::debug!(
-        "Extracting zip file: {:?} to {:?}",
-        zip_path.as_ref(),
-        destination.as_ref()
+        zip_path = ?zip_path,
+        destination = ?destination,
+        "Extracting zip file"
     );
 
-    let zip_path = zip_path.as_ref().to_path_buf();
-    let destination = destination.as_ref().to_path_buf();
+    let zip_path_for_tracing = zip_path.clone();
+    let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
         let file = std::fs::File::open(&zip_path)
@@ -168,6 +329,13 @@ pub async fn extract_zip(
     .await
     .map_err(|e| Error::Unknown(e.to_string()))??;
 
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        zip_path = ?zip_path_for_tracing,
+        destination = ?destination_for_tracing,
+        "Zip file extracted successfully"
+    );
+
     Ok(())
 }
 
@@ -178,18 +346,21 @@ pub async fn extract_zip(
 /// * `tar_path` - The path to the tar.xz file.
 /// * `destination` - The path to extract the tar.xz file to.
 pub async fn extract_tar_xz(
-    tar_path: impl AsRef<Path> + std::fmt::Debug,
-    destination: impl AsRef<Path> + std::fmt::Debug,
+    tar_path: impl Into<PathBuf>,
+    destination: impl Into<PathBuf>,
 ) -> Result<()> {
+    let tar_path: PathBuf = tar_path.into();
+    let destination: PathBuf = destination.into();
+
     #[cfg(feature = "tracing")]
     tracing::debug!(
-        "Extracting tar.xz file: {:?} to {:?}",
-        tar_path.as_ref(),
-        destination.as_ref()
+        tar_path = ?tar_path,
+        destination = ?destination,
+        "Extracting tar.xz file"
     );
 
-    let tar_path = tar_path.as_ref().to_path_buf();
-    let destination = destination.as_ref().to_path_buf();
+    let tar_path_for_tracing = tar_path.clone();
+    let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
         let file = std::fs::File::open(&tar_path)
@@ -207,6 +378,13 @@ pub async fn extract_tar_xz(
     .await
     .map_err(|e| Error::Unknown(e.to_string()))??;
 
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        tar_path = ?tar_path_for_tracing,
+        destination = ?destination_for_tracing,
+        "Tar.xz file extracted successfully"
+    );
+
     Ok(())
 }
 
@@ -216,11 +394,10 @@ pub async fn extract_tar_xz(
 ///
 /// * `executable` - The path to the executable file.
 #[cfg(not(target_os = "windows"))]
-pub async fn set_executable(executable: impl AsRef<Path> + Send + Sync) -> Result<()> {
+pub async fn set_executable(executable: impl Into<PathBuf>) -> Result<()> {
+    let executable: PathBuf = executable.into();
     use std::os::unix::fs::PermissionsExt;
-    let mut perms = tokio::fs::metadata(executable.as_ref())
-        .await?
-        .permissions();
+    let mut perms = tokio::fs::metadata(&executable).await?.permissions();
 
     perms.set_mode(0o755);
     tokio::fs::set_permissions(executable, perms).await?;
@@ -234,7 +411,7 @@ pub async fn set_executable(executable: impl AsRef<Path> + Send + Sync) -> Resul
 ///
 /// * `executable` - The path to the executable file.
 #[cfg(target_os = "windows")]
-pub async fn set_executable(_executable: impl AsRef<Path> + Send + Sync) -> Result<()> {
+pub async fn set_executable(_executable: impl Into<PathBuf>) -> Result<()> {
     // Windows doesn't use executable bits, so this is a no-op
     Ok(())
 }
@@ -304,7 +481,8 @@ pub fn extract_video_id(filename: &str) -> Option<String> {
 /// # Returns
 ///
 /// `true` if the file was successfully deleted, `false` otherwise
-pub async fn remove_temp_file(file_path: impl AsRef<Path> + std::fmt::Debug + Send + Sync) -> bool {
+pub async fn remove_temp_file(file_path: impl Into<PathBuf>) -> bool {
+    let file_path: PathBuf = file_path.into();
     let result = tokio::fs::remove_file(&file_path).await;
 
     #[cfg(feature = "tracing")]

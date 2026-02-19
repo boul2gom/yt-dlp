@@ -18,14 +18,15 @@
 //! - **Separate streams** (to be combined later): NO metadata applied to avoid redundant work
 //! - **Combined files**: Complete metadata applied to final file, including info from both streams
 
+use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 
-mod api;
-mod base;
-mod chapters;
-mod ffmpeg;
-mod mp3;
-mod mp4;
+pub mod api;
+pub mod base;
+pub mod chapters;
+pub mod ffmpeg;
+pub mod mp3;
+pub mod mp4;
 pub mod postprocess;
 
 // Re-export the trait
@@ -59,10 +60,20 @@ impl MetadataManager {
     ///
     /// The default ffmpeg path is "ffmpeg" unless overridden by the `FFMPEG_PATH`
     /// environment variable.
+    ///
+    /// # Returns
+    ///
+    /// A new MetadataManager instance
     pub fn new() -> Self {
-        Self {
-            ffmpeg_path: Self::default_ffmpeg_path(),
-        }
+        let ffmpeg_path = Self::default_ffmpeg_path();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            ffmpeg_path = ?ffmpeg_path,
+            "Creating new MetadataManager"
+        );
+
+        Self { ffmpeg_path }
     }
 
     /// Create a new MetadataManager with custom ffmpeg path.
@@ -70,19 +81,44 @@ impl MetadataManager {
     /// # Arguments
     ///
     /// * `ffmpeg_path` - Path to the ffmpeg executable
-    pub fn with_ffmpeg_path(ffmpeg_path: impl AsRef<Path>) -> Self {
-        Self {
-            ffmpeg_path: ffmpeg_path.as_ref().to_path_buf(),
-        }
+    ///
+    /// # Returns
+    ///
+    /// A new MetadataManager instance with custom ffmpeg path
+    pub fn with_ffmpeg_path(ffmpeg_path: impl Into<PathBuf>) -> Self {
+        let ffmpeg_path = ffmpeg_path.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            ffmpeg_path = ?ffmpeg_path,
+            "Creating MetadataManager with custom ffmpeg path"
+        );
+
+        Self { ffmpeg_path }
     }
 
     /// Get the default ffmpeg path.
     ///
     /// Can be overridden via the `FFMPEG_PATH` environment variable.
+    ///
+    /// # Returns
+    ///
+    /// PathBuf to the ffmpeg executable
     pub(crate) fn default_ffmpeg_path() -> PathBuf {
         std::env::var("FFMPEG_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
+            .map(|path| {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    ffmpeg_path = %path,
+                    "Using ffmpeg path from FFMPEG_PATH environment variable"
+                );
+                PathBuf::from(path)
+            })
+            .unwrap_or_else(|_| {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("Using default ffmpeg path");
+                PathBuf::from("ffmpeg")
+            })
     }
 
     /// Get the file extension from a path.
@@ -98,19 +134,28 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the file has no extension or contains invalid characters
-    pub(crate) fn get_file_extension(file_path: impl AsRef<Path>) -> crate::error::Result<String> {
-        #[cfg(feature = "tracing")]
-        tracing::trace!("Getting file extension for {:?}", file_path.as_ref());
+    pub(crate) fn get_file_extension(file_path: impl Into<PathBuf>) -> Result<String> {
+        let path: PathBuf = file_path.into();
 
-        let path = file_path.as_ref();
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            file_path = ?path,
+            "Getting file extension"
+        );
+
         let ext = path
             .extension()
-            .ok_or_else(|| crate::error::Error::path_validation(path, "File has no extension"))?
+            .ok_or_else(|| Error::path_validation(&path, "File has no extension"))?
             .to_str()
-            .ok_or_else(|| {
-                crate::error::Error::path_validation(path, "Invalid characters in file extension")
-            })?
+            .ok_or_else(|| Error::path_validation(&path, "Invalid characters in file extension"))?
             .to_lowercase();
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            file_path = ?path,
+            extension = %ext,
+            "File extension extracted"
+        );
 
         Ok(ext)
     }
@@ -130,27 +175,42 @@ impl MetadataManager {
     ///
     /// Returns an error if the path cannot be created
     pub(crate) fn create_temp_output_path(
-        file_path: impl AsRef<Path>,
+        file_path: impl Into<PathBuf>,
         file_format: &str,
     ) -> crate::error::Result<PathBuf> {
+        let path: PathBuf = file_path.into();
+
         #[cfg(feature = "tracing")]
         tracing::trace!(
-            "Creating temporary output path for {:?}",
-            file_path.as_ref()
+            file_path = ?path,
+            file_format = file_format,
+            "Creating temporary output path"
         );
 
-        let path = file_path.as_ref();
         let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
         let uuid = uuid::Uuid::new_v4();
 
-        if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-            Ok(parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format)))
+        let temp_path = if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
+            parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format))
         } else {
-            Ok(parent_dir.join(format!("output_{}_temp.{}", uuid, file_format)))
-        }
+            parent_dir.join(format!("output_{}_temp.{}", uuid, file_format))
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            original_path = ?path,
+            temp_path = ?temp_path,
+            "Temporary output path created"
+        );
+
+        Ok(temp_path)
     }
 
     /// Log metadata debug messages if tracing is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `_message` - Message to log
     pub(crate) fn log_metadata_debug<S: AsRef<str>>(_message: S) {
         #[cfg(feature = "tracing")]
         tracing::debug!("{}", _message.as_ref());

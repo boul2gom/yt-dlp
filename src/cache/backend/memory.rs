@@ -40,6 +40,12 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn get(&self, url: &str) -> Result<Option<Video>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            ttl = self.ttl,
+            "Looking for video in memory cache by URL"
+        );
         let data = self.data.read().await;
 
         if let Some(cached) = data.get(url) {
@@ -57,6 +63,13 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            video_id = %video.id,
+            video_title = %video.title,
+            "Caching video to memory backend"
+        );
         let mut data = self.data.write().await;
         let cached = CachedVideo::from((url.clone(), video));
         data.insert(url, cached);
@@ -64,12 +77,16 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url, "Removing video from memory cache");
         let mut data = self.data.write().await;
         data.remove(url);
         Ok(())
     }
 
     async fn clean(&self) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(ttl = self.ttl, "Cleaning memory video cache");
         let mut data = self.data.write().await;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -119,6 +136,12 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            hash = hash,
+            ttl = self.ttl,
+            "Looking for file in memory cache by hash"
+        );
         let files = self.files.read().await;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -193,6 +216,16 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            filename = %file.filename,
+            file_id = %file.id,
+            source_path = ?source_path,
+            video_id = ?file.video_id,
+            format_id = ?file.format_id,
+            filesize = file.filesize,
+            "Caching file to memory backend"
+        );
         let mut files = self.files.write().await;
         let path = PathBuf::from(&file.relative_path);
 
@@ -203,12 +236,16 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(file_id = id, "Removing file from memory cache");
         let mut files = self.files.write().await;
         files.remove(id);
         Ok(())
     }
 
     async fn clean(&self) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(ttl = self.ttl, "Cleaning memory file cache");
         let mut files = self.files.write().await;
         let mut thumbnails = self.thumbnails.write().await;
         let now = SystemTime::now()

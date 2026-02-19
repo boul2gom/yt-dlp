@@ -22,14 +22,27 @@ pub enum VideoCodec {
 
 impl VideoCodec {
     /// Converts to FFmpeg codec name
+    ///
+    /// # Returns
+    ///
+    /// The FFmpeg codec name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        match self {
+        let result = match self {
             Self::H264 => "libx264",
             Self::H265 => "libx265",
             Self::VP9 => "libvpx-vp9",
             Self::AV1 => "libaom-av1",
             Self::Copy => "copy",
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            codec = ?self,
+            ffmpeg_name = result,
+            "Converted video codec to FFmpeg name"
+        );
+
+        result
     }
 }
 
@@ -50,14 +63,27 @@ pub enum AudioCodec {
 
 impl AudioCodec {
     /// Converts to FFmpeg codec name
+    ///
+    /// # Returns
+    ///
+    /// The FFmpeg codec name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        match self {
+        let result = match self {
             Self::AAC => "aac",
             Self::MP3 => "libmp3lame",
             Self::Opus => "libopus",
             Self::Vorbis => "libvorbis",
             Self::Copy => "copy",
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            codec = ?self,
+            ffmpeg_name = result,
+            "Converted audio codec to FFmpeg name"
+        );
+
+        result
     }
 }
 
@@ -84,6 +110,10 @@ pub enum Resolution {
 
 impl Resolution {
     /// Returns the width and height for this resolution
+    ///
+    /// # Returns
+    ///
+    /// A tuple (width, height) in pixels
     pub fn dimensions(&self) -> (u32, u32) {
         match self {
             Self::UHD8K => (7680, 4320),
@@ -98,9 +128,24 @@ impl Resolution {
     }
 
     /// Converts to FFmpeg scale filter format
+    ///
+    /// # Returns
+    ///
+    /// FFmpeg scale filter string (e.g., "1920:1080")
     pub fn to_ffmpeg_scale(&self) -> String {
         let (width, height) = self.dimensions();
-        format!("{}:{}", width, height)
+        let result = format!("{}:{}", width, height);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            resolution = ?self,
+            width = width,
+            height = height,
+            ffmpeg_scale = %result,
+            "Converted resolution to FFmpeg scale filter"
+        );
+
+        result
     }
 }
 
@@ -127,8 +172,12 @@ pub enum EncodingPreset {
 
 impl EncodingPreset {
     /// Converts to FFmpeg preset name
+    ///
+    /// # Returns
+    ///
+    /// The FFmpeg preset name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        match self {
+        let result = match self {
             Self::UltraFast => "ultrafast",
             Self::SuperFast => "superfast",
             Self::VeryFast => "veryfast",
@@ -137,7 +186,16 @@ impl EncodingPreset {
             Self::Slow => "slow",
             Self::Slower => "slower",
             Self::VerySlow => "veryslow",
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            preset = ?self,
+            ffmpeg_name = result,
+            "Converted encoding preset to FFmpeg name"
+        );
+
+        result
     }
 }
 
@@ -211,8 +269,18 @@ pub enum FfmpegFilter {
 
 impl FfmpegFilter {
     /// Converts filter to FFmpeg filter string
+    ///
+    /// # Returns
+    ///
+    /// The FFmpeg filter string
     pub fn to_ffmpeg_string(&self) -> String {
-        match self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            filter = ?self,
+            "Converting FFmpeg filter to string"
+        );
+
+        let result = match self {
             Self::Crop {
                 width,
                 height,
@@ -242,7 +310,16 @@ impl FfmpegFilter {
             Self::Denoise => "hqdn3d".to_string(),
             Self::Sharpen => "unsharp=5:5:1.0:5:5:0.0".to_string(),
             Self::Custom { filter } => filter.clone(),
-        }
+        };
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            filter = ?self,
+            ffmpeg_string = %result,
+            "Converted FFmpeg filter to string"
+        );
+
+        result
     }
 }
 
@@ -269,7 +346,14 @@ pub struct PostProcessConfig {
 
 impl PostProcessConfig {
     /// Creates a new post-processing configuration
+    ///
+    /// # Returns
+    ///
+    /// An empty PostProcessConfig with all options set to None
     pub fn new() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Created new post-processing configuration");
+
         Self {
             video_codec: None,
             audio_codec: None,
@@ -283,13 +367,35 @@ impl PostProcessConfig {
     }
 
     /// Sets the video codec
+    ///
+    /// # Arguments
+    ///
+    /// * `codec` - Video codec to use
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
     pub fn with_video_codec(mut self, codec: VideoCodec) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(codec = ?codec, "Setting video codec");
+
         self.video_codec = Some(codec);
         self
     }
 
     /// Sets the audio codec
+    ///
+    /// # Arguments
+    ///
+    /// * `codec` - Audio codec to use
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
     pub fn with_audio_codec(mut self, codec: AudioCodec) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(codec = ?codec, "Setting audio codec");
+
         self.audio_codec = Some(codec);
         self
     }
@@ -325,21 +431,45 @@ impl PostProcessConfig {
     }
 
     /// Adds a filter to the processing pipeline
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - FFmpeg filter to add
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
     pub fn add_filter(mut self, filter: FfmpegFilter) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(filter = ?filter, "Adding FFmpeg filter to post-processing config");
+
         self.filters.push(filter);
         self
     }
 
     /// Checks if any post-processing is configured
+    ///
+    /// # Returns
+    ///
+    /// true if no post-processing options are set, false otherwise
     pub fn is_empty(&self) -> bool {
-        self.video_codec.is_none()
+        let result = self.video_codec.is_none()
             && self.audio_codec.is_none()
             && self.video_bitrate.is_none()
             && self.audio_bitrate.is_none()
             && self.resolution.is_none()
             && self.framerate.is_none()
             && self.preset.is_none()
-            && self.filters.is_empty()
+            && self.filters.is_empty();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            is_empty = result,
+            filter_count = self.filters.len(),
+            "Checked if post-processing config is empty"
+        );
+
+        result
     }
 }
 
@@ -353,7 +483,7 @@ impl fmt::Display for PostProcessConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PostProcessConfig: video_codec={:?}, audio_codec={:?}, filters={}",
+            "PostProcessConfig(video_codec={:?}, audio_codec={:?}, filters={})",
             self.video_codec,
             self.audio_codec,
             self.filters.len()

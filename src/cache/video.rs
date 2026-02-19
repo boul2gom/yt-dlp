@@ -7,7 +7,7 @@ use crate::cache::backend::VideoBackend;
 use crate::error::Result;
 use crate::model::Video;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
@@ -32,6 +32,15 @@ pub struct CachedVideo {
 }
 
 impl CachedVideo {
+    /// Deserializes the cached video JSON into a Video struct.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized `Video` object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JSON deserialization fails.
     pub fn video(&self) -> Result<Video> {
         serde_json::from_str(&self.video_json)
             .map_err(|e| crate::error::Error::Unknown(format!("Failed to parse video: {}", e)))
@@ -135,12 +144,29 @@ pub struct VideoCache {
 }
 
 impl VideoCache {
-    /// Creates a new video cache.
-    pub async fn new(
-        cache_dir: impl AsRef<Path> + std::fmt::Debug,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        let cache_dir = cache_dir.as_ref().to_path_buf();
+    /// Creates a new video cache with the specified directory and TTL.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - Directory where cache data will be stored.
+    /// * `ttl` - Time-to-live for cache entries in seconds (optional).
+    ///
+    /// # Returns
+    ///
+    /// A new `VideoCache` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend initialization fails or no backend is enabled.
+    pub async fn new(cache_dir: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
+        let cache_dir = cache_dir.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ?ttl,
+            "Creating video cache"
+        );
 
         #[cfg(feature = "cache-sqlite")]
         {
@@ -167,27 +193,149 @@ impl VideoCache {
     }
 
     /// Retrieves a video from the cache by its URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to retrieve.
+    ///
+    /// # Returns
+    ///
+    /// `Some(Video)` if found and not expired, `None` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend query fails.
     pub async fn get(&self, url: &str) -> Result<Option<Video>> {
-        self.backend.get(url).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url, "Retrieving video from cache by URL");
+
+        let result = self.backend.get(url).await;
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
+            "Video cache lookup by URL completed"
+        );
+
+        result
     }
 
     /// Puts a video in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video.
+    /// * `video` - The video metadata to cache.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, video: Video) -> Result<()> {
-        self.backend.put(url, video).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            video_id = %video.id,
+            video_title = %video.title,
+            "Putting video in cache"
+        );
+
+        let result = self.backend.put(url.clone(), video).await;
+
+        #[cfg(feature = "tracing")]
+        if result.is_ok() {
+            tracing::debug!(url = %url, "Successfully cached video");
+        } else {
+            tracing::debug!(url = %url, "Failed to cache video");
+        }
+
+        result
     }
 
     /// Removes a video from the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to remove.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend remove operation fails.
     pub async fn remove(&self, url: &str) -> Result<()> {
-        self.backend.remove(url).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(url = url, "Removing video from cache");
+
+        let result = self.backend.remove(url).await;
+
+        #[cfg(feature = "tracing")]
+        if result.is_ok() {
+            tracing::debug!(url = url, "Successfully removed video from cache");
+        } else {
+            tracing::debug!(url = url, "Failed to remove video from cache");
+        }
+
+        result
     }
 
     /// Cleans the cache by removing expired entries.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend clean operation fails.
     pub async fn clean(&self) -> Result<()> {
-        self.backend.clean().await
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Cleaning video cache");
+
+        let result = self.backend.clean().await;
+
+        #[cfg(feature = "tracing")]
+        if result.is_ok() {
+            tracing::debug!("Successfully cleaned video cache");
+        } else {
+            tracing::debug!("Failed to clean video cache");
+        }
+
+        result
     }
 
     /// Retrieves a video from the cache by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The video ID to search for.
+    ///
+    /// # Returns
+    ///
+    /// The cached video metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the video is not found, expired, or the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        self.backend.get_by_id(id).await
+        #[cfg(feature = "tracing")]
+        tracing::debug!(video_id = id, "Retrieving video from cache by ID");
+
+        let result = self.backend.get_by_id(id).await;
+
+        #[cfg(feature = "tracing")]
+        if result.is_ok() {
+            tracing::debug!(video_id = id, "Found video in cache by ID");
+        } else {
+            tracing::debug!(video_id = id, "Video not found in cache by ID");
+        }
+
+        result
     }
 }

@@ -394,7 +394,7 @@ impl fmt::Display for Chapter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Chapter(start={:.2}s, end={:.2}s, title={})",
+            "Chapter(start={:.2}s, end={:.2}s, title={:?})",
             self.start_time,
             self.end_time,
             self.title.as_deref().unwrap_or("untitled")

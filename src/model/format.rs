@@ -105,11 +105,7 @@ impl Format {
 
 impl fmt::Display for Format {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Format(id = {}, format = {})",
-            self.format_id, self.format
-        )
+        write!(f, "Format(id={}, format={:?})", self.format_id, self.format)
     }
 }
 
@@ -142,7 +138,7 @@ impl fmt::Display for CodecInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "CodecInfo(audio = {}, video = {})",
+            "CodecInfo(audio={}, video={})",
             self.audio_codec.as_deref().unwrap_or("none"),
             self.video_codec.as_deref().unwrap_or("none")
         )
@@ -167,7 +163,7 @@ pub struct VideoResolution {
 impl fmt::Display for VideoResolution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (self.width, self.height) {
-            (Some(w), Some(h)) => write!(f, "VideoResolution(width = {}, height = {})", w, h),
+            (Some(w), Some(h)) => write!(f, "VideoResolution(width={}, height={})", w, h),
             _ => write!(f, "VideoResolution(unknown)"),
         }
     }
@@ -192,7 +188,7 @@ pub struct DownloadInfo {
 impl fmt::Display for DownloadInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(url) = &self.url {
-            write!(f, "DownloadInfo(url = {})", url)
+            write!(f, "DownloadInfo(url={})", url)
         } else {
             write!(f, "DownloadInfo(no_url)")
         }
@@ -233,11 +229,11 @@ pub struct FileInfo {
 impl fmt::Display for FileInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(size) = self.filesize {
-            write!(f, "FileInfo(size = {})", size)
+            write!(f, "FileInfo(size={})", size)
         } else if let Some(approx) = self.filesize_approx {
-            write!(f, "FileInfo(approx_size = {})", approx)
+            write!(f, "FileInfo(approx_size={})", approx)
         } else {
-            write!(f, "FileInfo(size = unknown)")
+            write!(f, "FileInfo(size=unknown)")
         }
     }
 }
@@ -260,7 +256,7 @@ impl fmt::Display for RatesInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "RatesInfo(video = {}, audio = {}, total = {})",
+            "RatesInfo(video={}, audio={}, total={})",
             self.video_rate
                 .map(|r| r.to_string())
                 .unwrap_or_else(|| "none".to_string()),
@@ -288,8 +284,8 @@ pub struct StoryboardInfo {
 impl fmt::Display for StoryboardInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (self.rows, self.columns) {
-            (Some(r), Some(c)) => write!(f, "StoryboardInfo(rows = {}, columns = {})", r, c),
-            _ => write!(f, "StoryboardInfo(unknown)"),
+            (Some(r), Some(c)) => write!(f, "StoryboardInfo {{ rows: {}, columns: {} }}", r, c),
+            _ => write!(f, "StoryboardInfo {{ unknown }}"),
         }
     }
 }

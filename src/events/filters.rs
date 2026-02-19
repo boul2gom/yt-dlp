@@ -14,14 +14,35 @@ pub struct EventFilter {
 
 impl EventFilter {
     /// Creates a new filter that accepts all events
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that matches all events
     pub fn all() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating EventFilter that accepts all events");
+
         Self {
             predicates: Vec::new(),
         }
     }
 
     /// Creates a filter that only accepts events with the specified download ID
+    ///
+    /// # Arguments
+    /// 
+    /// * `id` - The download ID to filter by
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that only matches events with the given download ID
     pub fn download_id(id: u64) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            download_id = id,
+            "Creating EventFilter for specific download ID"
+        );
+
         let mut filter = Self::all();
         filter
             .predicates
@@ -30,7 +51,14 @@ impl EventFilter {
     }
 
     /// Creates a filter that only accepts terminal events (completed, failed, canceled)
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that only matches terminal events
     pub fn only_terminal() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating EventFilter for terminal events only");
+
         let mut filter = Self::all();
         filter
             .predicates
@@ -39,7 +67,14 @@ impl EventFilter {
     }
 
     /// Creates a filter that only accepts completed downloads
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that only matches completed download events
     pub fn only_completed() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating EventFilter for completed downloads only");
+
         let mut filter = Self::all();
         filter.predicates.push(Arc::new(|event| {
             matches!(event, DownloadEvent::DownloadCompleted { .. })
@@ -48,7 +83,14 @@ impl EventFilter {
     }
 
     /// Creates a filter that only accepts failed downloads
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that only matches failed download events
     pub fn only_failed() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating EventFilter for failed downloads only");
+
         let mut filter = Self::all();
         filter.predicates.push(Arc::new(|event| {
             matches!(event, DownloadEvent::DownloadFailed { .. })
@@ -57,7 +99,14 @@ impl EventFilter {
     }
 
     /// Creates a filter that only accepts progress events
+    ///
+    /// # Returns
+    ///
+    /// An EventFilter that only matches progress events
     pub fn only_progress() -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Creating EventFilter for progress events only");
+
         let mut filter = Self::all();
         filter
             .predicates
@@ -75,17 +124,57 @@ impl EventFilter {
     }
 
     /// Adds a custom predicate to the filter
+    ///
+    /// # Arguments
+    /// 
+    /// * `predicate` - A function that returns true if the event should be accepted
+    ///
+    /// # Returns
+    /// 
+    /// Self for method chaining
     pub fn and_then<F>(mut self, predicate: F) -> Self
     where
         F: Fn(&DownloadEvent) -> bool + Send + Sync + 'static,
     {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            predicate_count_before = self.predicates.len(),
+            "Adding custom predicate to filter"
+        );
+
         self.predicates.push(Arc::new(predicate));
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            predicate_count_after = self.predicates.len(),
+            "Custom predicate added to filter"
+        );
+
         self
     }
 
     /// Tests if an event matches all predicates
+    ///
+    /// # Arguments
+    /// 
+    /// * `event` - The event to test
+    ///
+    /// # Returns
+    /// 
+    /// true if the event matches all predicates, false otherwise
     pub fn matches(&self, event: &DownloadEvent) -> bool {
-        self.predicates.iter().all(|predicate| predicate(event))
+        let result = self.predicates.iter().all(|predicate| predicate(event));
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            event_type = event.event_type(),
+            download_id = event.download_id(),
+            matches = result,
+            predicate_count = self.predicates.len(),
+            "Event filter match test"
+        );
+
+        result
     }
 
     /// Excludes progress events (useful to reduce noise)
@@ -141,115 +230,5 @@ impl std::fmt::Debug for EventFilter {
         f.debug_struct("EventFilter")
             .field("predicate_count", &self.predicates.len())
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    #[test]
-    fn test_filter_all() {
-        let filter = EventFilter::all();
-        let event = DownloadEvent::DownloadCompleted {
-            download_id: 1,
-            output_path: PathBuf::from("/tmp/test.mp4"),
-            duration: Duration::from_secs(10),
-            total_bytes: 1000,
-        };
-        assert!(filter.matches(&event));
-    }
-
-    #[test]
-    fn test_filter_download_id() {
-        let filter = EventFilter::download_id(1);
-
-        let event1 = DownloadEvent::DownloadStarted {
-            download_id: 1,
-            url: "test".to_string(),
-            total_bytes: 1000,
-            format_id: None,
-        };
-
-        let event2 = DownloadEvent::DownloadStarted {
-            download_id: 2,
-            url: "test".to_string(),
-            total_bytes: 1000,
-            format_id: None,
-        };
-
-        assert!(filter.matches(&event1));
-        assert!(!filter.matches(&event2));
-    }
-
-    #[test]
-    fn test_filter_terminal() {
-        let filter = EventFilter::only_terminal();
-
-        let completed = DownloadEvent::DownloadCompleted {
-            download_id: 1,
-            output_path: PathBuf::from("/tmp/test.mp4"),
-            duration: Duration::from_secs(10),
-            total_bytes: 1000,
-        };
-
-        let progress = DownloadEvent::DownloadProgress {
-            download_id: 1,
-            downloaded_bytes: 500,
-            total_bytes: 1000,
-            speed_bytes_per_sec: 100.0,
-            eta_seconds: Some(5),
-        };
-
-        assert!(filter.matches(&completed));
-        assert!(!filter.matches(&progress));
-    }
-
-    #[test]
-    fn test_filter_and_then() {
-        let filter = EventFilter::download_id(1).and_then(|event| event.is_terminal());
-
-        let completed = DownloadEvent::DownloadCompleted {
-            download_id: 1,
-            output_path: PathBuf::from("/tmp/test.mp4"),
-            duration: Duration::from_secs(10),
-            total_bytes: 1000,
-        };
-
-        let progress = DownloadEvent::DownloadProgress {
-            download_id: 1,
-            downloaded_bytes: 500,
-            total_bytes: 1000,
-            speed_bytes_per_sec: 100.0,
-            eta_seconds: Some(5),
-        };
-
-        assert!(filter.matches(&completed));
-        assert!(!filter.matches(&progress));
-    }
-
-    #[test]
-    fn test_filter_exclude_progress() {
-        let filter = EventFilter::all().exclude_progress();
-
-        let completed = DownloadEvent::DownloadCompleted {
-            download_id: 1,
-            output_path: PathBuf::from("/tmp/test.mp4"),
-            duration: Duration::from_secs(10),
-            total_bytes: 1000,
-        };
-
-        let progress = DownloadEvent::DownloadProgress {
-            download_id: 1,
-            downloaded_bytes: 500,
-            total_bytes: 1000,
-            speed_bytes_per_sec: 100.0,
-            eta_seconds: Some(5),
-        };
-
-        assert!(filter.matches(&completed));
-        assert!(!filter.matches(&progress));
     }
 }

@@ -34,7 +34,7 @@ Error Handling and Safety
 - Use `.await` responsibly, ensuring safe points for context switching.
 
 Testing
-- Write unit tests with `tokio::test` for async tests.
+- Write unit tests with `tokio::test` for async tests only if asked.
 - Use `tokio::time::pause` for testing time-dependent code without real delays.
 - Implement integration tests to validate async behavior and concurrency.
 - Use mocks and fakes for external dependencies in tests.
@@ -45,11 +45,12 @@ Performance Optimization
 - Use `tokio::task::yield_now` to yield control in cooperative multitasking scenarios.
 - Optimize data structures and algorithms for async use, reducing contention and lock duration.
 - Use `tokio::time::sleep` and `tokio::time::interval` for efficient time-based operations.
+- Use Cow when possible, and optimized types in functions parameters, according to the operations applied in the function (borrowing vs owned required, String vs str, Path vs Pathbuf for example). The most optimized types should be used everytime.
 
 Key Conventions
 1. Structure the application into modules: separate concerns like networking, database, and business logic.
 2. Use environment variables for configuration management (e.g., `dotenv` crate).
-3. Ensure code is well-documented with inline comments and Rustdoc.
+3. Ensure code is well-documented with inline comments and Rustdoc, in a consistent way (Args, errors, returns, examples for main functions, etc). Tracing debug should be present in every important function, if the feature is enabled, and the tracing debug should be as detailed as possible, and consistent across the codebase. Parameters should be given to tracing, to provide context.
 
 Async Ecosystem
 - Use `tokio` for async runtime and task management.
@@ -57,3 +58,5 @@ Async Ecosystem
 - Use `serde` for serialization/deserialization.
 
 Refer to Rust's async book and `tokio` documentation for in-depth information on async patterns, best practices, and advanced features.
+
+All edits in the codebase should be checked with `cargo clippy --all-features --all-targets -- -D warnings`

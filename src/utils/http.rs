@@ -23,7 +23,20 @@ const REQUEST_TIMEOUT_SECS: u64 = 60;
 /// # Returns
 ///
 /// An Arc-wrapped HTTP client configured with connection pooling
+///
+/// # Errors
+///
+/// Returns an error if the HTTP client cannot be built
 pub fn create_http_client(proxy: Option<&ProxyConfig>) -> crate::error::Result<Arc<Client>> {
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        has_proxy = proxy.is_some(),
+        timeout_secs = REQUEST_TIMEOUT_SECS,
+        pool_idle_timeout_secs = HTTP_POOL_IDLE_TIMEOUT_SECS,
+        max_idle_per_host = HTTP_POOL_MAX_IDLE_PER_HOST,
+        "Creating HTTP client with connection pooling"
+    );
+
     let mut builder = Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
@@ -35,12 +48,17 @@ pub fn create_http_client(proxy: Option<&ProxyConfig>) -> crate::error::Result<A
     if let Some(proxy_config) = proxy
         && let Ok(proxy) = proxy_config.to_reqwest_proxy()
     {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Adding proxy configuration to HTTP client");
         builder = builder.proxy(proxy);
     }
 
     let client = builder
         .build()
         .map_err(|e| crate::error::Error::Unknown(format!("Failed to build HTTP client: {}", e)))?;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!("HTTP client created successfully");
 
     Ok(Arc::new(client))
 }

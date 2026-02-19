@@ -5,23 +5,50 @@ use crate::metadata::MetadataManager;
 use crate::model::format::Format;
 
 use crate::utils;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 impl Downloader {
     /// Adds format metadata based on the format type (audio-only, video-only, or both)
     /// This function is extracted to avoid code duplication
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to add metadata to
+    /// * `format` - Format information
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata addition fails
     pub(crate) async fn add_metadata_if_needed(
         &self,
-        path: impl AsRef<Path>,
+        path: impl Into<PathBuf>,
         format: &Format,
     ) -> crate::error::Result<()> {
+        let path: PathBuf = path.into();
         let format_type = format.format_type();
         let is_standalone_format = format_type.is_audio_and_video() || format_type.is_audio();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            path = ?path,
+            format_id = %format.format_id,
+            format_type = ?format_type,
+            is_standalone = is_standalone_format,
+            "Checking if metadata should be added"
+        );
 
         if is_standalone_format {
             if let Some(video_id) = format.video_id.as_ref() {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Adding metadata to standalone format file");
+                tracing::debug!(
+                    video_id = video_id,
+                    format_id = %format.format_id,
+                    "Adding metadata to standalone format file"
+                );
 
                 // Try to get video metadata from cache
                 #[cfg(feature = "cache")]
@@ -32,25 +59,42 @@ impl Downloader {
                     // Add metadata with format information
                     let metadata_manager = MetadataManager::new();
                     if let Err(_e) = metadata_manager
-                        .add_metadata_with_format(path.as_ref(), &video, None, Some(format))
+                        .add_metadata_with_format(path.clone(), &video, None, Some(format))
                         .await
                     {
                         #[cfg(feature = "tracing")]
-                        tracing::warn!("Failed to add metadata: {}", _e);
+                        tracing::warn!(
+                            error = %_e,
+                            path = ?path,
+                            video_id = video_id,
+                            "Failed to add metadata"
+                        );
+                    } else {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            path = ?path,
+                            video_id = video_id,
+                            "Successfully added metadata"
+                        );
                     }
                 }
 
                 #[cfg(not(feature = "cache"))]
                 {
                     #[cfg(feature = "tracing")]
-                    tracing::debug!("Cache feature disabled, cannot retrieve video metadata");
+                    tracing::debug!(
+                        video_id = video_id,
+                        "Cache feature disabled, cannot retrieve video metadata"
+                    );
                     let _ = video_id; // Suppress unused warning
                 }
             }
         } else {
             #[cfg(feature = "tracing")]
             tracing::debug!(
-                "Skipping metadata for non-standalone format: will be added after combining"
+                format_id = %format.format_id,
+                format_type = ?format_type,
+                "Skipping metadata for non-standalone format (will be added after combining)"
             );
         }
 
@@ -58,11 +102,25 @@ impl Downloader {
     }
 
     /// Embeds subtitle files into a video file using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_paths` - Paths to subtitle files to embed
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
     pub async fn embed_subtitles_in_video(
         &self,
-        video_path: impl AsRef<Path>,
+        video_path: impl Into<PathBuf>,
         subtitle_paths: &[PathBuf],
-        output: impl AsRef<str>,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         self.embed_subtitles_with_languages(video_path, subtitle_paths, &[], output)
             .await
@@ -71,32 +129,64 @@ impl Downloader {
     /// Embeds a single subtitle file into a video file using ffmpeg.
     ///
     /// This is a convenience wrapper around `embed_subtitles_in_video`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_path` - Path to the subtitle file to embed
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitle
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
     pub async fn embed_subtitles(
         &self,
-        video_path: impl AsRef<Path>,
-        subtitle_path: impl AsRef<Path>,
-        output: impl AsRef<str>,
+        video_path: impl Into<PathBuf>,
+        subtitle_path: impl Into<PathBuf>,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        self.embed_subtitles_in_video(video_path, &[subtitle_path.as_ref().to_path_buf()], output)
+        self.embed_subtitles_in_video(video_path, &[subtitle_path.into()], output)
             .await
     }
 
     /// Embeds subtitle files into a video file with language metadata using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_paths` - Paths to subtitle files to embed
+    /// * `language_codes` - Language codes for each subtitle (optional)
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
     pub async fn embed_subtitles_with_languages(
         &self,
-        video_path: impl AsRef<Path>,
+        video_path: impl Into<PathBuf>,
         subtitle_paths: &[PathBuf],
         language_codes: &[&str],
-        output: impl AsRef<str>,
+        output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        let video_path = video_path.as_ref();
-        let output_path = self.output_dir.join(output.as_ref());
+        let video_path: PathBuf = video_path.into();
+        let output: PathBuf = output.into();
+        let output_path = self.output_dir.join(&output);
 
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Embedding {} subtitles into video {:?}",
-            subtitle_paths.len(),
-            video_path
+            video_path = ?video_path,
+            subtitle_count = subtitle_paths.len(),
+            language_count = language_codes.len(),
+            output_path = ?output_path,
+            "Embedding subtitles into video"
         );
 
         // Build ffmpeg command
@@ -129,9 +219,10 @@ impl Downloader {
 
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
-                    "Setting language {} for subtitle stream {}",
-                    language_code,
-                    i
+                    language = language_code,
+                    stream_index = i,
+                    subtitle_path = ?subtitle_paths.get(i),
+                    "Setting language metadata for subtitle stream"
                 );
             }
         }
@@ -144,7 +235,12 @@ impl Downloader {
         args.push(output_path.to_string_lossy().to_string());
 
         #[cfg(feature = "tracing")]
-        tracing::debug!("Running ffmpeg with args: {:?}", args);
+        tracing::debug!(
+            args = ?args,
+            arg_count = args.len(),
+            output_path = ?output_path,
+            "Running ffmpeg to embed subtitles"
+        );
 
         let executor = Executor::new(
             self.libraries.ffmpeg.clone(),

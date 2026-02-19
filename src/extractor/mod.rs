@@ -39,28 +39,34 @@ impl fmt::Display for ExtractorName {
 /// This trait defines the common interface that all extractors must implement.
 /// Each extractor handles fetching video metadata and playlists from their respective platform.
 #[async_trait]
-pub trait VideoExtractor: Downcast + Send + Sync + std::fmt::Debug {
+pub trait VideoExtractor: Downcast + Send + Sync + fmt::Debug {
     /// Fetch video metadata from a URL.
     ///
     /// # Arguments
+    /// 
     /// * `url` - The video URL to fetch
     ///
     /// # Returns
+    /// 
     /// Video metadata including formats, title, duration, etc.
     ///
     /// # Errors
+    /// 
     /// Returns error if the URL is unsupported, geo-blocked, or requires authentication
     async fn fetch_video(&self, url: &str) -> Result<Video>;
 
     /// Fetch playlist metadata from a URL.
     ///
     /// # Arguments
+    /// 
     /// * `url` - The playlist URL to fetch
     ///
     /// # Returns
+    /// 
     /// Playlist metadata including entries and metadata
     ///
     /// # Errors
+    /// 
     /// Returns error if the URL is unsupported or invalid
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist>;
 
@@ -95,32 +101,167 @@ use std::time::Duration;
 /// 2. Running it
 /// 3. Deserializing the JSON output
 /// 4. Post-processing the video (e.g. setting video_id on formats)
+///
+/// # Arguments
+///
+/// * `executable_path` - Path to the yt-dlp executable
+/// * `args` - Arguments to pass to yt-dlp
+/// * `timeout` - Maximum duration to wait for execution
+///
+/// # Returns
+///
+/// Parsed Video metadata with formats
+///
+/// # Errors
+///
+/// Returns an error if execution fails, JSON parsing fails, or the operation times out
 pub async fn execute_and_parse_video(
     executable_path: PathBuf,
     args: &[String],
     timeout: Duration,
 ) -> Result<Video> {
-    let executor = Executor::new(executable_path, args.to_vec(), timeout);
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        arg_count = args.len(),
+        timeout_secs = timeout.as_secs(),
+        "Executing extractor for video"
+    );
 
-    let output = executor.execute().await?;
-    let mut video: Video = serde_json::from_str(&output.stdout)?;
+    let executor = Executor::new(executable_path.clone(), args.to_vec(), timeout);
+
+    // Create a temporary directory to store the output JSON
+    // This avoids loading the entire JSON into memory as a string
+    let temp_dir = tempfile::tempdir()?;
+    let output_path = temp_dir
+        .path()
+        .join(format!("video_{}.json", uuid::Uuid::new_v4()));
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        output_path = ?output_path,
+        "Redirecting yt-dlp output to temporary file"
+    );
+
+    let _output = executor.execute_to_file(&output_path).await?;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        output_path = ?output_path,
+        "Opening output file for parsing"
+    );
+
+    // Open the file using tokio::fs (async)
+    let file = tokio::fs::File::open(&output_path).await?;
+    // Convert to std::fs::File for serde_json which is synchronous
+    let file = file.into_std().await;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Spawning blocking task for JSON parsing");
+
+    // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
+    // without blocking the async runtime
+    let mut video: Video = tokio::task::spawn_blocking(move || {
+        let reader = std::io::BufReader::new(file);
+        serde_json::from_reader(reader)
+    })
+    .await??;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        video_id = %video.id,
+        title = %video.title,
+        format_count = video.formats.len(),
+        "Video parsed successfully"
+    );
 
     // Set video ID on each format for caching purposes
     for format in &mut video.formats {
         format.video_id = Some(video.id.clone());
     }
 
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        video_id = %video.id,
+        "Set video_id on all formats"
+    );
+
     Ok(video)
 }
 
 /// Helper to execute the extractor command and parse the output as a Playlist.
+///
+/// # Arguments
+///
+/// * `executable_path` - Path to the yt-dlp executable
+/// * `args` - Arguments to pass to yt-dlp
+/// * `timeout` - Maximum duration to wait for execution
+///
+/// # Returns
+///
+/// Parsed Playlist metadata with entries
+///
+/// # Errors
+///
+/// Returns an error if execution fails, JSON parsing fails, or the operation times out
 pub async fn execute_and_parse_playlist(
     executable_path: PathBuf,
     args: &[String],
     timeout: Duration,
 ) -> Result<Playlist> {
-    let executor = Executor::new(executable_path, args.to_vec(), timeout);
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        arg_count = args.len(),
+        timeout_secs = timeout.as_secs(),
+        "Executing extractor for playlist"
+    );
 
-    let output = executor.execute().await?;
-    Ok(serde_json::from_str(&output.stdout)?)
+    let executor = Executor::new(executable_path.clone(), args.to_vec(), timeout);
+
+    // Create a temporary directory to store the output JSON
+    let temp_dir = tempfile::tempdir()?;
+    let output_path = temp_dir
+        .path()
+        .join(format!("playlist_{}.json", uuid::Uuid::new_v4()));
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        executable = ?executable_path,
+        output_path = ?output_path,
+        "Redirecting yt-dlp output to temporary file"
+    );
+
+    let _output = executor.execute_to_file(&output_path).await?;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        output_path = ?output_path,
+        "Opening output file for parsing"
+    );
+
+    // Open the file using tokio::fs (async)
+    let file = tokio::fs::File::open(&output_path).await?;
+    let file = file.into_std().await;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Spawning blocking task for JSON parsing");
+
+    // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
+    let playlist: Playlist = tokio::task::spawn_blocking(move || {
+        let reader = std::io::BufReader::new(file);
+        serde_json::from_reader(reader)
+    })
+    .await??;
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        playlist_id = %playlist.id,
+        title = %playlist.title,
+        entry_count = playlist.entries.len(),
+        "Playlist parsed successfully"
+    );
+
+    Ok(playlist)
 }

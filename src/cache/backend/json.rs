@@ -3,6 +3,7 @@
 //! This module provides a simple file-system based cache where metadata is stored as JSON files.
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
+use crate::cache::is_expired;
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -13,9 +14,22 @@ use crate::model::selector::{
 };
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// JSON-backed video cache implementation.
+///
+/// # Examples
+///
+/// ```rust
+/// use yt_dlp::cache::backend::json::JsonVideoCache;
+/// use yt_dlp::cache::backend::VideoBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = JsonVideoCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct JsonVideoCache {
     cache_dir: PathBuf,
@@ -36,6 +50,13 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn get(&self, url: &str) -> Result<Option<Video>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            cache_dir = ?self.cache_dir,
+            ttl = self.ttl,
+            "Looking for video in JSON cache by URL"
+        );
         // Implementation detail: We will use a simple directory traversal for `get` by URL if no index.
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -44,10 +65,24 @@ impl VideoBackend for JsonVideoCache {
                 if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
                     && cached.url == url
                 {
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            url = url,
+                            cached_at = cached.cached_at,
+                            ttl = self.ttl,
+                            "Cache expired for video"
+                        );
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(
+                        url = url,
+                        video_id = %cached.id,
+                        video_title = %cached.title,
+                        "Cache hit for video"
+                    );
                     return Ok(Some(cached.video()?));
                 }
             }
@@ -56,6 +91,14 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            video_id = %video.id,
+            video_title = %video.title,
+            cache_dir = ?self.cache_dir,
+            "Caching video to JSON backend"
+        );
         let cached = CachedVideo::from((url, video));
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
         let content = serde_json::to_string(&cached)?;
@@ -64,6 +107,12 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            cache_dir = ?self.cache_dir,
+            "Removing video from JSON cache"
+        );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -80,12 +129,18 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn clean(&self) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            ttl = self.ttl,
+            cache_dir = ?self.cache_dir,
+            "Cleaning JSON video cache"
+        );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
                 let content = tokio::fs::read_to_string(entry.path()).await?;
                 if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
-                    && self.is_expired(cached.cached_at)
+                    && is_expired(cached.cached_at, self.ttl)
                 {
                     let _ = tokio::fs::remove_file(entry.path()).await;
                 }
@@ -101,7 +156,7 @@ impl VideoBackend for JsonVideoCache {
             let cached: CachedVideo = serde_json::from_str(&content)
                 .map_err(|e| crate::error::Error::Unknown(format!("Cache corruption: {}", e)))?;
 
-            if self.is_expired(cached.cached_at) {
+            if is_expired(cached.cached_at, self.ttl) {
                 return Err(crate::error::Error::Unknown("Expired".to_string()));
             }
             return Ok(cached);
@@ -110,17 +165,21 @@ impl VideoBackend for JsonVideoCache {
     }
 }
 
-impl JsonVideoCache {
-    fn is_expired(&self, cached_at: i64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        (now - cached_at) > self.ttl as i64
-    }
-}
-
 /// JSON-backed playlist cache implementation.
+///
+/// # Examples
+///
+/// ```rust
+/// use yt_dlp::cache::backend::json::JsonPlaylistCache;
+/// use yt_dlp::cache::backend::PlaylistBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = JsonPlaylistCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct JsonPlaylistCache {
     cache_dir: PathBuf,
@@ -141,6 +200,13 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            cache_dir = ?self.cache_dir,
+            ttl = self.ttl,
+            "Looking for playlist in JSON cache by URL"
+        );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -148,10 +214,24 @@ impl PlaylistBackend for JsonPlaylistCache {
                 if let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&content)
                     && cached.url == url
                 {
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            url = url,
+                            cached_at = cached.cached_at,
+                            ttl = self.ttl,
+                            "Cache expired for playlist"
+                        );
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(
+                        url = url,
+                        playlist_id = %cached.id,
+                        playlist_title = %cached.title,
+                        "Cache hit for playlist"
+                    );
                     return Ok(Some(cached.playlist()?));
                 }
             }
@@ -166,7 +246,7 @@ impl PlaylistBackend for JsonPlaylistCache {
             let cached: CachedPlaylist = serde_json::from_str(&content)
                 .map_err(|e| crate::error::Error::Unknown(format!("Cache corruption: {}", e)))?;
 
-            if self.is_expired(cached.cached_at) {
+            if is_expired(cached.cached_at, self.ttl) {
                 return Ok(None);
             }
             return Ok(Some(cached.playlist()?));
@@ -175,6 +255,15 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = %url,
+            playlist_id = %playlist.id,
+            playlist_title = %playlist.title,
+            entry_count = playlist.entries.len(),
+            cache_dir = ?self.cache_dir,
+            "Caching playlist to JSON backend"
+        );
         let cached = CachedPlaylist::from((url, playlist));
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
         let content = serde_json::to_string(&cached)?;
@@ -183,6 +272,12 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            url = url,
+            cache_dir = ?self.cache_dir,
+            "Invalidating playlist in JSON cache"
+        );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -199,12 +294,18 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn clean(&self) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            ttl = self.ttl,
+            cache_dir = ?self.cache_dir,
+            "Cleaning JSON playlist cache"
+        );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
                 let content = tokio::fs::read_to_string(entry.path()).await?;
                 if let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&content)
-                    && self.is_expired(cached.cached_at)
+                    && is_expired(cached.cached_at, self.ttl)
                 {
                     let _ = tokio::fs::remove_file(entry.path()).await;
                 }
@@ -220,17 +321,21 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 }
 
-impl JsonPlaylistCache {
-    fn is_expired(&self, cached_at: i64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        (now - cached_at) > self.ttl as i64
-    }
-}
-
 /// JSON-backed file cache implementation.
+///
+/// # Examples
+///
+/// ```rust
+/// use yt_dlp::cache::backend::json::JsonFileCache;
+/// use yt_dlp::cache::backend::FileBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = JsonFileCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct JsonFileCache {
     cache_dir: PathBuf,
@@ -267,6 +372,13 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            hash = hash,
+            cache_dir = ?self.cache_dir,
+            ttl = self.ttl,
+            "Looking for file in JSON cache by hash"
+        );
         let meta_path = self
             .cache_dir
             .join("files_meta")
@@ -275,12 +387,26 @@ impl FileBackend for JsonFileCache {
             let content = tokio::fs::read_to_string(meta_path).await.ok()?;
             let cached: CachedFile = serde_json::from_str(&content).ok()?;
 
-            if self.is_expired(cached.cached_at) {
+            if is_expired(cached.cached_at, self.ttl) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    hash = hash,
+                    cached_at = cached.cached_at,
+                    ttl = self.ttl,
+                    "Cache expired for file"
+                );
                 return None;
             }
 
             let file_path = self.cache_dir.join(&cached.relative_path);
             if file_path.exists() {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    hash = hash,
+                    filename = %cached.filename,
+                    file_path = ?file_path,
+                    "Cache hit for file"
+                );
                 return Some((cached, file_path));
             }
         }
@@ -302,7 +428,7 @@ impl FileBackend for JsonFileCache {
                     && cached.video_id.as_deref() == Some(video_id)
                     && cached.format_id.as_deref() == Some(format_id)
                 {
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
@@ -353,7 +479,7 @@ impl FileBackend for JsonFileCache {
                         continue;
                     }
 
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
@@ -367,6 +493,16 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            filename = %file.filename,
+            file_id = %file.id,
+            source_path = ?source_path,
+            video_id = ?file.video_id,
+            format_id = ?file.format_id,
+            cache_dir = ?self.cache_dir,
+            "Caching file to JSON backend"
+        );
         // Write file content (copy from source)
         let file_path = self.cache_dir.join(&file.relative_path);
         if let Some(parent) = file_path.parent() {
@@ -386,6 +522,12 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            file_id = id,
+            cache_dir = ?self.cache_dir,
+            "Removing file from JSON cache"
+        );
         let meta_path = self
             .cache_dir
             .join("files_meta")
@@ -405,6 +547,12 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn clean(&self) -> Result<()> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            ttl = self.ttl,
+            cache_dir = ?self.cache_dir,
+            "Cleaning JSON file cache"
+        );
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await?;
 
@@ -412,7 +560,7 @@ impl FileBackend for JsonFileCache {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
                 let content = tokio::fs::read_to_string(entry.path()).await?;
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
-                    && self.is_expired(cached.cached_at)
+                    && is_expired(cached.cached_at, self.ttl)
                 {
                     let file_path = self.cache_dir.join(&cached.relative_path);
                     if file_path.exists() {
@@ -430,7 +578,7 @@ impl FileBackend for JsonFileCache {
                 if entry.path().extension().is_some_and(|ext| ext == "json") {
                     let content = tokio::fs::read_to_string(entry.path()).await?;
                     if let Ok(cached) = serde_json::from_str::<CachedThumbnail>(&content)
-                        && self.is_expired(cached.cached_at)
+                        && is_expired(cached.cached_at, self.ttl)
                     {
                         let file_path = self.cache_dir.join(&cached.relative_path);
                         if file_path.exists() {
@@ -458,7 +606,7 @@ impl FileBackend for JsonFileCache {
                 if let Ok(cached) = serde_json::from_str::<CachedThumbnail>(&content)
                     && cached.video_id == video_id
                 {
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
@@ -512,7 +660,7 @@ impl FileBackend for JsonFileCache {
                 if cached.video_id.as_deref() == Some(video_id)
                     && cached.language_code.as_deref() == Some(language)
                 {
-                    if self.is_expired(cached.cached_at) {
+                    if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
@@ -523,15 +671,5 @@ impl FileBackend for JsonFileCache {
             }
         }
         None
-    }
-}
-
-impl JsonFileCache {
-    fn is_expired(&self, cached_at: i64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        (now - cached_at) > self.ttl as i64
     }
 }

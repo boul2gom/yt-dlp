@@ -8,6 +8,11 @@ use std::fmt;
 
 /// The GitHub fetcher is responsible for fetching the latest release of a project from a GitHub repository.
 /// It can also select the correct asset for the current platform and architecture.
+///
+/// # Architecture
+///
+/// Wraps the GitHub Releases API to fetch release metadata and assets.
+/// Handles authentication via tokens to avoid rate limits.
 #[derive(Debug)]
 pub struct GitHubFetcher {
     /// The owner or organization of the GitHub repository.
@@ -29,11 +34,22 @@ impl GitHubFetcher {
     ///
     /// * `owner` - The owner of the GitHub repository.
     /// * `repo` - The name of the GitHub repository.
-    pub fn new(owner: impl AsRef<str>, repo: impl AsRef<str>) -> Self {
-        Self {
-            owner: owner.as_ref().to_string(),
-            repo: repo.as_ref().to_string(),
-        }
+    ///
+    /// # Returns
+    ///
+    /// A new `GitHubFetcher` instance
+    pub fn new(owner: impl Into<String>, repo: impl Into<String>) -> Self {
+        let owner = owner.into();
+        let repo = repo.into();
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            owner = %owner,
+            repo = %repo,
+            "Creating new GitHubFetcher"
+        );
+
+        Self { owner, repo }
     }
 
     /// Fetch the latest release for the current platform.
@@ -64,7 +80,14 @@ impl GitHubFetcher {
         F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
     {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching latest release from {}/{}", self.owner, self.repo);
+        tracing::debug!(
+            owner = %self.owner,
+            repo = %self.repo,
+            has_token = auth_token.is_some(),
+            platform = ?Platform::detect(),
+            architecture = ?Architecture::detect(),
+            "Fetching latest release from GitHub"
+        );
 
         let platform = Platform::detect();
         let architecture = Architecture::detect();
@@ -97,20 +120,23 @@ impl GitHubFetcher {
     {
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Fetching latest release for {}/{} for platform: {:?}, architecture: {:?}",
-            self.owner,
-            self.repo,
-            platform,
-            architecture
+            owner = %self.owner,
+            repo = %self.repo,
+            platform = ?platform,
+            architecture = ?architecture,
+            has_token = auth_token.is_some(),
+            "Fetching release for specific platform"
         );
 
         let release = self.fetch_latest_release(auth_token.clone()).await?;
 
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "Selecting asset for platform: {:?}, architecture: {:?}",
-            platform,
-            architecture
+            platform = ?platform,
+            architecture = ?architecture,
+            release_tag = %release.tag_name,
+            asset_count = release.assets.len(),
+            "Selecting asset from release"
         );
 
         let asset = selector(&release, &platform, &architecture).ok_or(Error::NoBinaryRelease {
@@ -139,7 +165,12 @@ impl GitHubFetcher {
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
     pub async fn fetch_latest_release(&self, auth_token: Option<String>) -> Result<Release> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching latest release for {}/{}", self.owner, self.repo);
+        tracing::debug!(
+            owner = %self.owner,
+            repo = %self.repo,
+            has_token = auth_token.is_some(),
+            "Fetching latest release metadata from GitHub API"
+        );
 
         let url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
@@ -154,26 +185,57 @@ impl GitHubFetcher {
     }
 
     /// Fetch the checksum for the given asset from the release.
+    ///
+    /// # Arguments
+    ///
+    /// * `release` - The GitHub release
+    /// * `asset_name` - Name of the asset to find checksum for
+    ///
+    /// # Returns
+    ///
+    /// The SHA256 checksum if available, None otherwise
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if checksum parsing fails
     async fn fetch_checksum(&self, release: &Release, asset_name: &str) -> Result<Option<String>> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            asset_name = asset_name,
+            release_tag = %release.tag_name,
+            "Looking for checksum in release"
+        );
         if let Some(digest) = release
             .assets
             .iter()
             .find(|a| a.name == asset_name)
             .and_then(|a| a.digest.as_ref())
         {
-            if let Some(stripped) = digest.strip_prefix("sha256:") {
+            return if let Some(stripped) = digest.strip_prefix("sha256:") {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Found digest from API for {}: {}", asset_name, stripped);
-                return Ok(Some(stripped.to_string()));
+                tracing::debug!(
+                    asset_name = asset_name,
+                    checksum = stripped,
+                    "Found SHA256 digest from API"
+                );
+                Ok(Some(stripped.to_string()))
             } else {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Found digest from API for {}: {}", asset_name, digest);
-                return Ok(Some(digest.clone()));
-            }
+                tracing::debug!(
+                    asset_name = asset_name,
+                    digest = digest,
+                    "Found digest from API (raw format)"
+                );
+                Ok(Some(digest.clone()))
+            };
         }
 
         #[cfg(feature = "tracing")]
-        tracing::warn!("Checksum not found for {}", asset_name);
+        tracing::warn!(
+            asset_name = asset_name,
+            release_tag = %release.tag_name,
+            "Checksum not found for asset"
+        );
         Ok(None)
     }
 }

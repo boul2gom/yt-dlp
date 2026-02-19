@@ -15,7 +15,7 @@ use futures_util::{StreamExt, stream};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
 use std::cmp::min;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -37,7 +37,7 @@ const HTTP_TCP_KEEPALIVE_SECS: u64 = 60;
 /// Context for segment download operations
 struct SegmentContext {
     file: Arc<Mutex<tokio::fs::File>>,
-    downloaded_bytes: Arc<std::sync::atomic::AtomicU64>,
+    downloaded_bytes: Arc<AtomicU64>,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     total_bytes: u64,
 }
@@ -138,7 +138,18 @@ impl Fetcher {
     /// # Arguments
     ///
     /// * `segments` - The number of parallel segments to use.
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
     pub fn with_parallel_segments(mut self, segments: usize) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            segments = segments,
+            url = %self.url,
+            "Configuring parallel segments for fetcher"
+        );
+
         self.parallel_segments = segments;
         self
     }
@@ -200,7 +211,11 @@ impl Fetcher {
     /// This function will return an error if the data could not be fetched or parsed.
     pub async fn fetch_json(&self, auth_token: Option<String>) -> Result<serde_json::Value> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching JSON from {}", self.url);
+        tracing::debug!(
+            url = %self.url,
+            has_token = auth_token.is_some(),
+            "Fetching JSON data"
+        );
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("rust-reqwest"));
@@ -235,7 +250,10 @@ impl Fetcher {
     /// This function will return an error if the data could not be fetched.
     pub async fn fetch_text(&self, auth_token: Option<String>) -> Result<String> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching text from {}", self.url);
+        tracing::debug!(
+            url = %self.url,
+            "Fetching text data"
+        );
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("rust-reqwest"));
@@ -269,27 +287,32 @@ impl Fetcher {
     /// # Errors
     ///
     /// This function will return an error if the asset cannot be downloaded or written to the destination.
-    pub async fn fetch_asset(
-        &self,
-        destination: impl AsRef<Path> + std::fmt::Debug + Send + Sync,
-    ) -> Result<()> {
+    pub async fn fetch_asset(&self, destination: impl Into<PathBuf>) -> Result<()> {
+        let destination: PathBuf = destination.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Fetching asset from {} to {:?}", self.url, destination);
+        tracing::debug!(
+            url = %self.url,
+            destination = ?destination,
+            parallel_segments = self.parallel_segments,
+            segment_size = self.segment_size,
+            "Fetching asset to file"
+        );
 
         // Ensure the destination directory exists
         fs::create_parent_dir(&destination).await?;
 
         // If the parent directory doesn't exist, create it
-        if let Some(parent) = destination.as_ref().parent()
+        if let Some(parent) = destination.parent()
             && !parent.exists()
         {
             tokio::fs::create_dir_all(parent).await?;
         }
 
         // Check if the file exists and if we can resume the download
-        let file_exists = destination.as_ref().exists();
+        let file_exists = destination.as_path().exists();
         let file_size = if file_exists {
-            match tokio::fs::metadata(destination.as_ref()).await {
+            match tokio::fs::metadata(&destination).await {
                 Ok(metadata) => Some(metadata.len()),
                 Err(_) => None,
             }
@@ -313,6 +336,7 @@ impl Fetcher {
         if !head_response.headers().contains_key("accept-ranges") {
             #[cfg(feature = "tracing")]
             tracing::debug!(
+                url = %self.url,
                 "Server does not support range requests, falling back to simple download"
             );
             return self.fetch_asset_simple(destination).await;
@@ -328,7 +352,10 @@ impl Fetcher {
             }
             None => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("Content-Length header not found, falling back to simple download");
+                tracing::debug!(
+                    url = %self.url,
+                    "Content-Length header not found, falling back to simple download"
+                );
                 return self.fetch_asset_simple(destination).await;
             }
         };
@@ -338,7 +365,11 @@ impl Fetcher {
             && size == content_length
         {
             #[cfg(feature = "tracing")]
-            tracing::debug!("File already exists with correct size, skipping download");
+            tracing::debug!(
+                destination = ?destination,
+                size = content_length,
+                "File already exists with correct size, skipping download"
+            );
             return Ok(());
         }
 
@@ -346,12 +377,17 @@ impl Fetcher {
         let file = if file_exists && file_size.is_some() {
             // Open existing file for resuming download
             #[cfg(feature = "tracing")]
-            tracing::debug!("Resuming download of existing file");
+            tracing::debug!(
+                destination = ?destination,
+                existing_size = file_size.unwrap_or(0),
+                total_size = content_length,
+                "Resuming download of existing file"
+            );
 
             let file = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(destination.as_ref())
+                .open(&destination)
                 .await?;
 
             // Ensure the file is the correct size
@@ -360,7 +396,11 @@ impl Fetcher {
         } else {
             // Create a new file
             #[cfg(feature = "tracing")]
-            tracing::debug!("Creating new file for download");
+            tracing::debug!(
+                destination = ?destination,
+                total_size = content_length,
+                "Creating new file for download"
+            );
 
             fs::create_parent_dir(&destination).await?;
             let file = fs::create_file(&destination).await?;
@@ -377,7 +417,13 @@ impl Fetcher {
         let parallel_segments = min(self.parallel_segments, optimal_segments);
 
         #[cfg(feature = "tracing")]
-        tracing::debug!("Using {} parallel segments for download", parallel_segments);
+        tracing::debug!(
+            parallel_segments = parallel_segments,
+            segment_size = self.segment_size,
+            total_size = content_length,
+            optimal_segments = optimal_segments,
+            "Calculated parallel download segments"
+        );
 
         // Calculate ranges for each segment
         let segment_size = self.segment_size as u64;
@@ -390,8 +436,8 @@ impl Fetcher {
         }
 
         // Create a temporary file to track downloaded segments
-        let temp_file_path = format!("{}.parts", destination.as_ref().display());
-        let downloaded_segments = if file_exists && std::path::Path::new(&temp_file_path).exists() {
+        let temp_file_path = format!("{}.parts", destination.display());
+        let downloaded_segments = if file_exists && Path::new(&temp_file_path).exists() {
             // Read the downloaded segments from the temporary file
             match tokio::fs::read_to_string(&temp_file_path).await {
                 Ok(content) => {
@@ -590,9 +636,10 @@ impl Fetcher {
             // initialized with the sum of already downloaded segments
             #[cfg(feature = "tracing")]
             tracing::debug!(
-                "Segment {}-{} already downloaded (verified start+end), skipping",
-                start,
-                end
+                segment_start = start,
+                segment_end = end,
+                segment_size = end - start + 1,
+                "Segment already downloaded (verified), skipping"
             );
 
             return Ok(());
@@ -654,24 +701,30 @@ impl Fetcher {
     }
 
     /// Simple download method without parallel optimizations.
-    async fn fetch_asset_simple(&self, destination: impl AsRef<Path> + Send + Sync) -> Result<()> {
+    async fn fetch_asset_simple(&self, destination: impl Into<PathBuf>) -> Result<()> {
+        let destination: PathBuf = destination.into();
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("Using simple download for {}", self.url);
+        tracing::debug!(
+            url = %self.url,
+            destination = ?destination,
+            "Using simple download (no parallel segments)"
+        );
 
         // Ensure the destination directory exists
         fs::create_parent_dir(&destination).await?;
 
         // If the parent directory doesn't exist, create it
-        if let Some(parent) = destination.as_ref().parent()
+        if let Some(parent) = destination.parent()
             && !parent.exists()
         {
             tokio::fs::create_dir_all(parent).await?;
         }
 
         // Check if the file exists and get its size
-        let file_exists = destination.as_ref().exists();
+        let file_exists = destination.exists();
         let file_size = if file_exists {
-            match tokio::fs::metadata(destination.as_ref()).await {
+            match tokio::fs::metadata(&destination).await {
                 Ok(metadata) => Some(metadata.len()),
                 Err(_) => None,
             }

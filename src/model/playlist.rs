@@ -242,7 +242,7 @@ impl fmt::Display for Playlist {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Playlist(id={}, title=\"{}\", videos={})",
+            "Playlist(id={}, title={:?}, videos={})",
             self.id,
             self.title,
             self.video_count
@@ -257,7 +257,7 @@ impl fmt::Display for PlaylistEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PlaylistEntry(id={}, title=\"{}\", index={})",
+            "PlaylistEntry(id={}, title={:?}, index={})",
             self.id,
             self.title,
             self.index
