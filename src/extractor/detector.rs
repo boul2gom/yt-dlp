@@ -7,16 +7,16 @@ use crate::extractor::ExtractorName;
 /// Detect which extractor type should handle a URL.
 ///
 /// # Arguments
-/// 
+///
 /// * `url` - The URL to analyze
 /// * `executable_path` - Path to the yt-dlp executable
 ///
 /// # Returns
-/// 
+///
 /// ExtractorName indicating which extractor should be used
 ///
 /// # Errors
-/// 
+///
 /// Returns error if URL cannot be validated or no extractor is available
 pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<ExtractorName> {
     #[cfg(feature = "tracing")]
@@ -62,11 +62,11 @@ use crate::extractor::youtube::Youtube;
 /// Fast check if URL matches YouTube patterns.
 ///
 /// # Arguments
-/// 
+///
 /// * `url` - The URL to check
 ///
 /// # Returns
-/// 
+///
 /// true if the URL matches YouTube patterns, false otherwise
 fn is_youtube_url(url: &str) -> bool {
     Youtube::supports_url(url)
@@ -75,16 +75,16 @@ fn is_youtube_url(url: &str) -> bool {
 /// Detect extractor via yt-dlp simulation.
 ///
 /// # Arguments
-/// 
+///
 /// * `url` - The URL to detect extractor for
 /// * `executable_path` - Path to the yt-dlp executable
 ///
 /// # Returns
-/// 
+///
 /// The name of the detected extractor
 ///
 /// # Errors
-/// 
+///
 /// Returns an error if yt-dlp fails, JSON parsing fails, or extractor field is missing
 async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     #[cfg(feature = "tracing")]

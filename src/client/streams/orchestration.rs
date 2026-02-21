@@ -23,7 +23,7 @@ impl Downloader {
     ///
     /// `Some(Video)` if found in cache and not expired, `None` otherwise
     async fn check_video_cache(&self, url: &str) -> Option<Video> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         {
             #[cfg(feature = "tracing")]
             tracing::debug!(url = url, "Checking video cache");
@@ -40,7 +40,7 @@ impl Downloader {
 
             result
         }
-        #[cfg(not(feature = "cache"))]
+        #[cfg(not(feature = "cache-backend"))]
         {
             #[cfg(feature = "tracing")]
             tracing::debug!(url = url, "Cache feature disabled");
@@ -99,7 +99,7 @@ impl Downloader {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=dQw4w9WgXcQ").await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     /// println!("Video title: {}", video.title);
     /// # Ok(())
     /// # }
@@ -135,7 +135,7 @@ impl Downloader {
             "Video information fetched successfully"
         );
 
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
             #[cfg(feature = "tracing")]
             tracing::debug!(video_id = %video.id, "Storing video in cache");
@@ -182,7 +182,7 @@ impl Downloader {
             "Fresh video information fetched successfully"
         );
 
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
             #[cfg(feature = "tracing")]
             tracing::debug!(video_id = %video.id, "Updating cache with fresh video data");
@@ -203,7 +203,7 @@ impl Downloader {
     ///
     /// `Some(Video)` if found in cache, `None` otherwise.
     pub async fn get_video_by_id(&self, id: &str) -> Option<Video> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         {
             #[cfg(feature = "tracing")]
             tracing::debug!(video_id = id, "Getting video from cache by ID");
@@ -221,7 +221,7 @@ impl Downloader {
 
             video
         }
-        #[cfg(not(feature = "cache"))]
+        #[cfg(not(feature = "cache-backend"))]
         {
             #[cfg(feature = "tracing")]
             tracing::debug!(video_id = id, "Cache feature disabled");
@@ -289,7 +289,7 @@ impl Downloader {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
     /// let path = downloader.download_video_from_url(
-    ///     "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+    ///     "https://www.youtube.com/watch?v=gXtp6C-3JKo".to_string(),
     ///     "my_video.mp4"
     /// ).await?;
     /// println!("Downloaded to: {:?}", path);
@@ -335,7 +335,7 @@ impl Downloader {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
     /// let path = downloader.download_video_from_url_to_path(
-    ///     "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+    ///     "https://www.youtube.com/watch?v=gXtp6C-3JKo".to_string(),
     ///     PathBuf::from("/tmp/video.mp4")
     /// ).await?;
     /// # Ok(())
@@ -379,7 +379,7 @@ impl Downloader {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=dQw4w9WgXcQ").await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     /// let path = downloader.download_video(&video, "downloaded_video.mp4").await?;
     /// # Ok(())
     /// # }
@@ -414,7 +414,7 @@ impl Downloader {
         let path = output.into();
 
         // Check if the video is in the cache
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
             // Try to find the video in the cache by its ID
             if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id).await {
@@ -448,28 +448,24 @@ impl Downloader {
             best_video,
             best_audio,
             &path,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             None,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             None,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             None,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             None,
         )
         .await?;
 
         // Cache the downloaded file if caching is enabled
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
-            let output_str = path
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or_default()
-                .to_string();
+            let output_str = utils::try_name(path.as_path()).unwrap_or_default();
 
             if let Err(_e) = download_cache
                 .put_file(&path, output_str, Some(video.id.clone()), None)
@@ -780,7 +776,7 @@ impl Downloader {
 
         // Use the internal function to download the format without preferences
         cfg_if::cfg_if! {
-            if #[cfg(feature = "cache")] {
+            if #[cfg(feature = "cache-backend")] {
                 self.download_format_internal(format, &output_path, None, None, None, None).await
             } else {
                 self.download_format_internal(format, &output_path).await
@@ -806,16 +802,16 @@ impl Downloader {
         &self,
         format: &Format,
         output: impl AsRef<str>,
-        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
-        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
-        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
-        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
+        #[cfg(feature = "cache-backend")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache-backend")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache-backend")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache-backend")] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Use the internal function to download the format with preferences
         cfg_if::cfg_if! {
-            if #[cfg(feature = "cache")] {
+            if #[cfg(feature = "cache-backend")] {
                 self.download_format_internal(
                     format,
                     &output_path,
@@ -836,20 +832,20 @@ impl Downloader {
         &self,
         format: &Format,
         path: &PathBuf,
-        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
-        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
-        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
-        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
+        #[cfg(feature = "cache-backend")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache-backend")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache-backend")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache-backend")] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         // Check if we have specific preferences
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         let has_preferences = video_quality.is_some()
             || audio_quality.is_some()
             || video_codec.is_some()
             || audio_codec.is_some();
 
         // Check if the format is in the cache
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache
             && let Some(video_id) = format.video_id.as_ref()
         {
@@ -914,13 +910,9 @@ impl Downloader {
         self.add_metadata_if_needed(path, format).await?;
 
         // Cache the downloaded file if caching is enabled
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
-            let output_str = path
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or_default()
-                .to_string();
+            let output_str = utils::try_name(path.as_path()).unwrap_or_default();
 
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching format with ID: {}", format.format_id);
@@ -984,7 +976,7 @@ impl Downloader {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Check if subtitle is in the cache
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache
             && let Some((_, cached_path)) = download_cache
                 .get_subtitle_by_language(&video.id, language_code)
@@ -1039,7 +1031,7 @@ impl Downloader {
         fetcher.fetch_asset(&output_path).await?;
 
         // Cache the downloaded subtitle
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!(
@@ -1149,7 +1141,7 @@ impl Downloader {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PL...").await?;
+    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf").await?;
     /// println!("Playlist title: {}", playlist.title);
     /// # Ok(())
     /// # }
@@ -1163,7 +1155,7 @@ impl Downloader {
         tracing::debug!("Fetching playlist information from {}", url_str);
 
         // Check if the playlist is in the cache
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.playlist_cache
             && let Some(playlist) = cache.get(url_str).await?
         {
@@ -1186,7 +1178,7 @@ impl Downloader {
         playlist.url = Some(url_str.to_string());
 
         // Cache the playlist if caching is enabled
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.playlist_cache {
             #[cfg(feature = "tracing")]
             tracing::debug!("Caching playlist information for {}", url_str);
@@ -1230,7 +1222,7 @@ impl Downloader {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PL...").await?;
+    /// let playlist = downloader.fetch_playlist_infos("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf.").await?;
     ///
     /// // Download all videos in the playlist
     /// let paths = downloader.download_playlist(&playlist, "%(title)s.%(ext)s").await?;
@@ -1263,14 +1255,22 @@ impl Downloader {
         let mut downloaded_files = Vec::new();
         let mut errors = Vec::new();
 
-        for (_idx, result) in results.into_iter().enumerate() {
+        #[cfg(feature = "tracing")]
+        for (video_idx, result) in results.into_iter().enumerate() {
             match result {
                 Ok(path) => downloaded_files.push(path),
                 Err(e) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::error!("Failed to download video at index {}: {}", _idx, e);
+                    tracing::error!("Failed to download video at index {video_idx}: {e}");
                     errors.push(e);
                 }
+            }
+        }
+
+        #[cfg(not(feature = "tracing"))]
+        for result in results {
+            match result {
+                Ok(path) => downloaded_files.push(path),
+                Err(e) => errors.push(e),
             }
         }
 
@@ -1754,7 +1754,7 @@ impl Downloader {
         executor.execute().await?;
 
         // Clean up temporary file
-        tokio::fs::remove_file(&temp_path).await.ok();
+        utils::remove_temp_file(&temp_path).await;
 
         Ok(output_path.to_path_buf())
     }
@@ -1766,10 +1766,10 @@ impl Downloader {
         video_format: &Format,
         audio_format: &Format,
         output_path: &Path,
-        #[cfg(feature = "cache")] video_quality: Option<VideoQuality>,
-        #[cfg(feature = "cache")] audio_quality: Option<AudioQuality>,
-        #[cfg(feature = "cache")] video_codec: Option<VideoCodecPreference>,
-        #[cfg(feature = "cache")] audio_codec: Option<AudioCodecPreference>,
+        #[cfg(feature = "cache-backend")] video_quality: Option<VideoQuality>,
+        #[cfg(feature = "cache-backend")] audio_quality: Option<AudioQuality>,
+        #[cfg(feature = "cache-backend")] video_codec: Option<VideoCodecPreference>,
+        #[cfg(feature = "cache-backend")] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         // Generate temporary filenames
         let video_ext = format!("{:?}", video_format.download_info.ext);
@@ -1778,7 +1778,7 @@ impl Downloader {
         let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
 
         // Download video and audio in parallel
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         let (video_result, audio_result) = tokio::join!(
             self.download_format_with_preferences(
                 video_format,
@@ -1798,7 +1798,7 @@ impl Downloader {
             )
         );
 
-        #[cfg(not(feature = "cache"))]
+        #[cfg(not(feature = "cache-backend"))]
         let (video_result, audio_result) = tokio::join!(
             self.download_format(video_format, &video_filename),
             self.download_format(audio_format, &audio_filename)
@@ -1820,9 +1820,7 @@ impl Downloader {
 
         // If the user specified a different directory than output_dir, move the file
         if combined_path != output_path {
-            if let Some(parent) = output_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
+            utils::create_parent_dir(output_path).await?;
             if tokio::fs::rename(&combined_path, output_path)
                 .await
                 .is_err()
@@ -1834,15 +1832,8 @@ impl Downloader {
         }
 
         // Clean up temporary files
-        if let Err(_e) = tokio::fs::remove_file(&video_temp_path).await {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to remove temporary video file: {}", _e);
-        }
-
-        if let Err(_e) = tokio::fs::remove_file(&audio_temp_path).await {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to remove temporary audio file: {}", _e);
-        }
+        utils::remove_temp_file(&video_temp_path).await;
+        utils::remove_temp_file(&audio_temp_path).await;
 
         Ok(output_path.to_path_buf())
     }

@@ -12,6 +12,7 @@ use crate::model::playlist::Playlist;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
+use crate::model::utils::serde::serialize_json_opt;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -36,9 +37,8 @@ pub struct JsonVideoCache {
     ttl: u64,
 }
 
-#[async_trait::async_trait]
-impl VideoBackend for JsonVideoCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl JsonVideoCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         let video_dir = cache_dir.join("videos");
         if !video_dir.exists() {
             tokio::fs::create_dir_all(&video_dir).await?;
@@ -48,7 +48,9 @@ impl VideoBackend for JsonVideoCache {
             ttl: ttl.unwrap_or(24 * 60 * 60),
         })
     }
+}
 
+impl VideoBackend for JsonVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -186,9 +188,8 @@ pub struct JsonPlaylistCache {
     ttl: u64,
 }
 
-#[async_trait::async_trait]
-impl PlaylistBackend for JsonPlaylistCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl JsonPlaylistCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         let list_dir = cache_dir.join("playlists");
         if !list_dir.exists() {
             tokio::fs::create_dir_all(&list_dir).await?;
@@ -198,7 +199,9 @@ impl PlaylistBackend for JsonPlaylistCache {
             ttl: ttl.unwrap_or(6 * 60 * 60), // 6 hours default
         })
     }
+}
 
+impl PlaylistBackend for JsonPlaylistCache {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -342,9 +345,8 @@ pub struct JsonFileCache {
     ttl: u64,
 }
 
-#[async_trait::async_trait]
-impl FileBackend for JsonFileCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl JsonFileCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         let files_dir = cache_dir.join("files_meta");
         if !files_dir.exists() {
             tokio::fs::create_dir_all(&files_dir).await?;
@@ -370,7 +372,9 @@ impl FileBackend for JsonFileCache {
             ttl: ttl.unwrap_or(7 * 24 * 60 * 60),
         })
     }
+}
 
+impl FileBackend for JsonFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -441,7 +445,7 @@ impl FileBackend for JsonFileCache {
         None
     }
 
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
@@ -454,10 +458,10 @@ impl FileBackend for JsonFileCache {
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
 
-        let vq_str = video_quality.map(|q| serde_json::to_string(&q).unwrap_or_default());
-        let aq_str = audio_quality.map(|q| serde_json::to_string(&q).unwrap_or_default());
-        let vc_str = video_codec.map(|c| serde_json::to_string(&c).unwrap_or_default());
-        let ac_str = audio_codec.map(|c| serde_json::to_string(&c).unwrap_or_default());
+        let vq_str = serialize_json_opt(video_quality);
+        let aq_str = serialize_json_opt(audio_quality);
+        let vc_str = serialize_json_opt(video_codec);
+        let ac_str = serialize_json_opt(audio_codec);
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {

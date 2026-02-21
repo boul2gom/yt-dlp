@@ -30,7 +30,7 @@ impl EventFilter {
     /// Creates a filter that only accepts events with the specified download ID
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `id` - The download ID to filter by
     ///
     /// # Returns
@@ -126,11 +126,11 @@ impl EventFilter {
     /// Adds a custom predicate to the filter
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `predicate` - A function that returns true if the event should be accepted
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn and_then<F>(mut self, predicate: F) -> Self
     where
@@ -156,11 +156,11 @@ impl EventFilter {
     /// Tests if an event matches all predicates
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `event` - The event to test
     ///
     /// # Returns
-    /// 
+    ///
     /// true if the event matches all predicates, false otherwise
     pub fn matches(&self, event: &DownloadEvent) -> bool {
         let result = self.predicates.iter().all(|predicate| predicate(event));

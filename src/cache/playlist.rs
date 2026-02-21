@@ -3,17 +3,12 @@
 //! This module provides a high-level API for caching playlist metadata,
 //! using pluggable backend implementations.
 
-use crate::cache::backend::PlaylistBackend;
+use crate::cache::backend::{PlaylistBackend, PlaylistBackendEnum};
+use crate::cache::current_timestamp;
 use crate::error::{Error, Result};
 use crate::model::playlist::Playlist;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
-use crate::cache::backend::json::JsonPlaylistCache;
-#[cfg(feature = "cache-sqlite")]
-use crate::cache::backend::sqlite::SqlitePlaylistCache;
 
 /// Structure for storing playlist metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,10 +43,7 @@ impl From<(String, Playlist)> for CachedPlaylist {
             title: playlist.title.clone(),
             url,
             playlist_json,
-            cached_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64,
+            cached_at: current_timestamp(),
         }
     }
 }
@@ -59,7 +51,7 @@ impl From<(String, Playlist)> for CachedPlaylist {
 /// Playlist cache for storing and retrieving playlist metadata.
 #[derive(Debug)]
 pub struct PlaylistCache {
-    backend: Box<dyn PlaylistBackend>,
+    backend: PlaylistBackendEnum,
 }
 
 impl PlaylistCache {
@@ -107,26 +99,8 @@ impl PlaylistCache {
             "Creating playlist cache"
         );
 
-        #[cfg(feature = "cache-sqlite")]
-        {
-            let backend = SqlitePlaylistCache::new(cache_dir, Some(ttl_seconds)).await?;
-            Ok(Self {
-                backend: Box::new(backend),
-            })
-        }
-
-        #[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
-        {
-            let backend = JsonPlaylistCache::new(cache_dir, Some(ttl_seconds)).await?;
-            Ok(Self {
-                backend: Box::new(backend),
-            })
-        }
-
-        #[cfg(not(any(feature = "cache-sqlite", feature = "cache-json")))]
-        {
-            Err(Error::Unknown("No cache backend enabled".to_string()))
-        }
+        let backend = PlaylistBackendEnum::new(cache_dir, Some(ttl_seconds)).await?;
+        Ok(Self { backend })
     }
 
     /// Get a playlist from the cache by URL.

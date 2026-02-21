@@ -1,44 +1,51 @@
-//! In-memory backend implementation for testing.
+//! In-memory LRU cache backend.
 //!
-//! This module provides simple in-memory cache implementations for testing purposes.
-//! Data is stored in HashMap and is not persisted.
+//! This module provides in-memory cache implementations backed by LRU eviction.
+//! Data is stored in RAM only and is not persisted between process restarts.
 
-use super::{FileBackend, VideoBackend};
+use super::{FileBackend, PlaylistBackend, VideoBackend};
+use crate::cache::current_timestamp;
+use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::RwLock;
-
-#[cfg(feature = "cache")]
+use crate::model::playlist::Playlist;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
+use crate::model::utils::serde::serialize_json_opt;
+use lru::LruCache;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-/// Type alias for file cache storage.
-type FileStorage = Arc<RwLock<HashMap<String, (CachedFile, Vec<u8>)>>>;
-/// Type alias for thumbnail cache storage.
-type ThumbnailStorage = Arc<RwLock<HashMap<String, (CachedThumbnail, Vec<u8>)>>>;
+// LruCache::get() takes &mut self, so Mutex is required instead of RwLock.
+const VIDEO_CAPACITY: usize = 512;
+const FILE_CAPACITY: usize = 64;
+const THUMBNAIL_CAPACITY: usize = 256;
+const PLAYLIST_CAPACITY: usize = 128;
 
-/// In-memory video cache implementation for testing.
+/// In-memory LRU video cache.
 #[derive(Debug, Clone)]
 pub struct MemoryVideoCache {
-    data: Arc<RwLock<HashMap<String, CachedVideo>>>,
+    data: Arc<Mutex<LruCache<String, CachedVideo>>>,
     ttl: i64,
 }
 
-#[async_trait::async_trait]
-impl VideoBackend for MemoryVideoCache {
-    async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl MemoryVideoCache {
+    /// Creates a new in-memory LRU video cache.
+    pub async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         Ok(Self {
-            data: Arc::new(RwLock::new(HashMap::new())),
+            data: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(VIDEO_CAPACITY).unwrap(),
+            ))),
             ttl: ttl.unwrap_or(24 * 60 * 60) as i64,
         })
     }
+}
 
+impl VideoBackend for MemoryVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -46,17 +53,14 @@ impl VideoBackend for MemoryVideoCache {
             ttl = self.ttl,
             "Looking for video in memory cache by URL"
         );
-        let data = self.data.read().await;
 
-        if let Some(cached) = data.get(url) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+        let mut data = self.data.lock().await;
+        let now = current_timestamp();
 
-            if cached.cached_at + self.ttl > now {
-                return Ok(Some(cached.video()?));
-            }
+        if let Some(cached) = data.get(url)
+            && cached.cached_at + self.ttl > now
+        {
+            return Ok(Some(cached.video()?));
         }
 
         Ok(None)
@@ -64,47 +68,51 @@ impl VideoBackend for MemoryVideoCache {
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!(
-            url = %url,
-            video_id = %video.id,
-            video_title = %video.title,
-            "Caching video to memory backend"
-        );
-        let mut data = self.data.write().await;
+        tracing::debug!(url = %url, video_id = %video.id, "Caching video to memory backend");
+
+        let mut data = self.data.lock().await;
         let cached = CachedVideo::from((url.clone(), video));
-        data.insert(url, cached);
+        data.put(url, cached);
         Ok(())
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Removing video from memory cache");
-        let mut data = self.data.write().await;
-        data.remove(url);
+
+        let mut data = self.data.lock().await;
+        data.pop(url);
         Ok(())
     }
 
     async fn clean(&self) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!(ttl = self.ttl, "Cleaning memory video cache");
-        let mut data = self.data.write().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        tracing::debug!(
+            ttl = self.ttl,
+            "Cleaning expired entries from memory video cache"
+        );
 
-        data.retain(|_, cached| cached.cached_at + self.ttl > now);
+        let mut data = self.data.lock().await;
+        let now = current_timestamp();
+
+        let expired: Vec<String> = data
+            .iter()
+            .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in expired {
+            data.pop(&key);
+        }
+
         Ok(())
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        let data = self.data.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let data = self.data.lock().await;
+        let now = current_timestamp();
 
-        for cached in data.values() {
+        for (_, cached) in data.iter() {
             if cached.id == id && cached.cached_at + self.ttl > now {
                 return Ok(cached.clone());
             }
@@ -117,24 +125,31 @@ impl VideoBackend for MemoryVideoCache {
     }
 }
 
-/// In-memory file cache implementation for testing.
+/// In-memory LRU file cache.
 #[derive(Debug, Clone)]
 pub struct MemoryFileCache {
-    files: FileStorage,
-    thumbnails: ThumbnailStorage,
+    // Stores file metadata only — no file bytes are read into memory.
+    files: Arc<Mutex<LruCache<String, CachedFile>>>,
+    thumbnails: Arc<Mutex<LruCache<String, CachedThumbnail>>>,
     ttl: i64,
 }
 
-#[async_trait::async_trait]
-impl FileBackend for MemoryFileCache {
-    async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl MemoryFileCache {
+    /// Creates a new in-memory LRU file cache.
+    pub async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         Ok(Self {
-            files: Arc::new(RwLock::new(HashMap::new())),
-            thumbnails: Arc::new(RwLock::new(HashMap::new())),
+            files: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(FILE_CAPACITY).unwrap(),
+            ))),
+            thumbnails: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(THUMBNAIL_CAPACITY).unwrap(),
+            ))),
             ttl: ttl.unwrap_or(7 * 24 * 60 * 60) as i64,
         })
     }
+}
 
+impl FileBackend for MemoryFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -142,13 +157,11 @@ impl FileBackend for MemoryFileCache {
             ttl = self.ttl,
             "Looking for file in memory cache by hash"
         );
-        let files = self.files.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
 
-        files.get(hash).and_then(|(cached, _)| {
+        let mut files = self.files.lock().await;
+        let now = current_timestamp();
+
+        files.get(hash).and_then(|cached| {
             if cached.cached_at + self.ttl > now {
                 Some((cached.clone(), PathBuf::from(&cached.relative_path)))
             } else {
@@ -162,13 +175,10 @@ impl FileBackend for MemoryFileCache {
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        let files = self.files.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let files = self.files.lock().await;
+        let now = current_timestamp();
 
-        for (cached, _) in files.values() {
+        for (_, cached) in files.iter() {
             if cached.video_id.as_deref() == Some(video_id)
                 && cached.format_id.as_deref() == Some(format_id)
                 && cached.cached_at + self.ttl > now
@@ -180,7 +190,6 @@ impl FileBackend for MemoryFileCache {
         None
     }
 
-    #[cfg(feature = "cache")]
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
@@ -189,18 +198,15 @@ impl FileBackend for MemoryFileCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
-        let files = self.files.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let files = self.files.lock().await;
+        let now = current_timestamp();
 
-        let vq = video_quality.and_then(|q| serde_json::to_string(&q).ok());
-        let aq = audio_quality.and_then(|q| serde_json::to_string(&q).ok());
-        let vc = video_codec.and_then(|c| serde_json::to_string(&c).ok());
-        let ac = audio_codec.and_then(|c| serde_json::to_string(&c).ok());
+        let vq = serialize_json_opt(video_quality);
+        let aq = serialize_json_opt(audio_quality);
+        let vc = serialize_json_opt(video_codec);
+        let ac = serialize_json_opt(audio_codec);
 
-        for (cached, _) in files.values() {
+        for (_, cached) in files.iter() {
             if cached.video_id.as_deref() == Some(video_id)
                 && (vq.is_none() || cached.video_quality == vq)
                 && (aq.is_none() || cached.audio_quality == aq)
@@ -215,46 +221,62 @@ impl FileBackend for MemoryFileCache {
         None
     }
 
-    async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
+    async fn put(&self, file: CachedFile, _source_path: &Path) -> Result<PathBuf> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             filename = %file.filename,
             file_id = %file.id,
-            source_path = ?source_path,
-            video_id = ?file.video_id,
-            format_id = ?file.format_id,
-            filesize = file.filesize,
-            "Caching file to memory backend"
+            "Caching file metadata to memory backend"
         );
-        let mut files = self.files.write().await;
+
+        let mut files = self.files.lock().await;
         let path = PathBuf::from(&file.relative_path);
-
-        let content = tokio::fs::read(source_path).await?;
-
-        files.insert(file.id.clone(), (file, content));
+        files.put(file.id.clone(), file);
         Ok(path)
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
         #[cfg(feature = "tracing")]
         tracing::debug!(file_id = id, "Removing file from memory cache");
-        let mut files = self.files.write().await;
-        files.remove(id);
+
+        let mut files = self.files.lock().await;
+        files.pop(id);
         Ok(())
     }
 
     async fn clean(&self) -> Result<()> {
         #[cfg(feature = "tracing")]
-        tracing::debug!(ttl = self.ttl, "Cleaning memory file cache");
-        let mut files = self.files.write().await;
-        let mut thumbnails = self.thumbnails.write().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        tracing::debug!(
+            ttl = self.ttl,
+            "Cleaning expired entries from memory file cache"
+        );
 
-        files.retain(|_, (cached, _)| cached.cached_at + self.ttl > now);
-        thumbnails.retain(|_, (cached, _)| cached.cached_at + self.ttl > now);
+        let now = current_timestamp();
+
+        {
+            let mut files = self.files.lock().await;
+            let expired: Vec<String> = files
+                .iter()
+                .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in expired {
+                files.pop(&key);
+            }
+        }
+
+        {
+            let mut thumbnails = self.thumbnails.lock().await;
+            let expired: Vec<String> = thumbnails
+                .iter()
+                .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in expired {
+                thumbnails.pop(&key);
+            }
+        }
+
         Ok(())
     }
 
@@ -262,29 +284,33 @@ impl FileBackend for MemoryFileCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
-        let thumbnails = self.thumbnails.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let thumbnails = self.thumbnails.lock().await;
+        let now = current_timestamp();
 
-        for (cached, _) in thumbnails.values() {
+        for (_, cached) in thumbnails.iter() {
             if cached.video_id == video_id && cached.cached_at + self.ttl > now {
                 return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
             }
         }
+
         None
     }
 
     async fn put_thumbnail(
         &self,
         thumbnail: CachedThumbnail,
-        source_path: &Path,
+        _source_path: &Path,
     ) -> Result<PathBuf> {
-        let mut thumbnails = self.thumbnails.write().await;
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            thumbnail_id = %thumbnail.id,
+            video_id = %thumbnail.video_id,
+            "Caching thumbnail metadata to memory backend"
+        );
+
+        let mut thumbnails = self.thumbnails.lock().await;
         let path = PathBuf::from(&thumbnail.relative_path);
-        let content = tokio::fs::read(source_path).await?;
-        thumbnails.insert(thumbnail.id.clone(), (thumbnail, content));
+        thumbnails.put(thumbnail.id.clone(), thumbnail);
         Ok(path)
     }
 
@@ -293,16 +319,10 @@ impl FileBackend for MemoryFileCache {
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        let files = self.files.read().await;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let files = self.files.lock().await;
+        let now = current_timestamp();
 
-        for (cached, _) in files.values() {
-            // Check if it's a subtitle file and matches video_id and language
-            // Assuming file_type or format_id discriminates subtitles?
-            // CachedFile has language_code.
+        for (_, cached) in files.iter() {
             if cached.video_id.as_deref() == Some(video_id)
                 && cached.language_code.as_deref() == Some(language)
                 && cached.cached_at + self.ttl > now
@@ -310,6 +330,90 @@ impl FileBackend for MemoryFileCache {
                 return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
             }
         }
+
         None
+    }
+}
+
+/// In-memory LRU playlist cache.
+#[derive(Debug, Clone)]
+pub struct MemoryPlaylistCache {
+    data: Arc<Mutex<LruCache<String, CachedPlaylist>>>,
+    ttl: i64,
+}
+
+impl MemoryPlaylistCache {
+    /// Creates a new in-memory LRU playlist cache.
+    pub async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        Ok(Self {
+            data: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(PLAYLIST_CAPACITY).unwrap(),
+            ))),
+            ttl: ttl.unwrap_or(6 * 60 * 60) as i64,
+        })
+    }
+}
+
+impl PlaylistBackend for MemoryPlaylistCache {
+    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        let mut data = self.data.lock().await;
+        let now = current_timestamp();
+
+        if let Some(cached) = data.get(url)
+            && cached.cached_at + self.ttl > now
+        {
+            return Ok(Some(cached.playlist()?));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        let data = self.data.lock().await;
+        let now = current_timestamp();
+
+        for (_, cached) in data.iter() {
+            if cached.id == id && cached.cached_at + self.ttl > now {
+                return Ok(Some(cached.playlist()?));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        let mut data = self.data.lock().await;
+        let cached = CachedPlaylist::from((url.clone(), playlist));
+        data.put(url, cached);
+        Ok(())
+    }
+
+    async fn invalidate(&self, url: &str) -> Result<()> {
+        let mut data = self.data.lock().await;
+        data.pop(url);
+        Ok(())
+    }
+
+    async fn clean(&self) -> Result<()> {
+        let mut data = self.data.lock().await;
+        let now = current_timestamp();
+
+        let expired: Vec<String> = data
+            .iter()
+            .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in expired {
+            data.pop(&key);
+        }
+
+        Ok(())
+    }
+
+    async fn clear_all(&self) -> Result<()> {
+        let mut data = self.data.lock().await;
+        data.clear();
+        Ok(())
     }
 }

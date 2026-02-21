@@ -51,7 +51,7 @@ impl Downloader {
                 );
 
                 // Try to get video metadata from cache
-                #[cfg(feature = "cache")]
+                #[cfg(feature = "cache-backend")]
                 if let Some(cache) = &self.cache
                     && let Ok(cached_video) = cache.get_by_id(video_id).await
                     && let Ok(video) = cached_video.video()
@@ -79,7 +79,7 @@ impl Downloader {
                     }
                 }
 
-                #[cfg(not(feature = "cache"))]
+                #[cfg(not(feature = "cache-backend"))]
                 {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(

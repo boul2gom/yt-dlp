@@ -122,11 +122,12 @@ impl Fetcher {
             parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
             segment_size: DEFAULT_SEGMENT_SIZE,
             retry_attempts: DEFAULT_RETRY_ATTEMPTS,
-            retry_policy: RetryPolicy::default()
-                .with_max_attempts(DEFAULT_RETRY_ATTEMPTS as u32)
-                .with_initial_delay(Duration::from_millis(500))
-                .with_max_delay(Duration::from_secs(30))
-                .with_backoff_factor(2.0),
+            retry_policy: RetryPolicy::builder()
+                .max_attempts(DEFAULT_RETRY_ATTEMPTS as u32)
+                .initial_delay(Duration::from_millis(500))
+                .max_delay(Duration::from_secs(30))
+                .backoff_factor(2.0)
+                .build(),
             client: Arc::new(client),
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
@@ -583,7 +584,7 @@ impl Fetcher {
         }
 
         // Remove the temporary file
-        let _ = tokio::fs::remove_file(temp_file_path).await;
+        fs::remove_temp_file(temp_file_path).await;
 
         Ok(())
     }

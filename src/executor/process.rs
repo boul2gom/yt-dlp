@@ -274,11 +274,14 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let mut buffer = Vec::new();
+    #[cfg(feature = "tracing")]
     let bytes_read =
         tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
+    #[cfg(not(feature = "tracing"))]
+    tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
 
     #[cfg(feature = "tracing")]
-    tracing::trace!(bytes_read = bytes_read, "Stream read completed");
+    tracing::trace!(bytes_read, "Stream read completed");
 
     Ok(buffer)
 }

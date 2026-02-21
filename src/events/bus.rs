@@ -49,14 +49,16 @@ impl EventBus {
     /// If no subscribers are listening, the event is silently dropped.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `event` - The event to emit
     ///
     /// # Returns
-    /// 
+    ///
     /// The number of active receivers that received the event. If 0, no one is listening.
     pub fn emit(&self, event: DownloadEvent) -> usize {
+        #[cfg(feature = "tracing")]
         let event_type = event.event_type();
+        #[cfg(feature = "tracing")]
         let download_id = event.download_id();
 
         #[cfg(feature = "tracing")]
@@ -149,7 +151,7 @@ impl EventBus {
     /// Returns the number of active subscribers
     ///
     /// # Returns
-    /// 
+    ///
     /// The current number of active subscribers
     pub fn subscriber_count(&self) -> usize {
         self.tx.receiver_count()
@@ -158,7 +160,7 @@ impl EventBus {
     /// Checks if there are any active subscribers
     ///
     /// # Returns
-    /// 
+    ///
     /// true if there is at least one active subscriber, false otherwise
     pub fn has_subscribers(&self) -> bool {
         self.tx.receiver_count() > 0

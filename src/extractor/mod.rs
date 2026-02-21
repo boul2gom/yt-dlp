@@ -43,30 +43,30 @@ pub trait VideoExtractor: Downcast + Send + Sync + fmt::Debug {
     /// Fetch video metadata from a URL.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `url` - The video URL to fetch
     ///
     /// # Returns
-    /// 
+    ///
     /// Video metadata including formats, title, duration, etc.
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if the URL is unsupported, geo-blocked, or requires authentication
     async fn fetch_video(&self, url: &str) -> Result<Video>;
 
     /// Fetch playlist metadata from a URL.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `url` - The playlist URL to fetch
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist metadata including entries and metadata
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if the URL is unsupported or invalid
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist>;
 

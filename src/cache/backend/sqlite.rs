@@ -14,7 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
@@ -40,9 +40,8 @@ pub struct SqlitePlaylistCache {
     ttl: i64,
 }
 
-#[async_trait::async_trait]
-impl PlaylistBackend for SqlitePlaylistCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl SqlitePlaylistCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
@@ -97,7 +96,9 @@ impl PlaylistBackend for SqlitePlaylistCache {
             ttl: ttl.unwrap_or(6 * 60 * 60) as i64, // 6 hours default
         })
     }
+}
 
+impl PlaylistBackend for SqlitePlaylistCache {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -236,9 +237,8 @@ pub struct SqliteVideoCache {
     ttl: i64,
 }
 
-#[async_trait::async_trait]
-impl VideoBackend for SqliteVideoCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl SqliteVideoCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
@@ -295,7 +295,9 @@ impl VideoBackend for SqliteVideoCache {
             ttl: ttl.unwrap_or(24 * 60 * 60) as i64,
         })
     }
+}
 
+impl VideoBackend for SqliteVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -466,9 +468,8 @@ pub struct SqliteFileCache {
     cache_dir: PathBuf,
 }
 
-#[async_trait::async_trait]
-impl FileBackend for SqliteFileCache {
-    async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+impl SqliteFileCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
@@ -569,7 +570,9 @@ impl FileBackend for SqliteFileCache {
             cache_dir,
         })
     }
+}
 
+impl FileBackend for SqliteFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -636,7 +639,7 @@ impl FileBackend for SqliteFileCache {
         })
     }
 
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,

@@ -3,17 +3,12 @@
 //! This module provides a high-level API for caching video metadata,
 //! using pluggable backend implementations.
 
-use crate::cache::backend::VideoBackend;
+use crate::cache::backend::{VideoBackend, VideoBackendEnum};
+use crate::cache::current_timestamp;
 use crate::error::Result;
 use crate::model::Video;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
-use crate::cache::backend::json::JsonVideoCache;
-#[cfg(feature = "cache-sqlite")]
-use crate::cache::backend::sqlite::SqliteVideoCache;
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,10 +51,7 @@ impl From<(String, Video)> for CachedVideo {
             title: video.title.clone(),
             url,
             video_json,
-            cached_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64,
+            cached_at: current_timestamp(),
         }
     }
 }
@@ -140,7 +132,7 @@ pub struct CachedThumbnail {
 /// Video cache manager using pluggable backend.
 #[derive(Debug)]
 pub struct VideoCache {
-    backend: Box<dyn VideoBackend>,
+    backend: VideoBackendEnum,
 }
 
 impl VideoCache {
@@ -168,28 +160,8 @@ impl VideoCache {
             "Creating video cache"
         );
 
-        #[cfg(feature = "cache-sqlite")]
-        {
-            let backend = SqliteVideoCache::new(cache_dir, ttl).await?;
-            Ok(Self {
-                backend: Box::new(backend),
-            })
-        }
-
-        #[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
-        {
-            let backend = JsonVideoCache::new(cache_dir, ttl).await?;
-            Ok(Self {
-                backend: Box::new(backend),
-            })
-        }
-
-        #[cfg(not(any(feature = "cache-sqlite", feature = "cache-json")))]
-        {
-            Err(crate::error::Error::Unknown(
-                "No cache backend enabled".to_string(),
-            ))
-        }
+        let backend = VideoBackendEnum::new(cache_dir, ttl).await?;
+        Ok(Self { backend })
     }
 
     /// Retrieves a video from the cache by its URL.

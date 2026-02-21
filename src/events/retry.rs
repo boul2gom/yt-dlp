@@ -121,7 +121,7 @@ impl RetryStrategy {
     /// * `attempt` - The attempt number (0-indexed)
     ///
     /// # Returns
-    /// 
+    ///
     /// true if more retries are allowed, false otherwise
     pub fn should_retry(&self, attempt: usize) -> bool {
         let should_retry = attempt < self.max_attempts;

@@ -10,6 +10,18 @@ pub mod files;
 pub mod playlist;
 pub mod video;
 
+// Safety net: cache-backend is internal and must not be enabled directly.
+#[cfg(all(
+    feature = "cache-backend",
+    not(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))
+))]
+compile_error!(
+    "Feature \"cache-backend\" is internal and must not be enabled directly; \
+     use \"cache\", \"cache-json\", or \"cache-sqlite\""
+);
+
+// Priority order when multiple backends are enabled: cache-sqlite > cache-json > cache.
+
 // Re-export main types
 pub use files::DownloadCache;
 pub use playlist::PlaylistCache;

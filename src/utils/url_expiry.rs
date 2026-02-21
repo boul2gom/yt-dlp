@@ -5,6 +5,7 @@
 
 use crate::error::Error;
 use reqwest::StatusCode;
+use typed_builder::TypedBuilder;
 
 /// Represents the result of a URL expiry check.
 #[derive(Debug, Clone, PartialEq)]
@@ -127,11 +128,13 @@ pub fn should_refresh_url_from_http_error(error: &reqwest::Error) -> bool {
 }
 
 /// Configuration for URL expiry handling.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, TypedBuilder)]
 pub struct ExpiryConfig {
     /// Maximum number of refresh attempts before giving up
+    #[builder(default = 2)]
     pub max_refresh_attempts: usize,
     /// Whether to automatically refresh URLs when they expire
+    #[builder(default = true)]
     pub auto_refresh: bool,
 }
 
@@ -148,17 +151,5 @@ impl ExpiryConfig {
     /// Creates a new expiry configuration.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the maximum number of refresh attempts.
-    pub fn with_max_refresh_attempts(mut self, attempts: usize) -> Self {
-        self.max_refresh_attempts = attempts;
-        self
-    }
-
-    /// Sets whether to automatically refresh expired URLs.
-    pub fn with_auto_refresh(mut self, enabled: bool) -> Self {
-        self.auto_refresh = enabled;
-        self
     }
 }

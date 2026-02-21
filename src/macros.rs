@@ -45,7 +45,7 @@ macro_rules! youtube {
 /// # #[tokio::main]
 /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 /// let yt = youtube!("libs/yt-dlp", "libs/ffmpeg", "output").await?;
-/// download_video!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "video.mp4")?;
+/// download_video!(yt, "https://youtube.com/watch?v=gXtp6C-3JKo", "video.mp4")?;
 /// # Ok(())
 /// # }
 /// ```
@@ -79,7 +79,7 @@ macro_rules! download_video {
 /// # #[tokio::main]
 /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 /// let yt = youtube!("libs/yt-dlp", "libs/ffmpeg", "output").await?;
-/// download_audio!(yt, "https://youtube.com/watch?v=dQw4w9WgXcQ", "audio.m4a")?;
+/// download_audio!(yt, "https://youtube.com/watch?v=gXtp6C-3JKo", "audio.m4a")?;
 /// # Ok(())
 /// # }
 /// ```

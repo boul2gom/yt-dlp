@@ -269,7 +269,9 @@ pub async fn extract_zip(
         "Extracting zip file"
     );
 
+    #[cfg(feature = "tracing")]
     let zip_path_for_tracing = zip_path.clone();
+    #[cfg(feature = "tracing")]
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -359,7 +361,9 @@ pub async fn extract_tar_xz(
         "Extracting tar.xz file"
     );
 
+    #[cfg(feature = "tracing")]
     let tar_path_for_tracing = tar_path.clone();
+    #[cfg(feature = "tracing")]
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {

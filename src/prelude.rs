@@ -28,7 +28,7 @@ pub use crate::model::selector::{
 };
 
 // Cache types (if enabled)
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 pub use crate::cache::{DownloadCache, VideoCache};
 
 // Utility types

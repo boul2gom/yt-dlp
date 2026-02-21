@@ -122,11 +122,11 @@ impl WebhookConfig {
     /// Sets the HTTP method
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `method` - The HTTP method to use
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_method(mut self, method: WebhookMethod) -> Self {
         #[cfg(feature = "tracing")]
@@ -159,11 +159,12 @@ impl WebhookConfig {
 
     /// Sets the retry strategy
     pub fn with_retry_strategy(mut self, strategy: RetryStrategy) -> Self {
-        self.retry_policy = RetryPolicy::default()
-            .with_max_attempts(strategy.max_attempts as u32)
-            .with_initial_delay(strategy.initial_delay)
-            .with_max_delay(strategy.max_delay)
-            .with_backoff_factor(strategy.backoff_multiplier);
+        self.retry_policy = RetryPolicy::builder()
+            .max_attempts(strategy.max_attempts as u32)
+            .initial_delay(strategy.initial_delay)
+            .max_delay(strategy.max_delay)
+            .backoff_factor(strategy.backoff_multiplier)
+            .build();
         self
     }
 
@@ -324,7 +325,7 @@ impl WebhookDelivery {
     /// Delivers a webhook with retry logic
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `client` - HTTP client for sending requests
     /// * `config` - Webhook configuration
     /// * `event` - Event to deliver
@@ -381,13 +382,13 @@ impl WebhookDelivery {
     /// Sends a single webhook request
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `client` - HTTP client
     /// * `config` - Webhook configuration
     /// * `payload` - Webhook payload to send
     ///
     /// # Returns
-    /// 
+    ///
     /// Ok(()) on success, Err with error message on failure
     async fn send_webhook(
         client: &Client,
@@ -455,7 +456,7 @@ impl WebhookDelivery {
     /// Returns the number of registered webhooks
     ///
     /// # Returns
-    /// 
+    ///
     /// The total number of registered webhooks
     pub async fn count(&self) -> usize {
         let webhooks = self.webhooks.read().await;

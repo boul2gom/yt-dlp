@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
+use typed_builder::TypedBuilder;
 
 // Download manager default configuration constants
 const DEFAULT_RETRY_ATTEMPTS: usize = 3;
@@ -114,25 +115,34 @@ impl Ord for DownloadTask {
 }
 
 /// Download manager configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, TypedBuilder)]
 pub struct ManagerConfig {
     /// Maximum number of concurrent downloads
+    #[builder(default = SpeedProfile::default().max_concurrent_downloads())]
     pub max_concurrent_downloads: usize,
     /// Segment size for parallel download (in bytes)
+    #[builder(default = SpeedProfile::default().segment_size())]
     pub segment_size: usize,
     /// Number of parallel segments per download
+    #[builder(default = SpeedProfile::default().parallel_segments())]
     pub parallel_segments: usize,
     /// Number of download attempts in case of failure
+    #[builder(default = DEFAULT_RETRY_ATTEMPTS)]
     pub retry_attempts: usize,
     /// Maximum buffer size per download (in bytes)
+    #[builder(default = SpeedProfile::default().max_buffer_size())]
     pub max_buffer_size: usize,
     /// Optional proxy configuration
+    #[builder(default)]
     pub proxy: Option<ProxyConfig>,
     /// Speed profile for automatic optimization
+    #[builder(default)]
     pub speed_profile: SpeedProfile,
     /// Threshold for automatic cleanup of finished downloads
+    #[builder(default = DEFAULT_CLEANUP_THRESHOLD)]
     pub cleanup_threshold: usize,
     /// Optional User-Agent string
+    #[builder(default)]
     pub user_agent: Option<String>,
 }
 
@@ -175,76 +185,6 @@ impl ManagerConfig {
         self.parallel_segments = profile.parallel_segments();
         self.max_buffer_size = profile.max_buffer_size();
         self.speed_profile = profile;
-        self
-    }
-
-    /// Set the proxy configuration
-    ///
-    /// # Arguments
-    ///
-    /// * `proxy` - The proxy configuration
-    pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
-        self.proxy = Some(proxy);
-        self
-    }
-
-    /// Set the maximum number of concurrent downloads
-    ///
-    /// # Arguments
-    ///
-    /// * `max` - Maximum number of concurrent downloads
-    pub fn with_max_concurrent_downloads(mut self, max: usize) -> Self {
-        self.max_concurrent_downloads = max;
-        self
-    }
-
-    /// Set the segment size for parallel downloads
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - Segment size in bytes
-    pub fn with_segment_size(mut self, size: usize) -> Self {
-        self.segment_size = size;
-        self
-    }
-
-    /// Set the number of parallel segments per download
-    ///
-    /// # Arguments
-    ///
-    /// * `segments` - Number of parallel segments
-    pub fn with_parallel_segments(mut self, segments: usize) -> Self {
-        self.parallel_segments = segments;
-        self
-    }
-
-    /// Set the number of retry attempts for failed downloads
-    ///
-    /// # Arguments
-    ///
-    /// * `attempts` - Number of retry attempts
-    pub fn with_retry_attempts(mut self, attempts: usize) -> Self {
-        self.retry_attempts = attempts;
-        self
-    }
-
-    /// Set the maximum buffer size per download
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - Maximum buffer size in bytes
-    pub fn with_max_buffer_size(mut self, size: usize) -> Self {
-        self.max_buffer_size = size;
-        self
-    }
-
-    /// Set the User-Agent string
-    ///
-    /// # Arguments
-    ///
-    /// * `user_agent` - User-Agent string
-    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.user_agent = Some(user_agent.into());
         self
     }
 }
@@ -1007,6 +947,7 @@ impl DownloadManager {
 
                 // Launch the download in a separate task
                 let destination = task.destination.clone();
+                #[cfg(feature = "tracing")]
                 let task_url = task.url.clone();
                 let statuses_for_task = statuses_clone.clone();
                 let tasks_for_task = tasks_clone.clone();

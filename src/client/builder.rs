@@ -2,14 +2,14 @@
 //!
 //! This module provides a fluent API for constructing Downloader instances with various configurations.
 
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::proxy::ProxyConfig;
 use crate::client::{Downloader, Libraries};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 use crate::utils::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ pub struct DownloaderBuilder {
     args: Vec<String>,
     timeout: Duration,
     proxy: Option<ProxyConfig>,
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     cache_dir: Option<PathBuf>,
     download_manager_config: Option<ManagerConfig>,
 }
@@ -70,7 +70,7 @@ impl DownloaderBuilder {
             args: Vec::new(),
             timeout: crate::client::DEFAULT_TIMEOUT,
             proxy: None,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             cache_dir: None,
             download_manager_config: None,
         }
@@ -142,7 +142,7 @@ impl DownloaderBuilder {
     /// # Arguments
     ///
     /// * `cache_dir` - The directory to store cache files
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub fn with_cache(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         let cache_dir = cache_dir.into();
 
@@ -247,7 +247,7 @@ impl DownloaderBuilder {
     pub async fn build(self) -> Result<Downloader> {
         #[cfg(feature = "tracing")]
         {
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             tracing::debug!(
                 output_dir = ?self.output_dir,
                 args_count = self.args.len(),
@@ -257,7 +257,7 @@ impl DownloaderBuilder {
                 "Building Downloader instance"
             );
 
-            #[cfg(not(feature = "cache"))]
+            #[cfg(not(feature = "cache-backend"))]
             tracing::debug!(
                 output_dir = ?self.output_dir,
                 args_count = self.args.len(),
@@ -301,7 +301,7 @@ impl DownloaderBuilder {
         }
 
         // Create caches if enabled
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "cache-backend")]
         let (cache, download_cache, playlist_cache) = if let Some(cache_dir) = self.cache_dir {
             // Ensure cache directory exists
             if !cache_dir.exists() {
@@ -331,11 +331,11 @@ impl DownloaderBuilder {
             user_agent: None,
             timeout: self.timeout,
             proxy: self.proxy,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             cache,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             download_cache,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             playlist_cache,
             download_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),

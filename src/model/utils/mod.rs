@@ -7,6 +7,8 @@ use std::hash::Hash;
 
 pub mod serde;
 
+pub use serde::{serialize_json, serialize_json_opt};
+
 /// Trait that combines the basic traits that any structure should implement.
 ///
 /// This trait combines:

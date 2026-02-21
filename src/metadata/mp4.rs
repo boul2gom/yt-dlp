@@ -34,7 +34,7 @@ impl MetadataManager {
         video: &Video,
         audio_format: Option<&Format>,
         video_format: Option<&Format>,
-        playlist: Option<&PlaylistMetadata>,
+        _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let file_path = file_path.into();
 
@@ -48,7 +48,7 @@ impl MetadataManager {
                     _ => None,
                 }
             });
-            let playlist_title = playlist.map(|p| &p.title);
+            let playlist_title = _playlist.map(|p| &p.title);
 
             tracing::debug!(
                 file_path = ?file_path,
@@ -59,7 +59,7 @@ impl MetadataManager {
                 audio_codec = ?audio_codec,
                 has_video_format = video_format.is_some(),
                 video_resolution = ?video_resolution,
-                has_playlist = playlist.is_some(),
+                has_playlist = _playlist.is_some(),
                 playlist_title = ?playlist_title,
                 "Adding metadata to M4A/MP4 file"
             );
@@ -72,6 +72,7 @@ impl MetadataManager {
             .into_iter()
             .collect::<Vec<_>>();
         let has_format_info = audio_format.is_some() || video_format.is_some();
+        #[cfg(feature = "tracing")]
         let file_path_for_tracing = file_path.clone();
         let file_path_clone = file_path.clone();
 

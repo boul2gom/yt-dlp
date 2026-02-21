@@ -100,11 +100,11 @@ impl Youtube {
     /// Create a new YouTube extractor.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `executable_path` - Path to the yt-dlp executable
     ///
     /// # Returns
-    /// 
+    ///
     /// A new Youtube extractor instance
     pub fn new(executable_path: PathBuf) -> Self {
         #[cfg(feature = "tracing")]
@@ -126,11 +126,11 @@ impl Youtube {
     /// Set YouTube player client for optimal performance.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `client` - The player client to use
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     ///
     /// # Examples
@@ -157,11 +157,11 @@ impl Youtube {
     /// This speeds up video information fetching but may miss some formats.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `skip` - Whether to skip DASH manifest parsing
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn skip_dash_manifest(&mut self, skip: bool) -> &mut Self {
         #[cfg(feature = "tracing")]
@@ -174,11 +174,11 @@ impl Youtube {
     /// Set format preset for video quality.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `preset` - The format preset to use
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_format_preset(&mut self, preset: FormatPreset) -> &mut Self {
         #[cfg(feature = "tracing")]
@@ -194,11 +194,11 @@ impl Youtube {
     /// Add custom yt-dlp argument.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `arg` - The argument to add
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_arg(&mut self, arg: String) -> &mut Self {
         #[cfg(feature = "tracing")]
@@ -214,11 +214,11 @@ impl Youtube {
     /// Set timeout for yt-dlp operations.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `timeout` - The timeout duration
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
         #[cfg(feature = "tracing")]
@@ -236,15 +236,15 @@ impl Youtube {
     /// Fetch channel by ID (fast, direct API).
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `channel_id` - The YouTube channel ID
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist containing all channel videos
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if channel is not found or inaccessible
     ///
     /// # Examples
@@ -269,15 +269,15 @@ impl Youtube {
     /// Fetch channel by handle (@username).
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `handle` - The YouTube channel handle (without @)
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist containing all channel videos
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if channel is not found or inaccessible
     pub async fn fetch_channel_by_handle(&self, handle: &str) -> Result<Playlist> {
         #[cfg(feature = "tracing")]
@@ -290,15 +290,15 @@ impl Youtube {
     /// Fetch user's uploads (legacy URL format).
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `username` - The YouTube username
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist containing all user videos
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if user is not found or inaccessible
     pub async fn fetch_user(&self, username: &str) -> Result<Playlist> {
         #[cfg(feature = "tracing")]
@@ -311,17 +311,17 @@ impl Youtube {
     /// Fetch playlist with pagination control.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `playlist_id` - The YouTube playlist ID
     /// * `start` - Starting video index (1-based)
     /// * `count` - Number of videos to fetch
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist containing specified range of videos
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if playlist is not found or inaccessible
     pub async fn fetch_playlist_paginated(
         &self,
@@ -352,16 +352,16 @@ impl Youtube {
     /// Search YouTube videos.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `query` - The search query
     /// * `max_results` - Maximum number of results to return
     ///
     /// # Returns
-    /// 
+    ///
     /// Playlist containing search results
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if search fails
     ///
     /// # Examples
@@ -390,15 +390,15 @@ impl Youtube {
     /// Search and return first result.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `query` - The search query
     ///
     /// # Returns
-    /// 
+    ///
     /// First video matching the search
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if no results found
     pub async fn search_first(&self, query: &str) -> Result<Video> {
         #[cfg(feature = "tracing")]
@@ -451,11 +451,11 @@ impl Youtube {
     /// Check if URL is supported by YouTube extractor.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `url` - The URL to check
     ///
     /// # Returns
-    /// 
+    ///
     /// true if the URL is a YouTube URL, false otherwise
     pub fn supports_url(url: &str) -> bool {
         let url_lower = url.to_lowercase();

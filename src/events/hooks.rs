@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use dyn_clone::DynClone;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -28,7 +29,7 @@ pub enum HookError {
 /// Event hooks are called asynchronously when events occur, allowing
 /// custom logic to be executed in response to download lifecycle events.
 #[async_trait]
-pub trait EventHook: Send + Sync {
+pub trait EventHook: DynClone + Send + Sync {
     /// Called when an event occurs
     ///
     /// # Arguments
@@ -59,6 +60,8 @@ pub trait EventHook: Send + Sync {
         true
     }
 }
+
+dyn_clone::clone_trait_object!(EventHook);
 
 /// Registry for managing event hooks
 pub struct HookRegistry {
@@ -220,7 +223,7 @@ impl HookRegistry {
     /// Returns the number of registered hooks
     ///
     /// # Returns
-    /// 
+    ///
     /// The total number of registered hooks
     pub async fn count(&self) -> usize {
         let hooks = self.hooks.read().await;

@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::model::Video;
 use crate::model::chapter::Chapter;
+use crate::utils::fs::remove_temp_file;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -218,13 +219,13 @@ impl MetadataManager {
         }
 
         // Clean up temporary metadata file
-        let _ = tokio::fs::remove_file(&metadata_file).await;
+        remove_temp_file(&metadata_file).await;
 
         let output = output?;
 
         if !output.code.eq(&0) {
             if temp_output_path.exists() {
-                let _ = tokio::fs::remove_file(&temp_output_path).await;
+                remove_temp_file(&temp_output_path).await;
             }
             return Err(Error::CommandFailed {
                 command: "ffmpeg".to_string(),

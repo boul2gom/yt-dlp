@@ -3,12 +3,9 @@
 //! This module provides a fully async cache implementation that uses the configured
 //! backend (JSON or SQLite) to store files and metadata.
 
-use crate::cache::backend::FileBackend;
-#[cfg(feature = "cache-json")]
-use crate::cache::backend::json::JsonFileCache;
-#[cfg(feature = "cache-sqlite")]
-use crate::cache::backend::sqlite::SqliteFileCache;
+use crate::cache::backend::{FileBackend, FileBackendEnum};
 
+use crate::cache::current_timestamp;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedType};
 use crate::error::Result;
 use crate::model::format::Format;
@@ -16,21 +13,17 @@ use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
 use crate::model::thumbnail::Thumbnail;
+use crate::model::utils::serde::{serialize_json, serialize_json_opt};
+use crate::utils::validation::sanitize_filename;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 /// Structure for storing video metadata in cache.
+#[derive(Debug)]
 pub struct DownloadCache {
-    backend: Box<dyn FileBackend>,
-}
-
-impl std::fmt::Debug for DownloadCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DownloadCache")
-    }
+    backend: FileBackendEnum,
 }
 
 impl DownloadCache {
@@ -50,48 +43,16 @@ impl DownloadCache {
     /// Returns an error if the cache backend initialization fails or no backend is enabled.
     pub async fn new(cache_path: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
         let cache_dir: PathBuf = cache_path.into();
-        let ttl_value = ttl.unwrap_or(7 * 24 * 60 * 60);
 
         #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
-            ttl = ttl_value,
+            ttl = ttl.unwrap_or(7 * 24 * 60 * 60),
             "Creating download cache"
         );
 
-        #[allow(unused_assignments)]
-        let mut backend: Option<Box<dyn FileBackend>> = None;
-
-        #[cfg(feature = "cache-sqlite")]
-        {
-            backend = Some(Box::new(
-                SqliteFileCache::new(cache_dir.clone(), ttl).await?,
-            ));
-        }
-
-        #[cfg(all(feature = "cache-json", not(feature = "cache-sqlite")))]
-        {
-            backend = Some(Box::new(JsonFileCache::new(cache_dir.clone(), ttl).await?));
-        }
-
-        // Fallback or default if only cache-json is implicit
-        if backend.is_none() {
-            #[cfg(feature = "cache-json")]
-            {
-                backend = Some(Box::new(JsonFileCache::new(cache_dir.clone(), ttl).await?));
-            }
-        }
-
-        if let Some(b) = backend {
-            Ok(Self { backend: b })
-        } else {
-            // This happens if no feature is enabled, but we should probably default to JSON if technically possible,
-            // or panic/error if cargo features are messed up.
-            // Given `cache` implies `cache-json`, this branch shouldn't be reached if `cache` is on.
-            Err(crate::error::Error::Unknown(
-                "No cache backend enabled".to_string(),
-            ))
-        }
+        let backend = FileBackendEnum::new(cache_dir, ttl).await?;
+        Ok(Self { backend })
     }
 
     /// Calculates the SHA-256 hash of a file.
@@ -134,33 +95,6 @@ impl DownloadCache {
         Ok(hash_str)
     }
 
-    /// Sanitize a filename to prevent path traversal attacks.
-    ///
-    /// # Arguments
-    ///
-    /// * `filename` - The filename to sanitize.
-    ///
-    /// # Returns
-    ///
-    /// A sanitized filename with dangerous characters removed.
-    fn sanitize_filename(filename: &str) -> String {
-        let sanitized = filename
-            .replace("..", "")
-            .replace(['/', '\\', ':'], "")
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
-            .collect();
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!(
-            original = filename,
-            sanitized = %sanitized,
-            "Sanitized filename"
-        );
-
-        sanitized
-    }
-
     /// Determines the MIME type of a file based on its extension.
     ///
     /// # Arguments
@@ -199,6 +133,37 @@ impl DownloadCache {
         );
 
         mime_type
+    }
+
+    /// Collects basic file info needed for caching: hash, filesize, mime_type, extension.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source file.
+    /// * `filename` - The (possibly sanitized) filename used to derive the extension.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(hash, filesize, mime_type, extension)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hash calculation or metadata retrieval fails.
+    async fn collect_file_info(
+        source_path: &Path,
+        filename: &str,
+    ) -> Result<(String, i64, String, String)> {
+        let file_hash = Self::calculate_file_hash(source_path).await?;
+        let metadata = tokio::fs::metadata(source_path).await?;
+        let filesize = metadata.len() as i64;
+        let mime_type = Self::determine_mime_type(source_path);
+        let extension = Path::new(filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        Ok((file_hash, filesize, mime_type, extension))
     }
 
     /// Cleans the cache by removing expired entries.
@@ -335,17 +300,9 @@ impl DownloadCache {
             "Caching file with preferences"
         );
 
-        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
-        let metadata = tokio::fs::metadata(&source_path).await?;
-        let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path.clone());
-
-        let filename_str = &filename;
-        let sanitized_filename = Self::sanitize_filename(filename_str);
-        let extension = Path::new(&sanitized_filename)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
+        let sanitized_filename = sanitize_filename(&filename);
+        let (file_hash, filesize, mime_type, extension) =
+            Self::collect_file_info(&source_path, &sanitized_filename).await?;
 
         // We construct the relative path here, but the backend might adjust or ignore it
         // depending on its internal structure. However, our FileBackend trait expects
@@ -357,33 +314,13 @@ impl DownloadCache {
         // Prepare CachedFile struct
         let (file_type, format_id, format_json) = if let Some(f) = format {
             (
-                serde_json::to_string(&CachedType::Format).unwrap_or_default(),
+                serialize_json(&CachedType::Format),
                 Some(f.format_id.clone()),
-                Some(serde_json::to_string(f).unwrap_or_default()),
+                Some(serialize_json(f)),
             )
         } else {
-            (
-                serde_json::to_string(&CachedType::Other).unwrap_or_default(),
-                None,
-                None,
-            )
+            (serialize_json(&CachedType::Other), None, None)
         };
-
-        let cached_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        let video_quality_str =
-            video_quality.map(|vq| serde_json::to_string(&vq).unwrap_or_default());
-        let audio_quality_str =
-            audio_quality.map(|aq| serde_json::to_string(&aq).unwrap_or_default());
-        let video_codec_str = video_codec
-            .clone()
-            .map(|vc| serde_json::to_string(&vc).unwrap_or_default());
-        let audio_codec_str = audio_codec
-            .clone()
-            .map(|ac| serde_json::to_string(&ac).unwrap_or_default());
 
         let cached_file = CachedFile {
             id: file_hash.clone(),
@@ -393,14 +330,14 @@ impl DownloadCache {
             file_type,
             format_id,
             format_json,
-            video_quality: video_quality_str,
-            audio_quality: audio_quality_str,
-            video_codec: video_codec_str,
-            audio_codec: audio_codec_str,
+            video_quality: serialize_json_opt(video_quality),
+            audio_quality: serialize_json_opt(audio_quality),
+            video_codec: serialize_json_opt(video_codec),
+            audio_codec: serialize_json_opt(audio_codec),
             language_code: None, // Not currently used for generic files
             filesize,
             mime_type,
-            cached_at,
+            cached_at: current_timestamp(),
         };
 
         // Delegate to backend
@@ -460,7 +397,7 @@ impl DownloadCache {
     /// # Returns
     ///
     /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
@@ -536,23 +473,10 @@ impl DownloadCache {
             "Caching thumbnail"
         );
 
-        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
-        let metadata = tokio::fs::metadata(&source_path).await?;
-        let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path.clone());
-
-        let filename_str = &filename;
-        let extension = Path::new(filename_str)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
+        let (file_hash, filesize, mime_type, extension) =
+            Self::collect_file_info(&source_path, &filename).await?;
 
         let relative_path = format!("thumbnails/{}.{}", file_hash, extension);
-
-        let cached_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
 
         let width = thumbnail.width.map(|w| w as i32);
         let height = thumbnail.height.map(|h| h as i32);
@@ -566,7 +490,7 @@ impl DownloadCache {
             mime_type,
             width,
             height,
-            cached_at,
+            cached_at: current_timestamp(),
         };
 
         self.backend
@@ -680,33 +604,20 @@ impl DownloadCache {
             "Caching subtitle file"
         );
 
-        let file_hash = Self::calculate_file_hash(source_path.clone()).await?;
-        let metadata = tokio::fs::metadata(&source_path).await?;
-        let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path.clone());
-
-        let filename_str = &filename;
-        let sanitized_filename = Self::sanitize_filename(filename_str);
-        let extension = Path::new(&sanitized_filename)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
+        let sanitized_filename = sanitize_filename(&filename);
+        let (file_hash, filesize, mime_type, extension) =
+            Self::collect_file_info(&source_path, &sanitized_filename).await?;
 
         // Use a distinct path structure for subtitles if desired, or just files/
         // Current impl uses files/hash.ext
         let relative_path = format!("files/{}.{}", file_hash, extension);
-
-        let cached_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
 
         let cached_file = CachedFile {
             id: file_hash.clone(),
             filename: filename.clone(),
             relative_path,
             video_id: Some(video_id),
-            file_type: serde_json::to_string(&CachedType::Subtitle).unwrap_or_default(),
+            file_type: serialize_json(&CachedType::Subtitle),
             format_id: None,
             format_json: None,
             video_quality: None,
@@ -716,7 +627,7 @@ impl DownloadCache {
             language_code: Some(language),
             filesize,
             mime_type,
-            cached_at,
+            cached_at: current_timestamp(),
         };
 
         // Delegate to backend

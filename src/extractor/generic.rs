@@ -28,11 +28,11 @@ impl Generic {
     /// Create a new generic extractor with automatic detection.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `executable_path` - Path to the yt-dlp executable
     ///
     /// # Returns
-    /// 
+    ///
     /// A new Generic extractor instance
     pub fn new(executable_path: PathBuf) -> Self {
         #[cfg(feature = "tracing")]
@@ -52,12 +52,12 @@ impl Generic {
     /// Create for specific extractor (skip detection).
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `executable_path` - Path to the yt-dlp executable
     /// * `name` - Name of the extractor to use
     ///
     /// # Returns
-    /// 
+    ///
     /// A new Generic extractor instance for the specified extractor
     pub fn for_extractor(executable_path: PathBuf, name: String) -> Self {
         #[cfg(feature = "tracing")]
@@ -78,12 +78,12 @@ impl Generic {
     /// Add extractor-specific arguments.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `extractor` - Name of the extractor
     /// * `args` - Arguments to pass to the extractor
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     ///
     /// # Examples
@@ -109,11 +109,11 @@ impl Generic {
     /// Enable cookies for authentication.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `cookie_file` - Path to the cookie file
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     ///
     /// # Examples
@@ -137,12 +137,12 @@ impl Generic {
     /// Use credentials for sites requiring login.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `username` - Username for authentication
     /// * `password` - Password for authentication
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     ///
     /// # Examples
@@ -168,7 +168,7 @@ impl Generic {
     /// Use .netrc for authentication.
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     ///
     /// # Examples
@@ -189,11 +189,11 @@ impl Generic {
     /// Add custom argument to yt-dlp.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `arg` - The argument to add
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_arg(&mut self, arg: String) -> &mut Self {
         #[cfg(feature = "tracing")]
@@ -209,11 +209,11 @@ impl Generic {
     /// Set timeout for yt-dlp operations.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `timeout` - The timeout duration
     ///
     /// # Returns
-    /// 
+    ///
     /// Self for method chaining
     pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
         #[cfg(feature = "tracing")]

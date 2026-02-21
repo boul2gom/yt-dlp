@@ -1,58 +1,42 @@
 //! Platform and architecture detection.
 
-use std::fmt;
-
 /// Represents the operating system where the program is running.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub enum Platform {
     /// The Windows operating system.
+    #[display("windows")]
     Windows,
     /// The Linux operating system.
+    #[display("linux")]
     Linux,
     /// The macOS operating system.
+    #[display("osx")]
     Mac,
 
     /// An unknown operating system.
+    #[display("Unknown: {_0}")]
     Unknown(String),
 }
 
 /// Represents the architecture of the CPU where the program is running.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub enum Architecture {
     /// The x64 architecture.
+    #[display("x64")]
     X64,
     /// The x86_64 architecture.
+    #[display("x86")]
     X86,
     /// The ARMv7l architecture.
+    #[display("armv7l")]
     Armv7l,
     /// The Aarch64 (Arm64) architecture.
+    #[display("arm64")]
     Aarch64,
 
     /// An unknown architecture.
+    #[display("Unknown: {_0}")]
     Unknown(String),
-}
-
-impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Platform::Windows => write!(f, "windows"),
-            Platform::Linux => write!(f, "linux"),
-            Platform::Mac => write!(f, "osx"),
-            Platform::Unknown(os) => write!(f, "Unknown: {}", os),
-        }
-    }
-}
-
-impl fmt::Display for Architecture {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Architecture::X64 => write!(f, "x64"),
-            Architecture::X86 => write!(f, "x86"),
-            Architecture::Armv7l => write!(f, "armv7l"),
-            Architecture::Aarch64 => write!(f, "arm64"),
-            Architecture::Unknown(arch) => write!(f, "Unknown: {}", arch),
-        }
-    }
 }
 
 impl Platform {

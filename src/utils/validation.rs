@@ -31,11 +31,11 @@ use std::path::PathBuf;
 /// ```rust
 /// # use yt_dlp::utils::validation::validate_youtube_url;
 /// // Valid URLs
-/// assert!(validate_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ").is_ok());
-/// assert!(validate_youtube_url("https://youtu.be/dQw4w9WgXcQ").is_ok());
+/// assert!(validate_youtube_url("https://www.youtube.com/watch?v=gXtp6C-3JKo").is_ok());
+/// assert!(validate_youtube_url("https://youtu.be/gXtp6C-3JKo").is_ok());
 ///
 /// // Invalid URLs
-/// assert!(validate_youtube_url("https://evil.com/watch?v=dQw4w9WgXcQ").is_err());
+/// assert!(validate_youtube_url("https://evil.com/watch?v=gXtp6C-3JKo").is_err());
 /// assert!(validate_youtube_url("file:///etc/passwd").is_err());
 /// ```
 pub fn validate_youtube_url(url: &str) -> Result<()> {

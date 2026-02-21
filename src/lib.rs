@@ -8,7 +8,7 @@ use crate::executor::Executor;
 use crate::extractor::ExtractorName;
 use crate::metadata::MetadataManager;
 use crate::utils::fs;
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 use cache::{DownloadCache, PlaylistCache, VideoCache};
 use std::fmt::{self, Display};
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 // Core modules
-#[cfg(feature = "cache")]
+#[cfg(feature = "cache-backend")]
 pub mod cache;
 pub mod error;
 pub mod executor;
@@ -97,7 +97,7 @@ pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
 /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-/// let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+/// let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
 ///
 /// // Configure download with specific preferences
 /// downloader.download(url, "video.mp4")
@@ -168,13 +168,13 @@ pub struct Downloader {
     /// Optional proxy configuration for HTTP requests and yt-dlp.
     pub proxy: Option<client::proxy::ProxyConfig>,
     /// The cache for video metadata.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub cache: Option<Arc<VideoCache>>,
     /// The cache for downloaded files.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub download_cache: Option<Arc<DownloadCache>>,
     /// The cache for playlist metadata.
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub playlist_cache: Option<Arc<PlaylistCache>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
@@ -205,11 +205,11 @@ impl Clone for Downloader {
             user_agent: self.user_agent.clone(),
             timeout: self.timeout,
             proxy: self.proxy.clone(),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             cache: self.cache.clone(),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             download_cache: self.download_cache.clone(),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             playlist_cache: self.playlist_cache.clone(),
             download_manager: self.download_manager.clone(),
             cancellation_token: self.cancellation_token.clone(),
@@ -314,7 +314,7 @@ impl Downloader {
     /// let fetcher = Downloader::builder(libraries, "output")
     ///     .build()
     ///     .await?;
-    /// let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    /// let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
     ///
     /// // Download a 1080p video with H264 codec
     /// let video_path = fetcher.download(url, "my-video.mp4")
@@ -641,7 +641,7 @@ impl Downloader {
     ///     .build()
     ///     .await?;
     ///
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     /// let video = fetcher.fetch_video_infos(url).await?;
     ///
     /// let audio_format = video.best_audio_format().unwrap();
@@ -786,7 +786,7 @@ impl Downloader {
             tracing::debug!("Adding metadata to combined file");
 
             cfg_if::cfg_if! {
-                if #[cfg(feature = "cache")] {
+                if #[cfg(feature = "cache-backend")] {
                     let video_format = self.find_cached_format(video_path.clone()).await;
                     let audio_format = self.find_cached_format(audio_path.clone()).await;
 
@@ -874,7 +874,7 @@ impl Downloader {
     }
 
     /// Finds the format of a file in the cache if it exists
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     async fn find_cached_format(&self, file_path: impl Into<PathBuf>) -> Option<Format> {
         let file_path: PathBuf = file_path.into();
 
@@ -963,7 +963,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub async fn with_cache(
         &mut self,
         cache_dir: impl Into<PathBuf>,
@@ -1020,7 +1020,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub async fn with_download_cache(
         &mut self,
         cache_dir: impl Into<PathBuf>,
@@ -1077,7 +1077,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "cache-backend")]
     pub async fn with_playlist_cache(
         &mut self,
         cache_dir: impl Into<PathBuf>,
@@ -1401,7 +1401,7 @@ impl Downloader {
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
     /// # let fetcher = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     ///
     /// // Download a high quality video with VP9 codec and high quality audio with Opus codec
     /// let video_path = fetcher.download_video_with_quality(
@@ -1559,13 +1559,13 @@ impl Downloader {
             video_format,
             audio_format,
             &output_path,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             Some(video_quality),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             Some(audio_quality),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             Some(video_codec),
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "cache-backend")]
             Some(audio_codec),
         )
         .await
@@ -1599,7 +1599,7 @@ impl Downloader {
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
     /// # let fetcher = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     ///
     /// // Download a medium quality video with AVC1 codec
     /// let video_path = fetcher.download_video_stream_with_quality(
@@ -1726,7 +1726,7 @@ impl Downloader {
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
     /// # let fetcher = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     ///
     /// // Download a high quality audio with Opus codec
     /// let audio_path = fetcher.download_audio_stream_with_quality(
@@ -1884,7 +1884,7 @@ impl Downloader {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
     /// # let downloader = Downloader::builder(libraries, "output").build().await?;
-    /// let extractor = downloader.detect_extractor("https://www.youtube.com/watch?v=dQw4w9WgXcQ").await?;
+    /// let extractor = downloader.detect_extractor("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     /// println!("Extractor: {}", extractor);
     /// # Ok(())
     /// # }
@@ -1935,7 +1935,7 @@ impl Downloader {
     /// let (youtube, video) = Downloader::builder(libs, "output")
     ///     .build()
     ///     .await?
-    ///     .fetch("https://youtube.com/watch?v=dQw4w9WgXcQ")
+    ///     .fetch("https://youtube.com/watch?v=gXtp6C-3JKo")
     ///     .await?;
     ///
     /// println!("Title: {}", video.title);
@@ -1982,7 +1982,7 @@ impl Downloader {
     /// let (downloader, video) = Downloader::builder(libs, "output")
     ///     .build()
     ///     .await?
-    ///     .fetch("https://youtube.com/watch?v=dQw4w9WgXcQ")
+    ///     .fetch("https://youtube.com/watch?v=gXtp6C-3JKo")
     ///     .await?;
     ///
     /// downloader.download_and_continue(&video, "output.mp4")
@@ -2065,7 +2065,7 @@ impl Downloader {
     /// Downloader::builder(libs, "output")
     ///     .build()
     ///     .await?
-    ///     .pipeline("https://youtube.com/watch?v=dQw4w9WgXcQ", |yt, video| async move {
+    ///     .pipeline("https://youtube.com/watch?v=gXtp6C-3JKo", |yt, video| async move {
     ///         yt.download_video(&video, "video.mp4").await?;
     ///         Ok(yt)
     ///     })

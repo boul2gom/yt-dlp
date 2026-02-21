@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 use tokio::time::sleep;
+use typed_builder::TypedBuilder;
 
 /// Configuration for retry behavior with exponential backoff.
 ///
@@ -14,17 +15,23 @@ use tokio::time::sleep;
 /// use yt_dlp::utils::retry::RetryPolicy;
 /// use std::time::Duration;
 ///
-/// let policy = RetryPolicy::default()
-///     .with_max_attempts(5)
-///     .with_initial_delay(Duration::from_millis(100))
-///     .with_max_delay(Duration::from_secs(30));
+/// let policy = RetryPolicy::builder()
+///     .max_attempts(5)
+///     .initial_delay(Duration::from_millis(100))
+///     .max_delay(Duration::from_secs(30))
+///     .build();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, TypedBuilder)]
 pub struct RetryPolicy {
+    #[builder(default = 3)]
     max_attempts: u32,
+    #[builder(default = Duration::from_millis(500))]
     initial_delay: Duration,
+    #[builder(default = Duration::from_secs(60))]
     max_delay: Duration,
+    #[builder(default = 2.0)]
     backoff_factor: f64,
+    #[builder(default = true)]
     jitter: bool,
 }
 
@@ -44,56 +51,6 @@ impl RetryPolicy {
     /// Create a new retry policy with default values.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Set the maximum number of retry attempts.
-    ///
-    /// # Arguments
-    ///
-    /// * `attempts` - Maximum number of attempts (including the initial try)
-    pub fn with_max_attempts(mut self, attempts: u32) -> Self {
-        self.max_attempts = attempts;
-        self
-    }
-
-    /// Set the initial delay before the first retry.
-    ///
-    /// # Arguments
-    ///
-    /// * `delay` - Initial delay duration
-    pub fn with_initial_delay(mut self, delay: Duration) -> Self {
-        self.initial_delay = delay;
-        self
-    }
-
-    /// Set the maximum delay between retries.
-    ///
-    /// # Arguments
-    ///
-    /// * `delay` - Maximum delay duration
-    pub fn with_max_delay(mut self, delay: Duration) -> Self {
-        self.max_delay = delay;
-        self
-    }
-
-    /// Set the backoff multiplication factor.
-    ///
-    /// # Arguments
-    ///
-    /// * `factor` - Backoff factor (typically 2.0 for exponential backoff)
-    pub fn with_backoff_factor(mut self, factor: f64) -> Self {
-        self.backoff_factor = factor;
-        self
-    }
-
-    /// Enable or disable jitter to prevent thundering herd.
-    ///
-    /// # Arguments
-    ///
-    /// * `enabled` - Whether to add random jitter to delays
-    pub fn with_jitter(mut self, enabled: bool) -> Self {
-        self.jitter = enabled;
-        self
     }
 
     /// Calculate the delay for a specific retry attempt.
