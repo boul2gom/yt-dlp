@@ -90,3 +90,31 @@ jobs:
 
       - name: 📝 Check spelling
         uses: crate-ci/typos@v1.43.5
+
+  analysis:
+    name: 🔍 Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-analysis-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: 📦 Install analysis tools
+        run: cargo install cargo-audit cargo-machete --locked
+
+      - name: 🔐 Security audit
+        run: cargo audit
+
+      - name: 🧹 Unused dependencies
+        run: cargo machete

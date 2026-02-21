@@ -138,7 +138,7 @@ This crate always includes the <img align="center" width="20" alt="Tracing" src=
 To capture logs, add a subscriber in your application:
 ```toml
 [dependencies]
-tracing-subscriber = "0.3.22"
+tracing-subscriber = "0.3"
 ```
 ```rust,ignore
 use tracing::Level;
@@ -2190,9 +2190,9 @@ For detailed documentation, examples, and authentication instructions, see the [
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with `ffmpeg` or `reqwest`
-- [x] Support all extractors from yt-dlp
 - [ ] Statistics and analytics on downloads and fetches
 - [ ] Benchmark pure yt-dlp vs this library performance
+- [ ] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
 
 ---
 
