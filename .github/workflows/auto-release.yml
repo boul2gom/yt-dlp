@@ -380,7 +380,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
           
       - name: 🔌 Trigger CI-Prod Workflow
-        uses: benc-uk/workflow-dispatch@v1.2.4
+        uses: benc-uk/workflow-dispatch@v1.3.0
         with:
           workflow: ci-prod.yml
           token: ${{ steps.app-token.outputs.token }}
