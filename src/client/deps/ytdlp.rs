@@ -38,7 +38,6 @@ impl YoutubeFetcher {
         let owner = owner.into();
         let repo = repo.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %owner,
             repo = %repo,
@@ -64,7 +63,6 @@ impl YoutubeFetcher {
     ///
     /// Returns an error if the release cannot be fetched or no compatible binary is found
     pub async fn fetch_release(&self, auth_token: Option<String>) -> Result<WantedRelease> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             has_token = auth_token.is_some(),
             "Fetching yt-dlp release for current platform"
@@ -91,7 +89,6 @@ impl YoutubeFetcher {
         platform: &Platform,
         architecture: &Architecture,
     ) -> Option<&'a Asset> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             platform = ?platform,
             architecture = ?architecture,

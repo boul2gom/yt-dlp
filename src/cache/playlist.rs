@@ -92,7 +92,6 @@ impl PlaylistCache {
     pub async fn with_ttl(cache_dir: impl Into<PathBuf>, ttl_seconds: u64) -> Result<Self> {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl_seconds = ttl_seconds,
@@ -117,12 +116,10 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Retrieving playlist from cache by URL");
 
         let result = self.backend.get(url).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
@@ -146,12 +143,10 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(playlist_id = id, "Retrieving playlist from cache by ID");
 
         let result = self.backend.get_by_id(id).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             playlist_id = id,
             found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
@@ -176,7 +171,6 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             playlist_id = %playlist.id,
@@ -187,7 +181,6 @@ impl PlaylistCache {
 
         let result = self.backend.put(url.clone(), playlist).await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!(url = %url, "Successfully cached playlist");
         } else {
@@ -211,12 +204,10 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend invalidate operation fails.
     pub async fn invalidate(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Invalidating playlist in cache");
 
         let result = self.backend.invalidate(url).await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!(url = url, "Successfully invalidated playlist");
         } else {
@@ -236,12 +227,10 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend clean operation fails.
     pub async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Cleaning playlist cache");
 
         let result = self.backend.clean().await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!("Successfully cleaned playlist cache");
         } else {
@@ -261,12 +250,10 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend clear operation fails.
     pub async fn clear_all(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Clearing all playlists from cache");
 
         let result = self.backend.clear_all().await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!("Successfully cleared all playlists");
         } else {

@@ -21,7 +21,6 @@ pub trait BaseMetadata {
     ///
     /// Formatted string if the timestamp is valid, None otherwise
     fn format_timestamp(timestamp: i64, format_str: &str) -> Option<String> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             timestamp = timestamp,
             format = format_str,
@@ -45,7 +44,6 @@ pub trait BaseMetadata {
     ) {
         if let Some(value) = value {
             let value_str = value.to_string();
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 key = key,
                 value = %value_str,
@@ -53,7 +51,6 @@ pub trait BaseMetadata {
             );
             metadata.push((key.to_string(), value_str));
         } else {
-            #[cfg(feature = "tracing")]
             tracing::trace!(key = key, "Skipping metadata value (None)");
         }
     }
@@ -70,7 +67,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_basic_metadata(video: &Video) -> Vec<(String, String)> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             video_id = %video.id,
             title = %video.title,
@@ -116,7 +112,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_video_format_metadata(format: &Format) -> Vec<(String, String)> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             format_id = %format.format_id,
             has_resolution = format.video_resolution.width.is_some() && format.video_resolution.height.is_some(),
@@ -164,7 +159,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_audio_format_metadata(format: &Format) -> Vec<(String, String)> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             format_id = %format.format_id,
             has_audio_bitrate = format.rates_info.audio_rate.is_some(),

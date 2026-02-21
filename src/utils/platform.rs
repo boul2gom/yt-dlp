@@ -42,12 +42,10 @@ pub enum Architecture {
 impl Platform {
     /// Detects the current platform where the program is running.
     pub fn detect() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Detecting current platform");
 
         let os = std::env::consts::OS;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Detected platform: {}", os);
 
         match os {
@@ -62,12 +60,10 @@ impl Platform {
 impl Architecture {
     /// Detects the current architecture of the CPU where the program is running.
     pub fn detect() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Detecting current architecture");
 
         let arch = std::env::consts::ARCH;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Detected architecture: {}", arch);
 
         match arch {

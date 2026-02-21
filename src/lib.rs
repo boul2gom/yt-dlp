@@ -41,7 +41,9 @@ pub mod prelude;
 
 // Re-export of common traits to facilitate their use
 use crate::model::Video;
-use crate::model::format::{Format, FormatType};
+#[cfg(feature = "cache-backend")]
+use crate::model::format::Format;
+use crate::model::format::FormatType;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
@@ -371,7 +373,6 @@ impl Downloader {
         let executables_dir: PathBuf = executables_dir.into();
         let output_dir: PathBuf = output_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executables_dir = ?executables_dir,
             output_dir = ?output_dir,
@@ -387,7 +388,6 @@ impl Downloader {
         let youtube_exists = youtube_path.exists();
         let ffmpeg_exists = ffmpeg_path.exists();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             youtube_path = ?youtube_path,
             youtube_exists = youtube_exists,
@@ -397,26 +397,21 @@ impl Downloader {
         );
 
         let youtube = if youtube_exists {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Using existing yt-dlp binary");
             youtube_path
         } else {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Installing yt-dlp binary");
             installer.install_youtube(None).await?
         };
 
         let ffmpeg = if ffmpeg_exists {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Using existing ffmpeg binary");
             ffmpeg_path
         } else {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Installing ffmpeg binary");
             installer.install_ffmpeg(None).await?
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             youtube_path = ?youtube,
             ffmpeg_path = ?ffmpeg,
@@ -595,7 +590,6 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn update_downloader(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Updating the downloader");
 
         let args = vec!["--update"];
@@ -687,7 +681,6 @@ impl Downloader {
         let video_path = video_file.into();
         let output_path = output_file.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Combining audio and video files {:?} and {:?}, into {:?}",
             audio_path,
@@ -717,7 +710,6 @@ impl Downloader {
         let video_path: PathBuf = video_path.into();
         let output_path: PathBuf = output_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             audio_path = ?audio_path,
             video_path = ?video_path,
@@ -741,7 +733,6 @@ impl Downloader {
             "-i", audio, "-i", video, "-c:v", "copy", "-c:a", "aac", output,
         ];
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             args = ?args,
             "FFmpeg combine command arguments"
@@ -755,7 +746,6 @@ impl Downloader {
 
         executor.execute().await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             output_path = ?output_path,
             "FFmpeg combine operation completed successfully"
@@ -782,7 +772,6 @@ impl Downloader {
         if let Some(video_id) = video_id
             && let Some(video) = self.get_video_by_id(&video_id).await
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Adding metadata to combined file");
 
             cfg_if::cfg_if! {
@@ -800,25 +789,21 @@ impl Downloader {
                     )
                     .await
                     {
-                        #[cfg(feature = "tracing")]
                         tracing::warn!("Failed to add metadata to combined file: {}", _e);
                     } else {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!("Successfully added metadata (including chapters) to combined file");
                     }
                 } else {
                     // Without cache, we don't have format details, add basic metadata only
                     let metadata_manager = MetadataManager::with_ffmpeg_path(&self.libraries.ffmpeg);
                     if let Err(e) = metadata_manager.add_metadata(
-                        output_path.as_ref(),
+                        output_path.as_path(),
                         &video,
                     )
                     .await
                     {
-                        #[cfg(feature = "tracing")]
                         tracing::warn!("Failed to add basic metadata to combined file: {}", e);
                     } else {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!("Successfully added basic metadata to combined file");
                     }
                 }
@@ -837,7 +822,6 @@ impl Downloader {
         let video_path: PathBuf = video_path.into();
         let audio_path: PathBuf = audio_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             video_path = ?video_path,
             audio_path = ?audio_path,
@@ -847,7 +831,6 @@ impl Downloader {
         let video_filename = video_path.as_path().file_name()?.to_str()?;
 
         if let Some(id) = fs::extract_video_id(video_filename) {
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 video_id = %id,
                 source = "video_path",
@@ -859,7 +842,6 @@ impl Downloader {
         let audio_filename = audio_path.as_path().file_name()?.to_str()?;
         let id = fs::extract_video_id(audio_filename);
 
-        #[cfg(feature = "tracing")]
         if let Some(ref id_str) = id {
             tracing::trace!(
                 video_id = %id_str,
@@ -878,7 +860,6 @@ impl Downloader {
     async fn find_cached_format(&self, file_path: impl Into<PathBuf>) -> Option<Format> {
         let file_path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?file_path,
             has_cache = self.download_cache.is_some(),
@@ -888,7 +869,6 @@ impl Downloader {
         if let Some(download_cache) = &self.download_cache {
             let file_hash = match DownloadCache::calculate_file_hash(file_path.as_path()).await {
                 Ok(hash) => {
-                    #[cfg(feature = "tracing")]
                     tracing::trace!(
                         file_path = ?file_path,
                         file_hash = %hash,
@@ -897,7 +877,6 @@ impl Downloader {
                     hash
                 }
                 Err(_e) => {
-                    #[cfg(feature = "tracing")]
                     tracing::trace!(
                         file_path = ?file_path,
                         error = %_e,
@@ -911,7 +890,6 @@ impl Downloader {
                 && let Some(ref format_json) = cached_file.format_json
                 && let Ok(format) = serde_json::from_str::<Format>(format_json)
             {
-                #[cfg(feature = "tracing")]
                 tracing::trace!(
                     file_path = ?file_path,
                     format_id = %format.format_id,
@@ -920,7 +898,6 @@ impl Downloader {
                 return Some(format);
             }
 
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 file_path = ?file_path,
                 "Format not found in cache"
@@ -971,7 +948,6 @@ impl Downloader {
     ) -> Result<&mut Self> {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -981,7 +957,6 @@ impl Downloader {
         let cache = VideoCache::new(cache_dir, ttl).await?;
         self.cache = Some(Arc::new(cache));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Video metadata cache enabled successfully");
 
         Ok(self)
@@ -1028,7 +1003,6 @@ impl Downloader {
     ) -> Result<&mut Self> {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -1038,7 +1012,6 @@ impl Downloader {
         let download_cache = DownloadCache::new(cache_dir, ttl).await?;
         self.download_cache = Some(Arc::new(download_cache));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloaded files cache enabled successfully");
 
         Ok(self)
@@ -1085,7 +1058,6 @@ impl Downloader {
     ) -> Result<&mut Self> {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -1094,7 +1066,6 @@ impl Downloader {
 
         let db_path = cache_dir.join("playlists.db");
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             db_path = ?db_path,
             "Playlist cache database path"
@@ -1107,7 +1078,6 @@ impl Downloader {
         };
         self.playlist_cache = Some(Arc::new(playlist_cache));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Playlist metadata cache enabled successfully");
 
         Ok(self)
@@ -1164,7 +1134,6 @@ impl Downloader {
     ) -> Result<u64> {
         let output_path: PathBuf = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -1184,7 +1153,6 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             format_id = %format.format_id,
@@ -1208,7 +1176,6 @@ impl Downloader {
             .enqueue(url, output_path, priority)
             .await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             download_id = download_id,
@@ -1274,7 +1241,6 @@ impl Downloader {
     {
         let output_path: PathBuf = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -1293,7 +1259,6 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             format_id = %format.format_id,
@@ -1322,7 +1287,6 @@ impl Downloader {
             )
             .await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             download_id = download_id,
@@ -1461,7 +1425,6 @@ impl Downloader {
         let url_str = url.as_ref().to_string();
         let output: PathBuf = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_str,
             output = ?output,
@@ -1504,7 +1467,6 @@ impl Downloader {
         audio_quality: AudioQuality,
         audio_codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -1524,7 +1486,6 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             format_id = %video_format.format_id,
@@ -1543,7 +1504,6 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             format_id = %audio_format.format_id,
@@ -1644,7 +1604,6 @@ impl Downloader {
         let url_str = url.as_ref().to_string();
         let output: PathBuf = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_str,
             output = ?output,
@@ -1658,7 +1617,6 @@ impl Downloader {
             let downloader = self.clone();
             let codec = codec.clone();
             async move {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = %video.id,
                     quality = ?quality,
@@ -1679,7 +1637,6 @@ impl Downloader {
                             .collect(),
                     })?;
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = %video.id,
                     format_id = %video_format.format_id,
@@ -1771,7 +1728,6 @@ impl Downloader {
         let url_str = url.as_ref().to_string();
         let output: PathBuf = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_str,
             output = ?output,
@@ -1785,7 +1741,6 @@ impl Downloader {
             let downloader = self.clone();
             let codec = codec.clone();
             async move {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = %video.id,
                     quality = ?quality,
@@ -1806,7 +1761,6 @@ impl Downloader {
                             .collect(),
                     })?;
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = %video.id,
                     format_id = %audio_format.format_id,
@@ -1849,7 +1803,6 @@ impl Downloader {
     /// # }
     /// ```
     pub fn shutdown(&self) {
-        #[cfg(feature = "tracing")]
         tracing::info!("Initiating graceful shutdown");
 
         self.cancellation_token.cancel();
@@ -1890,7 +1843,6 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn detect_extractor(&self, url: &str) -> Result<ExtractorName> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             "Detecting extractor for URL"
@@ -1899,7 +1851,6 @@ impl Downloader {
         let extractor =
             extractor::detector::detect_extractor_type(url, &self.libraries.youtube).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             extractor = ?extractor,
@@ -1945,7 +1896,6 @@ impl Downloader {
     pub async fn fetch(self, url: impl AsRef<str>) -> Result<(Self, Video)> {
         let url_str = url.as_ref();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_str,
             "Fetching video info (fluent API)"
@@ -1953,7 +1903,6 @@ impl Downloader {
 
         let video = self.fetch_video_infos(url_str.to_string()).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -1995,7 +1944,6 @@ impl Downloader {
         video: &Video,
         output: impl AsRef<str>,
     ) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -2005,7 +1953,6 @@ impl Downloader {
 
         self.download_video(video, output).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             "Video downloaded successfully (fluent API)"
@@ -2030,7 +1977,6 @@ impl Downloader {
     ) -> Result<Self> {
         let output_path = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -2040,7 +1986,6 @@ impl Downloader {
 
         self.download_video_to_path(video, output_path).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             "Video downloaded to path successfully (fluent API)"
@@ -2080,7 +2025,6 @@ impl Downloader {
     {
         let url_str = url.as_ref();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_str,
             "Starting pipeline operation"
@@ -2088,7 +2032,6 @@ impl Downloader {
 
         let video = self.fetch_video_infos(url_str).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -2097,7 +2040,6 @@ impl Downloader {
 
         let result = operation(self, video).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Pipeline operation completed successfully");
 
         Ok(result)
@@ -2155,7 +2097,6 @@ impl Downloader {
         let input = input_path.into();
         let output_path = self.output_dir.join(output.as_ref());
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             input = ?input,
             output = ?output_path,
@@ -2187,7 +2128,6 @@ impl Downloader {
         let input_path = input_path.into();
         let output_path = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             input = ?input_path,
             output = ?output_path,
@@ -2209,7 +2149,6 @@ impl Downloader {
         )
         .await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             output = ?result,
             "Post-processing completed successfully"
@@ -2250,7 +2189,6 @@ impl Downloader {
             tokio_stream::wrappers::errors::BroadcastStreamRecvError,
         >,
     > {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
             "Creating event stream"
@@ -2267,7 +2205,6 @@ impl Downloader {
     ///
     /// A broadcast receiver for download events
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<Arc<events::DownloadEvent>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
             "Creating event subscription"
@@ -2275,7 +2212,6 @@ impl Downloader {
 
         let receiver = self.event_bus.subscribe();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
             "Event subscription created"
@@ -2334,7 +2270,6 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn register_hook(&mut self, hook: impl events::EventHook + 'static) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             has_registry = self.hook_registry.is_some(),
             "Registering event hook"
@@ -2343,10 +2278,8 @@ impl Downloader {
         if let Some(ref mut registry) = self.hook_registry {
             registry.register(hook).await;
 
-            #[cfg(feature = "tracing")]
             tracing::debug!("Event hook registered successfully");
         } else {
-            #[cfg(feature = "tracing")]
             tracing::warn!("Hook registry not available, hook not registered");
         }
     }
@@ -2383,7 +2316,6 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn register_webhook(&mut self, config: events::WebhookConfig) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url(),
             has_delivery = self.webhook_delivery.is_some(),
@@ -2393,10 +2325,8 @@ impl Downloader {
         if let Some(ref mut delivery) = self.webhook_delivery {
             delivery.register(config).await;
 
-            #[cfg(feature = "tracing")]
             tracing::debug!("Webhook registered successfully");
         } else {
-            #[cfg(feature = "tracing")]
             tracing::warn!("Webhook delivery not available, webhook not registered");
         }
     }

@@ -27,7 +27,6 @@ impl EventBus {
     ///
     /// A new EventBus instance
     pub fn new(capacity: usize) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(capacity = capacity, "Creating new EventBus");
 
         let (tx, _) = broadcast::channel(capacity);
@@ -56,12 +55,9 @@ impl EventBus {
     ///
     /// The number of active receivers that received the event. If 0, no one is listening.
     pub fn emit(&self, event: DownloadEvent) -> usize {
-        #[cfg(feature = "tracing")]
         let event_type = event.event_type();
-        #[cfg(feature = "tracing")]
         let download_id = event.download_id();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event_type,
             download_id = download_id,
@@ -73,7 +69,6 @@ impl EventBus {
         // send returns Err if there are no receivers, which is fine
         let receiver_count = self.tx.send(event).unwrap_or(0);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event_type,
             download_id = download_id,
@@ -110,7 +105,6 @@ impl EventBus {
     ///
     /// A broadcast receiver that can be used to receive events
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<DownloadEvent>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             subscriber_count_before = self.subscriber_count(),
             "Creating new subscriber"
@@ -118,7 +112,6 @@ impl EventBus {
 
         let receiver = self.tx.subscribe();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             subscriber_count_after = self.subscriber_count(),
             "Subscriber created"

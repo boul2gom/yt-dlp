@@ -72,7 +72,6 @@ impl BuildFetcher {
     /// - The platform/architecture is not supported.
     /// - The release cannot be found on GitHub.
     pub async fn fetch_binary(&self) -> Result<WantedRelease> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             platform = ?Platform::detect(),
             architecture = ?Architecture::detect(),
@@ -96,7 +95,6 @@ impl BuildFetcher {
         platform: Platform,
         architecture: Architecture,
     ) -> Result<WantedRelease> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             platform = ?platform,
             architecture = ?architecture,
@@ -148,7 +146,6 @@ impl BuildFetcher {
         platform: &Platform,
         architecture: &Architecture,
     ) -> Option<Extraction> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             platform = ?platform,
             architecture = ?architecture,
@@ -179,7 +176,6 @@ impl BuildFetcher {
     /// The archive will be deleted after the binary has been extracted.
     pub async fn extract_binary(&self, archive: impl Into<PathBuf>) -> Result<PathBuf> {
         let archive: PathBuf = archive.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             archive = ?archive,
             platform = ?Platform::detect(),
@@ -210,7 +206,6 @@ impl BuildFetcher {
         architecture: Architecture,
     ) -> Result<PathBuf> {
         let archive: PathBuf = archive.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             archive = ?archive,
             platform = ?platform,
@@ -256,7 +251,6 @@ impl BuildFetcher {
         extraction_info: Extraction,
         platform: Platform,
     ) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             archive = ?archive,
             destination = ?destination,

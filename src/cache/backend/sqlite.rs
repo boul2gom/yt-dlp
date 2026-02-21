@@ -42,7 +42,6 @@ pub struct SqlitePlaylistCache {
 
 impl SqlitePlaylistCache {
     pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -100,7 +99,6 @@ impl SqlitePlaylistCache {
 
 impl PlaylistBackend for SqlitePlaylistCache {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             ttl = self.ttl,
@@ -127,7 +125,6 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             playlist_id = id,
             ttl = self.ttl,
@@ -154,7 +151,6 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             playlist_id = %playlist.id,
@@ -182,7 +178,6 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Invalidating playlist in SQLite cache");
         sqlx::query("DELETE FROM playlist_cache WHERE url = ?")
             .bind(url)
@@ -195,7 +190,6 @@ impl PlaylistBackend for SqlitePlaylistCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(ttl = self.ttl, "Cleaning SQLite playlist cache");
         let now = current_timestamp();
 
@@ -239,7 +233,6 @@ pub struct SqliteVideoCache {
 
 impl SqliteVideoCache {
     pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -299,7 +292,6 @@ impl SqliteVideoCache {
 
 impl VideoBackend for SqliteVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             ttl = self.ttl,
@@ -323,7 +315,6 @@ impl VideoBackend for SqliteVideoCache {
 
         match cached {
             Some(cv) => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     url = url,
                     video_id = %cv.id,
@@ -334,7 +325,6 @@ impl VideoBackend for SqliteVideoCache {
                 Ok(Some(cv.video()?))
             }
             None => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(url = url, "Cache miss for video");
 
                 Ok(None)
@@ -343,7 +333,6 @@ impl VideoBackend for SqliteVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             video_id = %video.id,
@@ -370,7 +359,6 @@ impl VideoBackend for SqliteVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Removing video from SQLite cache");
 
         sqlx::query("DELETE FROM videos WHERE url = ?")
@@ -383,7 +371,6 @@ impl VideoBackend for SqliteVideoCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(ttl = self.ttl, "Cleaning SQLite video cache");
 
         let now = current_timestamp();
@@ -400,7 +387,6 @@ impl VideoBackend for SqliteVideoCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = id,
             ttl = self.ttl,
@@ -424,7 +410,6 @@ impl VideoBackend for SqliteVideoCache {
 
         match cached {
             Some(cv) => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = id,
                     video_title = %cv.title,
@@ -434,7 +419,6 @@ impl VideoBackend for SqliteVideoCache {
                 Ok(cv)
             }
             None => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(video_id = id, "Cache miss for video ID");
 
                 Err(crate::error::Error::Unknown(format!(
@@ -470,7 +454,6 @@ pub struct SqliteFileCache {
 
 impl SqliteFileCache {
     pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -574,7 +557,6 @@ impl SqliteFileCache {
 
 impl FileBackend for SqliteFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hash = hash,
             ttl = self.ttl,
@@ -608,7 +590,6 @@ impl FileBackend for SqliteFileCache {
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -648,7 +629,6 @@ impl FileBackend for SqliteFileCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             video_quality = ?video_quality,
@@ -696,7 +676,6 @@ impl FileBackend for SqliteFileCache {
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filename = %file.filename,
             file_id = %file.id,
@@ -744,7 +723,6 @@ impl FileBackend for SqliteFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(file_id = id, "Removing file from SQLite cache");
 
         // Get file path before deleting from database
@@ -766,7 +744,6 @@ impl FileBackend for SqliteFileCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(ttl = self.ttl, "Cleaning SQLite file cache");
 
         let now = current_timestamp();
@@ -832,7 +809,6 @@ impl FileBackend for SqliteFileCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             ttl = self.ttl,
@@ -865,7 +841,6 @@ impl FileBackend for SqliteFileCache {
         thumbnail: CachedThumbnail,
         source_path: &Path,
     ) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filename = %thumbnail.filename,
             thumbnail_id = %thumbnail.id,
@@ -907,7 +882,6 @@ impl FileBackend for SqliteFileCache {
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             language = language,

@@ -78,7 +78,6 @@ async fn execute_command_internal(
 ) -> Result<ProcessOutput> {
     let executable_path: PathBuf = executable_path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         arg_count = args.len(),
@@ -108,7 +107,6 @@ async fn execute_command_internal(
 
     command.args(args);
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         "Spawning child process"
@@ -116,7 +114,6 @@ async fn execute_command_internal(
 
     let mut child = command.spawn()?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         pid = ?child.id(),
@@ -142,7 +139,6 @@ async fn execute_command_internal(
 
     let stderr_task = tokio::spawn(read_stream(stderr));
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         timeout_secs = timeout.as_secs(),
@@ -153,25 +149,22 @@ async fn execute_command_internal(
     let exit_status = match tokio::time::timeout(timeout, child.wait()).await {
         Ok(result) => result?,
         Err(_) => {
-            #[cfg(feature = "tracing")]
             tracing::warn!(
                 executable = ?executable_path,
                 timeout_secs = timeout.as_secs(),
                 "Process timed out, killing it"
             );
 
-            if let Err(_e) = child.kill().await {
-                #[cfg(feature = "tracing")]
+            if let Err(e) = child.kill().await {
                 tracing::error!(
                     executable = ?executable_path,
-                    error = %_e,
+                    error = %e,
                     "Failed to kill process after timeout"
                 );
-            } else if let Err(_e) = child.wait().await {
-                #[cfg(feature = "tracing")]
+            } else if let Err(e) = child.wait().await {
                 tracing::error!(
                     executable = ?executable_path,
-                    error = %_e,
+                    error = %e,
                     "Failed to wait for process after kill"
                 );
             }
@@ -183,7 +176,6 @@ async fn execute_command_internal(
         }
     };
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         exit_code = exit_status.code().unwrap_or(-1),
@@ -213,7 +205,6 @@ async fn execute_command_internal(
     let stderr = String::from_utf8_lossy(&stderr_result).to_string();
     let code = exit_status.code().unwrap_or(-1);
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         exit_code = code,
@@ -223,7 +214,6 @@ async fn execute_command_internal(
     );
 
     if exit_status.success() {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?executable_path,
             exit_code = code,
@@ -237,7 +227,6 @@ async fn execute_command_internal(
         });
     }
 
-    #[cfg(feature = "tracing")]
     tracing::warn!(
         executable = ?executable_path,
         exit_code = code,
@@ -274,14 +263,9 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let mut buffer = Vec::new();
-    #[cfg(feature = "tracing")]
     let bytes_read =
         tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
-    #[cfg(not(feature = "tracing"))]
-    tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(bytes_read, "Stream read completed");
-
     Ok(buffer)
 }

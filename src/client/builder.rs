@@ -57,7 +57,6 @@ impl DownloaderBuilder {
     pub fn new(libraries: Libraries, output_dir: impl Into<PathBuf>) -> Self {
         let output_dir = output_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             output_dir = ?output_dir,
             timeout = ?crate::client::DEFAULT_TIMEOUT,
@@ -82,7 +81,6 @@ impl DownloaderBuilder {
     ///
     /// * `args` - The arguments to pass to yt-dlp
     pub fn with_args(mut self, args: Vec<String>) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             args = ?args,
             arg_count = args.len(),
@@ -109,7 +107,6 @@ impl DownloaderBuilder {
     ///
     /// * `timeout` - The timeout duration
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             timeout = ?timeout,
             "Setting command execution timeout"
@@ -125,7 +122,6 @@ impl DownloaderBuilder {
     ///
     /// * `proxy` - The proxy configuration
     pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             proxy_type = ?proxy.proxy_type(),
             proxy_url = proxy.url(),
@@ -146,7 +142,6 @@ impl DownloaderBuilder {
     pub fn with_cache(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             "Enabling cache with directory"
@@ -207,7 +202,6 @@ impl DownloaderBuilder {
     /// # }
     /// ```
     pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = ?profile,
             max_concurrent = profile.max_concurrent_downloads(),
@@ -245,7 +239,6 @@ impl DownloaderBuilder {
     /// - The cache directories cannot be created (if caching is enabled)
     /// - The download manager cannot be initialized
     pub async fn build(self) -> Result<Downloader> {
-        #[cfg(feature = "tracing")]
         {
             #[cfg(feature = "cache-backend")]
             tracing::debug!(

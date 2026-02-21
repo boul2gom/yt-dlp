@@ -32,13 +32,36 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-          components: rustfmt, clippy
+          components: clippy
 
-      - name: ✅ Check with Clippy linter
-        uses: actions-rs/cargo@v1
+      - name: 📦 Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: ✅ Check with Clippy linter (all feature combinations)
+        run: cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings
+
+      - name: 🦀 Build (all feature combinations)
+        run: cargo hack build --each-feature --exclude-features cache-backend
+
+  doc-tests:
+    name: 📚 Format & Doc tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2
         with:
-          command: clippy
-          args: --all-features --all-targets -- -D warnings
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt
 
       - name: 💄 Format code with Cargo formatter
         uses: actions-rs/cargo@v1
@@ -46,11 +69,11 @@ jobs:
           command: fmt
           args: --all -- --check
 
-      - name: 🦀 Install Rust dependencies and build library
+      - name: 📚 Run doc tests
         uses: actions-rs/cargo@v1
         with:
-          command: build
-          args: --all-features --all-targets
+          command: test
+          args: --doc
 
   check-spell:
     name: 📝 Check spelling

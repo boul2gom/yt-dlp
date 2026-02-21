@@ -44,7 +44,6 @@ impl DownloadCache {
     pub async fn new(cache_path: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
         let cache_dir: PathBuf = cache_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ttl.unwrap_or(7 * 24 * 60 * 60),
@@ -71,7 +70,6 @@ impl DownloadCache {
     pub async fn calculate_file_hash(file_path: impl Into<PathBuf>) -> Result<String> {
         let file_path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(file_path = ?file_path, "Calculating SHA-256 hash for file");
 
         let mut file = File::open(&file_path).await?;
@@ -84,7 +82,6 @@ impl DownloadCache {
 
         let hash_str: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             hash = %hash_str,
@@ -124,7 +121,6 @@ impl DownloadCache {
             _ => "application/octet-stream".to_string(),
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             extension = extension,
@@ -176,12 +172,10 @@ impl DownloadCache {
     ///
     /// Returns an error if the cleanup operation fails.
     pub async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Cleaning download cache");
 
         let result = self.backend.clean().await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!("Successfully cleaned download cache");
         } else {
@@ -201,12 +195,10 @@ impl DownloadCache {
     ///
     /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_by_hash(&self, file_hash: &str) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(hash = file_hash, "Getting file from cache by hash");
 
         let result = self.backend.get_by_hash(file_hash).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hash = file_hash,
             found = result.is_some(),
@@ -287,7 +279,6 @@ impl DownloadCache {
         let source_path: PathBuf = source_path.into();
         let filename: String = filename.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             source_path = ?source_path,
             filename = %filename,
@@ -361,7 +352,6 @@ impl DownloadCache {
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -373,7 +363,6 @@ impl DownloadCache {
             .get_by_video_and_format(video_id, format_id)
             .await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -406,7 +395,6 @@ impl DownloadCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             video_quality = ?video_quality,
@@ -427,7 +415,6 @@ impl DownloadCache {
             )
             .await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             found = result.is_some(),
@@ -463,7 +450,6 @@ impl DownloadCache {
         let source_path: PathBuf = source_path.into();
         let filename: String = filename.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             source_path = ?source_path,
             filename = %filename,
@@ -513,7 +499,6 @@ impl DownloadCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             "Getting thumbnail from cache by video ID"
@@ -521,7 +506,6 @@ impl DownloadCache {
 
         let result = self.backend.get_thumbnail_by_video_id(video_id).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             found = result.is_some(),
@@ -546,7 +530,6 @@ impl DownloadCache {
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             language = language,
@@ -558,7 +541,6 @@ impl DownloadCache {
             .get_subtitle_by_language(video_id, language)
             .await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = video_id,
             language = language,
@@ -595,7 +577,6 @@ impl DownloadCache {
         let source_path: PathBuf = source_path.into();
         let filename: String = filename.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             source_path = ?source_path,
             filename = %filename,

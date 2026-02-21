@@ -52,7 +52,6 @@ impl WebhookConfig {
     pub fn new(url: impl Into<String>) -> Self {
         let url_string = url.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url_string,
             "Creating new WebhookConfig"
@@ -80,12 +79,10 @@ impl WebhookConfig {
     ///
     /// Some(WebhookConfig) if YTDLP_WEBHOOK_URL is set, None otherwise
     pub fn from_env() -> Option<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Attempting to create WebhookConfig from environment variables");
 
         let url = std::env::var("YTDLP_WEBHOOK_URL").ok()?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             "Found YTDLP_WEBHOOK_URL in environment"
@@ -108,7 +105,6 @@ impl WebhookConfig {
             config.timeout = Duration::from_secs(timeout_secs);
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url,
             method = ?config.method,
@@ -129,7 +125,6 @@ impl WebhookConfig {
     ///
     /// Self for method chaining
     pub fn with_method(mut self, method: WebhookMethod) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             method = ?method,
             "Setting webhook HTTP method"
@@ -230,7 +225,6 @@ impl WebhookDelivery {
     ///
     /// A new WebhookDelivery instance with a background worker
     pub fn new() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating new WebhookDelivery system");
 
         let client = Client::builder()
@@ -244,12 +238,10 @@ impl WebhookDelivery {
 
         let client_clone = client.clone();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Spawning webhook delivery worker task");
 
         // Spawn worker task to process webhook deliveries
         tokio::spawn(async move {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Webhook delivery worker started");
 
             while let Some((config, event)) = rx.recv().await {
@@ -259,7 +251,6 @@ impl WebhookDelivery {
                 });
             }
 
-            #[cfg(feature = "tracing")]
             tracing::debug!("Webhook delivery worker stopped");
         });
 
@@ -276,7 +267,6 @@ impl WebhookDelivery {
     ///
     /// * `config` - The webhook configuration
     pub async fn register(&self, config: WebhookConfig) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url,
             method = ?config.method,
@@ -286,7 +276,6 @@ impl WebhookDelivery {
         let mut webhooks = self.webhooks.write().await;
         webhooks.push(config);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(total_webhooks = webhooks.len(), "Webhook registered");
     }
 
@@ -296,7 +285,6 @@ impl WebhookDelivery {
     ///
     /// * `event` - The event to deliver
     pub async fn process_event(&self, event: &DownloadEvent) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             download_id = event.download_id(),
@@ -313,7 +301,6 @@ impl WebhookDelivery {
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             total_webhooks = webhooks.len(),
@@ -330,7 +317,6 @@ impl WebhookDelivery {
     /// * `config` - Webhook configuration
     /// * `event` - Event to deliver
     async fn deliver_webhook(client: Client, config: WebhookConfig, event: DownloadEvent) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url,
             event_type = event.event_type(),
@@ -369,11 +355,9 @@ impl WebhookDelivery {
 
         match result {
             Ok(_) => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!("Webhook delivered successfully to {}", config.url);
             }
             Err(e) => {
-                #[cfg(feature = "tracing")]
                 tracing::error!("Webhook delivery failed to {}: {}", config.url, e);
             }
         }
@@ -395,7 +379,6 @@ impl WebhookDelivery {
         config: &WebhookConfig,
         payload: &WebhookPayload,
     ) -> Result<(), String> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url,
             method = ?config.method,
@@ -433,7 +416,6 @@ impl WebhookDelivery {
         if !response.status().is_success() {
             let status = response.status();
 
-            #[cfg(feature = "tracing")]
             tracing::warn!(
                 url = %config.url,
                 status_code = status.as_u16(),
@@ -443,7 +425,6 @@ impl WebhookDelivery {
             return Err(format!("HTTP {}", status));
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %config.url,
             status_code = response.status().as_u16(),
@@ -465,14 +446,12 @@ impl WebhookDelivery {
 
     /// Clears all registered webhooks
     pub async fn clear(&self) {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Clearing all registered webhooks");
 
         let mut webhooks = self.webhooks.write().await;
         let count = webhooks.len();
         webhooks.clear();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(webhooks_cleared = count, "All webhooks cleared");
     }
 }

@@ -37,7 +37,6 @@ pub async fn apply_postprocess(
     let input_path: PathBuf = input_path.into();
     let output_path: PathBuf = output_path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         input_path = ?input_path,
         output_path = ?output_path,
@@ -47,7 +46,6 @@ pub async fn apply_postprocess(
     );
 
     if config.is_empty() {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             input_path = ?input_path,
             "No post-processing needed, returning input path"
@@ -68,7 +66,6 @@ pub async fn apply_postprocess(
 
     let args = build_ffmpeg_command(input_str, output_str, config)?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         input_path = ?input_path,
         output_path = ?output_path,
@@ -78,7 +75,6 @@ pub async fn apply_postprocess(
 
     let executor = Executor::new(libraries.ffmpeg.clone(), args, timeout);
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         ffmpeg_path = ?libraries.ffmpeg,
         timeout_secs = timeout.as_secs(),
@@ -87,7 +83,6 @@ pub async fn apply_postprocess(
 
     let result = executor.execute().await;
 
-    #[cfg(feature = "tracing")]
     match &result {
         Ok(_) => tracing::debug!(
             output_path = ?output_path,
@@ -125,7 +120,6 @@ pub fn build_ffmpeg_command(
     output: &str,
     config: &PostProcessConfig,
 ) -> Result<Vec<String>> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         input = input,
         output = output,
@@ -144,7 +138,6 @@ pub fn build_ffmpeg_command(
 
     // Add video codec
     if let Some(ref video_codec) = config.video_codec {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             video_codec = %video_codec.to_ffmpeg_name(),
             "Adding video codec to FFmpeg command"
@@ -155,7 +148,6 @@ pub fn build_ffmpeg_command(
 
     // Add audio codec
     if let Some(ref audio_codec) = config.audio_codec {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             audio_codec = %audio_codec.to_ffmpeg_name(),
             "Adding audio codec to FFmpeg command"
@@ -194,7 +186,6 @@ pub fn build_ffmpeg_command(
     // Add resolution/scale filter
     if let Some(ref resolution) = config.resolution {
         let scale_filter = format!("scale={}", resolution.to_ffmpeg_scale());
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             resolution = ?resolution,
             scale_filter = %scale_filter,
@@ -206,7 +197,6 @@ pub fn build_ffmpeg_command(
     // Add custom filters
     for filter in &config.filters {
         let filter_str = filter.to_ffmpeg_string();
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             filter = %filter_str,
             "Adding custom filter"
@@ -216,7 +206,6 @@ pub fn build_ffmpeg_command(
 
     // Add filter chain to args
     if !filter_chain.is_empty() {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             filter_count = filter_chain.len(),
             filter_chain = %filter_chain.join(","),
@@ -229,7 +218,6 @@ pub fn build_ffmpeg_command(
     // Add output file
     args.push(output.to_string());
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(arg_count = args.len(), "FFmpeg command built successfully");
 
     Ok(args)

@@ -35,7 +35,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let file_path = file_path.into();
 
-        #[cfg(feature = "tracing")]
         {
             let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
             let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
@@ -137,7 +136,6 @@ impl MetadataManager {
         .await
         .map_err(|e| Error::Unknown(e.to_string()))??;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             video_id = %video.id,
@@ -163,7 +161,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let file_path = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
@@ -183,7 +180,6 @@ impl MetadataManager {
         };
         let mime_type = mime_type.to_string();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             thumbnail_path = ?thumbnail_path,
             mime_type = %mime_type,
@@ -219,7 +215,6 @@ impl MetadataManager {
         .await
         .map_err(|e| Error::Unknown(e.to_string()))??;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             "Thumbnail added successfully to MP3 file"

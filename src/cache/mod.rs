@@ -49,7 +49,6 @@ pub fn current_timestamp() -> i64 {
         .unwrap_or_default()
         .as_secs() as i64;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(timestamp = timestamp, "Retrieved current timestamp");
 
     timestamp
@@ -69,7 +68,6 @@ pub fn is_expired(cached_at: i64, ttl: u64) -> bool {
     let now = current_timestamp();
     let expired = (now - cached_at) > ttl as i64;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         cached_at = cached_at,
         ttl = ttl,

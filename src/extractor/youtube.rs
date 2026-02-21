@@ -107,7 +107,6 @@ impl Youtube {
     ///
     /// A new Youtube extractor instance
     pub fn new(executable_path: PathBuf) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?executable_path,
             "Creating new Youtube extractor"
@@ -142,7 +141,6 @@ impl Youtube {
     /// extractor.with_player_client(PlayerClient::Android);
     /// ```
     pub fn with_player_client(&mut self, client: PlayerClient) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             player_client = ?client,
             "Setting YouTube player client"
@@ -164,7 +162,6 @@ impl Youtube {
     ///
     /// Self for method chaining
     pub fn skip_dash_manifest(&mut self, skip: bool) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(skip_dash = skip, "Setting DASH manifest skip option");
 
         self.skip_dash = skip;
@@ -181,7 +178,6 @@ impl Youtube {
     ///
     /// Self for method chaining
     pub fn with_format_preset(&mut self, preset: FormatPreset) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             preset = ?preset,
             "Setting format preset"
@@ -201,7 +197,6 @@ impl Youtube {
     ///
     /// Self for method chaining
     pub fn with_arg(&mut self, arg: String) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             arg = %arg,
             "Adding custom argument"
@@ -221,7 +216,6 @@ impl Youtube {
     ///
     /// Self for method chaining
     pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             timeout_secs = timeout.as_secs(),
             "Setting timeout for extractor"
@@ -259,7 +253,6 @@ impl Youtube {
     /// # }
     /// ```
     pub async fn fetch_channel(&self, channel_id: &str) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(channel_id = channel_id, "Fetching YouTube channel by ID");
 
         let url = format!("https://www.youtube.com/channel/{}", channel_id);
@@ -280,7 +273,6 @@ impl Youtube {
     ///
     /// Returns error if channel is not found or inaccessible
     pub async fn fetch_channel_by_handle(&self, handle: &str) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(handle = handle, "Fetching YouTube channel by handle");
 
         let url = format!("https://www.youtube.com/@{}", handle);
@@ -301,7 +293,6 @@ impl Youtube {
     ///
     /// Returns error if user is not found or inaccessible
     pub async fn fetch_user(&self, username: &str) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(username = username, "Fetching YouTube user uploads");
 
         let url = format!("https://www.youtube.com/user/{}", username);
@@ -329,7 +320,6 @@ impl Youtube {
         start: usize,
         count: usize,
     ) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             playlist_id = playlist_id,
             start = start,
@@ -376,7 +366,6 @@ impl Youtube {
     /// # }
     /// ```
     pub async fn search(&self, query: &str, max_results: usize) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             query = query,
             max_results = max_results,
@@ -401,7 +390,6 @@ impl Youtube {
     ///
     /// Returns error if no results found
     pub async fn search_first(&self, query: &str) -> Result<Video> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(query = query, "Searching for first YouTube video result");
 
         let url = format!("ytsearch1:{}", query);
@@ -470,7 +458,6 @@ impl Youtube {
 #[async_trait]
 impl VideoExtractor for Youtube {
     async fn fetch_video(&self, url: &str) -> Result<Video> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             player_client = ?self.player_client,
@@ -484,7 +471,6 @@ impl VideoExtractor for Youtube {
 
         let result = self.execute_for_video(&args).await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(video) => tracing::debug!(
                 url = %url,
@@ -504,7 +490,6 @@ impl VideoExtractor for Youtube {
     }
 
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             player_client = ?self.player_client,
@@ -517,7 +502,6 @@ impl VideoExtractor for Youtube {
 
         let result = self.execute_for_playlist(&args).await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(playlist) => tracing::debug!(
                 url = %url,

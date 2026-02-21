@@ -26,7 +26,6 @@ impl RetryStrategy {
     ///
     /// A RetryStrategy with exponential backoff (2x multiplier)
     pub fn exponential(max_attempts: usize, initial_delay: Duration, max_delay: Duration) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             max_attempts = max_attempts,
             initial_delay_ms = initial_delay.as_millis(),
@@ -53,7 +52,6 @@ impl RetryStrategy {
     ///
     /// A RetryStrategy with linear backoff (constant delay)
     pub fn linear(max_attempts: usize, delay: Duration) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             max_attempts = max_attempts,
             delay_ms = delay.as_millis(),
@@ -74,7 +72,6 @@ impl RetryStrategy {
     ///
     /// A RetryStrategy that never retries
     pub fn none() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating no-retry strategy");
 
         Self {
@@ -104,7 +101,6 @@ impl RetryStrategy {
 
         let result = Duration::from_secs_f64(delay_secs.min(self.max_delay.as_secs_f64()));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             attempt = attempt,
             delay_ms = result.as_millis(),
@@ -126,7 +122,6 @@ impl RetryStrategy {
     pub fn should_retry(&self, attempt: usize) -> bool {
         let should_retry = attempt < self.max_attempts;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             attempt = attempt,
             max_attempts = self.max_attempts,

@@ -33,7 +33,7 @@ pre-release-replacements = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["reqwest/default", "cache", "tracing"]
+default = ["reqwest/default", "cache"]
 
 # Internal umbrella feature — set automatically by any cache backend. Do not enable directly.
 cache-backend = []
@@ -44,7 +44,6 @@ cache-json = ["cache-backend"]
 # SQLite cache backend. Enable with features = ["cache-sqlite"].
 cache-sqlite = ["cache-backend", "dep:sqlx"]
 
-tracing = ["dep:tracing"]
 rustls = ["reqwest/rustls"]
 hooks = []
 webhooks = []
@@ -108,4 +107,4 @@ cfg-if = "1.0.4"
 tap = "1.0.1"
 
 # Logging
-tracing = { version = "0.1.44", optional = true }
+tracing = "0.1.44"

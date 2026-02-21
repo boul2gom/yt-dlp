@@ -67,7 +67,6 @@ impl MetadataManager {
     pub fn new() -> Self {
         let ffmpeg_path = Self::default_ffmpeg_path();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ffmpeg_path = ?ffmpeg_path,
             "Creating new MetadataManager"
@@ -88,7 +87,6 @@ impl MetadataManager {
     pub fn with_ffmpeg_path(ffmpeg_path: impl Into<PathBuf>) -> Self {
         let ffmpeg_path = ffmpeg_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ffmpeg_path = ?ffmpeg_path,
             "Creating MetadataManager with custom ffmpeg path"
@@ -107,7 +105,6 @@ impl MetadataManager {
     pub(crate) fn default_ffmpeg_path() -> PathBuf {
         std::env::var("FFMPEG_PATH")
             .map(|path| {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     ffmpeg_path = %path,
                     "Using ffmpeg path from FFMPEG_PATH environment variable"
@@ -115,7 +112,6 @@ impl MetadataManager {
                 PathBuf::from(path)
             })
             .unwrap_or_else(|_| {
-                #[cfg(feature = "tracing")]
                 tracing::debug!("Using default ffmpeg path");
                 PathBuf::from("ffmpeg")
             })
@@ -137,7 +133,6 @@ impl MetadataManager {
     pub(crate) fn get_file_extension(file_path: impl Into<PathBuf>) -> Result<String> {
         let path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?path,
             "Getting file extension"
@@ -150,7 +145,6 @@ impl MetadataManager {
             .ok_or_else(|| Error::path_validation(&path, "Invalid characters in file extension"))?
             .to_lowercase();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?path,
             extension = %ext,
@@ -180,7 +174,6 @@ impl MetadataManager {
     ) -> crate::error::Result<PathBuf> {
         let path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?path,
             file_format = file_format,
@@ -196,7 +189,6 @@ impl MetadataManager {
             parent_dir.join(format!("output_{}_temp.{}", uuid, file_format))
         };
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             original_path = ?path,
             temp_path = ?temp_path,
@@ -212,7 +204,6 @@ impl MetadataManager {
     ///
     /// * `_message` - Message to log
     pub(crate) fn log_metadata_debug<S: AsRef<str>>(_message: S) {
-        #[cfg(feature = "tracing")]
         tracing::debug!("{}", _message.as_ref());
     }
 }

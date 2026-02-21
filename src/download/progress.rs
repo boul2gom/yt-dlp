@@ -58,7 +58,6 @@ impl ProgressTracker {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!("Created new progress tracker");
 
         Self { tx }
@@ -71,7 +70,6 @@ impl ProgressTracker {
     /// * `downloaded` - Number of bytes downloaded
     /// * `total` - Total number of bytes
     pub fn update(&self, downloaded: u64, total: u64) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             downloaded = downloaded,
             total = total,
@@ -88,7 +86,6 @@ impl ProgressTracker {
     ///
     /// A BroadcastStream that receives progress updates
     pub fn stream(&self) -> BroadcastStream<ProgressInfo> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating progress stream");
 
         BroadcastStream::new(self.tx.subscribe())
@@ -100,7 +97,6 @@ impl ProgressTracker {
     ///
     /// A callback function that can be used to update progress
     pub fn callback(&self) -> impl Fn(u64, u64) + Send + Sync + 'static {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating progress callback");
 
         let tx = self.tx.clone();

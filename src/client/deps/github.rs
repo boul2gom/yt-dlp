@@ -42,7 +42,6 @@ impl GitHubFetcher {
         let owner = owner.into();
         let repo = repo.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %owner,
             repo = %repo,
@@ -79,7 +78,6 @@ impl GitHubFetcher {
     where
         F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
     {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %self.owner,
             repo = %self.repo,
@@ -118,7 +116,6 @@ impl GitHubFetcher {
     where
         F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
     {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %self.owner,
             repo = %self.repo,
@@ -130,7 +127,6 @@ impl GitHubFetcher {
 
         let release = self.fetch_latest_release(auth_token.clone()).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             platform = ?platform,
             architecture = ?architecture,
@@ -164,7 +160,6 @@ impl GitHubFetcher {
     ///
     /// * `auth_token` - An optional GitHub personal access token to authenticate the request.
     pub async fn fetch_latest_release(&self, auth_token: Option<String>) -> Result<Release> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %self.owner,
             repo = %self.repo,
@@ -199,7 +194,6 @@ impl GitHubFetcher {
     ///
     /// Returns an error if checksum parsing fails
     async fn fetch_checksum(&self, release: &Release, asset_name: &str) -> Result<Option<String>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             asset_name = asset_name,
             release_tag = %release.tag_name,
@@ -212,7 +206,6 @@ impl GitHubFetcher {
             .and_then(|a| a.digest.as_ref())
         {
             return if let Some(stripped) = digest.strip_prefix("sha256:") {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     asset_name = asset_name,
                     checksum = stripped,
@@ -220,7 +213,6 @@ impl GitHubFetcher {
                 );
                 Ok(Some(stripped.to_string()))
             } else {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     asset_name = asset_name,
                     digest = digest,
@@ -230,7 +222,6 @@ impl GitHubFetcher {
             };
         }
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             asset_name = asset_name,
             release_tag = %release.tag_name,

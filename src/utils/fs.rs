@@ -24,7 +24,6 @@ use zip::ZipArchive;
 pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
     let path: PathBuf = path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         "Extracting file name from path"
@@ -37,7 +36,6 @@ pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
         .to_str()
         .ok_or(Error::Unknown("Failed to convert name".to_string()))?;
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         name = name,
@@ -63,7 +61,6 @@ pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
 pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
     let path: PathBuf = path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         "Extracting file stem from path"
@@ -76,7 +73,6 @@ pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
         "Failed to convert file stem to string".to_string(),
     ))?;
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         stem = name,
@@ -102,7 +98,6 @@ pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
 pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
     let path: PathBuf = path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         "Extracting parent directory from path"
@@ -114,7 +109,6 @@ pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
 
     let parent_buf = parent.to_path_buf();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         parent = ?parent_buf,
@@ -140,7 +134,6 @@ pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
 pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
     let destination: PathBuf = destination.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "Creating new file"
@@ -158,7 +151,6 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
 
     let file = open_options.open(&destination).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "File created successfully"
@@ -184,7 +176,6 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
 pub async fn create_dir(destination: impl Into<PathBuf>) -> Result<()> {
     let destination: PathBuf = destination.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "Creating directory"
@@ -192,7 +183,6 @@ pub async fn create_dir(destination: impl Into<PathBuf>) -> Result<()> {
 
     tokio::fs::create_dir_all(&destination).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "Directory created successfully"
@@ -218,21 +208,18 @@ pub async fn create_dir(destination: impl Into<PathBuf>) -> Result<()> {
 pub async fn create_parent_dir(destination: impl Into<PathBuf>) -> Result<()> {
     let destination: PathBuf = destination.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "Creating parent directory"
     );
 
     if let Some(parent) = destination.parent() {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             parent = ?parent,
             "Creating parent directory"
         );
         tokio::fs::create_dir_all(parent).await?;
     } else {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             destination = ?destination,
             "No parent, creating destination as directory"
@@ -240,7 +227,6 @@ pub async fn create_parent_dir(destination: impl Into<PathBuf>) -> Result<()> {
         tokio::fs::create_dir_all(&destination).await?;
     }
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         destination = ?destination,
         "Parent directory created successfully"
@@ -262,16 +248,13 @@ pub async fn extract_zip(
     let zip_path: PathBuf = zip_path.into();
     let destination: PathBuf = destination.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         zip_path = ?zip_path,
         destination = ?destination,
         "Extracting zip file"
     );
 
-    #[cfg(feature = "tracing")]
     let zip_path_for_tracing = zip_path.clone();
-    #[cfg(feature = "tracing")]
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -331,7 +314,6 @@ pub async fn extract_zip(
     .await
     .map_err(|e| Error::Unknown(e.to_string()))??;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         zip_path = ?zip_path_for_tracing,
         destination = ?destination_for_tracing,
@@ -354,16 +336,13 @@ pub async fn extract_tar_xz(
     let tar_path: PathBuf = tar_path.into();
     let destination: PathBuf = destination.into();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         tar_path = ?tar_path,
         destination = ?destination,
         "Extracting tar.xz file"
     );
 
-    #[cfg(feature = "tracing")]
     let tar_path_for_tracing = tar_path.clone();
-    #[cfg(feature = "tracing")]
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -382,7 +361,6 @@ pub async fn extract_tar_xz(
     .await
     .map_err(|e| Error::Unknown(e.to_string()))??;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         tar_path = ?tar_path_for_tracing,
         destination = ?destination_for_tracing,
@@ -489,7 +467,6 @@ pub async fn remove_temp_file(file_path: impl Into<PathBuf>) -> bool {
     let file_path: PathBuf = file_path.into();
     let result = tokio::fs::remove_file(&file_path).await;
 
-    #[cfg(feature = "tracing")]
     if let Err(ref e) = result {
         tracing::warn!("Failed to remove temporary file {:?}: {}", file_path, e);
     }

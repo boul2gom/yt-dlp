@@ -45,7 +45,6 @@ impl MetadataManager {
     pub async fn add_metadata(&self, file_path: impl Into<PathBuf>, video: &Video) -> Result<()> {
         let file_path: std::path::PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             video_id = %video.id,
@@ -57,7 +56,6 @@ impl MetadataManager {
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             file_format = %file_format,
@@ -80,7 +78,6 @@ impl MetadataManager {
             }
         };
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,
@@ -123,7 +120,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let file_path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             video_id = %video.id,
@@ -137,7 +133,6 @@ impl MetadataManager {
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             file_format = %file_format,
@@ -169,7 +164,6 @@ impl MetadataManager {
             }
         };
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,
@@ -220,7 +214,6 @@ impl MetadataManager {
         let file_path: PathBuf = file_path.into();
         let thumbnail_path: PathBuf = thumbnail_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
@@ -231,7 +224,6 @@ impl MetadataManager {
 
         let extension = Extension::from_str(&file_format).unwrap_or(Extension::Unknown);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             file_format = %file_format,
@@ -249,7 +241,6 @@ impl MetadataManager {
                     .await
             }
             _ => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     file_format = %file_format,
                     "Thumbnails not supported for file format"
@@ -258,7 +249,6 @@ impl MetadataManager {
             }
         };
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,

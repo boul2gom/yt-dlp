@@ -35,7 +35,6 @@ impl VideoCodec {
             Self::Copy => "copy",
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             codec = ?self,
             ffmpeg_name = result,
@@ -76,7 +75,6 @@ impl AudioCodec {
             Self::Copy => "copy",
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             codec = ?self,
             ffmpeg_name = result,
@@ -136,7 +134,6 @@ impl Resolution {
         let (width, height) = self.dimensions();
         let result = format!("{}:{}", width, height);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             resolution = ?self,
             width = width,
@@ -188,7 +185,6 @@ impl EncodingPreset {
             Self::VerySlow => "veryslow",
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             preset = ?self,
             ffmpeg_name = result,
@@ -274,7 +270,6 @@ impl FfmpegFilter {
     ///
     /// The FFmpeg filter string
     pub fn to_ffmpeg_string(&self) -> String {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filter = ?self,
             "Converting FFmpeg filter to string"
@@ -312,7 +307,6 @@ impl FfmpegFilter {
             Self::Custom { filter } => filter.clone(),
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filter = ?self,
             ffmpeg_string = %result,
@@ -351,7 +345,6 @@ impl PostProcessConfig {
     ///
     /// An empty PostProcessConfig with all options set to None
     pub fn new() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Created new post-processing configuration");
 
         Self {
@@ -376,7 +369,6 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn with_video_codec(mut self, codec: VideoCodec) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(codec = ?codec, "Setting video codec");
 
         self.video_codec = Some(codec);
@@ -393,7 +385,6 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn with_audio_codec(mut self, codec: AudioCodec) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(codec = ?codec, "Setting audio codec");
 
         self.audio_codec = Some(codec);
@@ -440,7 +431,6 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn add_filter(mut self, filter: FfmpegFilter) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(filter = ?filter, "Adding FFmpeg filter to post-processing config");
 
         self.filters.push(filter);
@@ -462,7 +452,6 @@ impl PostProcessConfig {
             && self.preset.is_none()
             && self.filters.is_empty();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             is_empty = result,
             filter_count = self.filters.len(),

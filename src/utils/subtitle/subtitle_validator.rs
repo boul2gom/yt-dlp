@@ -76,7 +76,6 @@ impl ValidationResult {
 pub async fn validate_subtitle(subtitle_path: impl AsRef<Path>) -> Result<ValidationResult> {
     let subtitle_path = subtitle_path.as_ref();
 
-    #[cfg(feature = "tracing")]
     tracing::debug!("Validating subtitle file: {:?}", subtitle_path);
 
     // Check if file exists
@@ -114,7 +113,6 @@ pub async fn validate_subtitle(subtitle_path: impl AsRef<Path>) -> Result<Valida
         }
     };
 
-    #[cfg(feature = "tracing")]
     tracing::debug!("Detected subtitle format: {:?}", format);
 
     // Validate based on format

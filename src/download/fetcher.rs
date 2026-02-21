@@ -144,7 +144,6 @@ impl Fetcher {
     ///
     /// Self for method chaining
     pub fn with_parallel_segments(mut self, segments: usize) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             segments = segments,
             url = %self.url,
@@ -211,7 +210,6 @@ impl Fetcher {
     ///
     /// This function will return an error if the data could not be fetched or parsed.
     pub async fn fetch_json(&self, auth_token: Option<String>) -> Result<serde_json::Value> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             has_token = auth_token.is_some(),
@@ -250,7 +248,6 @@ impl Fetcher {
     ///
     /// This function will return an error if the data could not be fetched.
     pub async fn fetch_text(&self, auth_token: Option<String>) -> Result<String> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             "Fetching text data"
@@ -291,7 +288,6 @@ impl Fetcher {
     pub async fn fetch_asset(&self, destination: impl Into<PathBuf>) -> Result<()> {
         let destination: PathBuf = destination.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             destination = ?destination,
@@ -335,7 +331,6 @@ impl Fetcher {
 
         // If the server does not support range requests, use the simple method
         if !head_response.headers().contains_key("accept-ranges") {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 url = %self.url,
                 "Server does not support range requests, falling back to simple download"
@@ -352,7 +347,6 @@ impl Fetcher {
                     .map_err(|e| Error::Unknown(e.to_string()))?
             }
             None => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     url = %self.url,
                     "Content-Length header not found, falling back to simple download"
@@ -365,7 +359,6 @@ impl Fetcher {
         if let Some(size) = file_size
             && size == content_length
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 destination = ?destination,
                 size = content_length,
@@ -377,7 +370,6 @@ impl Fetcher {
         // Create or open the destination file
         let file = if file_exists && file_size.is_some() {
             // Open existing file for resuming download
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 destination = ?destination,
                 existing_size = file_size.unwrap_or(0),
@@ -396,7 +388,6 @@ impl Fetcher {
             file
         } else {
             // Create a new file
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 destination = ?destination,
                 total_size = content_length,
@@ -417,7 +408,6 @@ impl Fetcher {
         let optimal_segments = self.calculate_optimal_segments(content_length);
         let parallel_segments = min(self.parallel_segments, optimal_segments);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             parallel_segments = parallel_segments,
             segment_size = self.segment_size,
@@ -466,7 +456,6 @@ impl Fetcher {
             .map(|(i, &range)| (i, range))
             .collect();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Resuming download: {} of {} segments already downloaded",
             downloaded_segments.iter().filter(|&&x| x).count(),
@@ -542,7 +531,6 @@ impl Fetcher {
                                 return Ok(());
                             }
                             Err(error) if attempt < self.retry_attempts - 1 => {
-                                #[cfg(feature = "tracing")]
                                 tracing::warn!(
                                     "Segment download failed (attempt {}): {}",
                                     attempt + 1,
@@ -635,7 +623,6 @@ impl Fetcher {
         if start_has_data && end_has_data {
             // We don't update the downloaded_bytes counter here because it was already
             // initialized with the sum of already downloaded segments
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 segment_start = start,
                 segment_end = end,
@@ -645,7 +632,6 @@ impl Fetcher {
 
             return Ok(());
         } else if start_has_data {
-            #[cfg(feature = "tracing")]
             tracing::warn!(
                 "Segment {}-{} has data at start but not at end. Assuming partial write and re-downloading.",
                 start,
@@ -705,7 +691,6 @@ impl Fetcher {
     async fn fetch_asset_simple(&self, destination: impl Into<PathBuf>) -> Result<()> {
         let destination: PathBuf = destination.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             destination = ?destination,

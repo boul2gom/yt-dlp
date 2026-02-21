@@ -48,7 +48,6 @@ impl<'a> DownloadBuilder<'a> {
         let url = url.as_ref().to_string();
         let output = output.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             output = ?output,
@@ -71,7 +70,6 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the desired video quality.
     pub fn video_quality(mut self, quality: VideoQuality) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(quality = ?quality, "Setting video quality");
 
         self.video_quality = Some(quality);
@@ -80,7 +78,6 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the desired audio quality.
     pub fn audio_quality(mut self, quality: AudioQuality) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(quality = ?quality, "Setting audio quality");
 
         self.audio_quality = Some(quality);
@@ -89,7 +86,6 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the preferred video codec.
     pub fn video_codec(mut self, codec: VideoCodecPreference) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(codec = ?codec, "Setting video codec preference");
 
         self.video_codec = Some(codec);
@@ -98,7 +94,6 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the preferred audio codec.
     pub fn audio_codec(mut self, codec: AudioCodecPreference) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(codec = ?codec, "Setting audio codec preference");
 
         self.audio_codec = Some(codec);
@@ -107,7 +102,6 @@ impl<'a> DownloadBuilder<'a> {
 
     /// Sets the download priority.
     pub fn priority(mut self, priority: DownloadPriority) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(priority = ?priority, "Setting download priority");
 
         self.priority = priority;
@@ -131,7 +125,6 @@ impl<'a> DownloadBuilder<'a> {
     ///
     /// * `range` - The partial range to download (time range or chapter range)
     pub fn partial(mut self, range: PartialRange) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(range = ?range, "Setting partial download range");
 
         self.partial_range = Some(range);
@@ -182,7 +175,6 @@ impl<'a> DownloadBuilder<'a> {
         let video_codec = self.video_codec.unwrap_or(VideoCodecPreference::Any);
         let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             output = ?self.output,
@@ -199,7 +191,6 @@ impl<'a> DownloadBuilder<'a> {
         // Fetch video information
         let video = self.downloader.fetch_video_infos(self.url.clone()).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             video_title = %video.title,
@@ -217,7 +208,6 @@ impl<'a> DownloadBuilder<'a> {
             .select_audio_format(audio_quality, audio_codec.clone())
             .ok_or_else(|| Self::format_not_available(&video, FormatType::Audio))?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_format_id = %video_format.format_id,
             audio_format_id = %audio_format.format_id,
@@ -326,7 +316,6 @@ impl<'a> DownloadBuilder<'a> {
         };
 
         // Wait for both downloads to complete
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_download_id = video_download_id,
             audio_download_id = audio_download_id,
@@ -340,7 +329,6 @@ impl<'a> DownloadBuilder<'a> {
         use crate::download::DownloadStatus;
         match (video_status, audio_status) {
             (Some(DownloadStatus::Completed), Some(DownloadStatus::Completed)) => {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     output = ?self.output,
                     "Both downloads completed, combining audio and video"

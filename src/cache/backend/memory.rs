@@ -47,7 +47,6 @@ impl MemoryVideoCache {
 
 impl VideoBackend for MemoryVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             ttl = self.ttl,
@@ -67,7 +66,6 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = %url, video_id = %video.id, "Caching video to memory backend");
 
         let mut data = self.data.lock().await;
@@ -77,7 +75,6 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Removing video from memory cache");
 
         let mut data = self.data.lock().await;
@@ -86,7 +83,6 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ttl = self.ttl,
             "Cleaning expired entries from memory video cache"
@@ -151,7 +147,6 @@ impl MemoryFileCache {
 
 impl FileBackend for MemoryFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hash = hash,
             ttl = self.ttl,
@@ -222,7 +217,6 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn put(&self, file: CachedFile, _source_path: &Path) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filename = %file.filename,
             file_id = %file.id,
@@ -236,7 +230,6 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(file_id = id, "Removing file from memory cache");
 
         let mut files = self.files.lock().await;
@@ -245,7 +238,6 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ttl = self.ttl,
             "Cleaning expired entries from memory file cache"
@@ -301,7 +293,6 @@ impl FileBackend for MemoryFileCache {
         thumbnail: CachedThumbnail,
         _source_path: &Path,
     ) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             thumbnail_id = %thumbnail.id,
             video_id = %thumbnail.video_id,

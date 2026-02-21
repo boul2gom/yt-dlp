@@ -1,6 +1,7 @@
 use crate::Downloader;
 
 use crate::executor::Executor;
+#[cfg(feature = "cache-backend")]
 use crate::metadata::MetadataManager;
 use crate::model::format::Format;
 
@@ -32,7 +33,6 @@ impl Downloader {
         let format_type = format.format_type();
         let is_standalone_format = format_type.is_audio_and_video() || format_type.is_audio();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             path = ?path,
             format_id = %format.format_id,
@@ -43,7 +43,6 @@ impl Downloader {
 
         if is_standalone_format {
             if let Some(video_id) = format.video_id.as_ref() {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     video_id = video_id,
                     format_id = %format.format_id,
@@ -62,7 +61,6 @@ impl Downloader {
                         .add_metadata_with_format(path.clone(), &video, None, Some(format))
                         .await
                     {
-                        #[cfg(feature = "tracing")]
                         tracing::warn!(
                             error = %_e,
                             path = ?path,
@@ -70,7 +68,6 @@ impl Downloader {
                             "Failed to add metadata"
                         );
                     } else {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!(
                             path = ?path,
                             video_id = video_id,
@@ -81,16 +78,13 @@ impl Downloader {
 
                 #[cfg(not(feature = "cache-backend"))]
                 {
-                    #[cfg(feature = "tracing")]
                     tracing::debug!(
                         video_id = video_id,
                         "Cache feature disabled, cannot retrieve video metadata"
                     );
-                    let _ = video_id; // Suppress unused warning
                 }
             }
         } else {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 format_id = %format.format_id,
                 format_type = ?format_type,
@@ -180,7 +174,6 @@ impl Downloader {
         let output: PathBuf = output.into();
         let output_path = self.output_dir.join(&output);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_path = ?video_path,
             subtitle_count = subtitle_paths.len(),
@@ -217,7 +210,6 @@ impl Downloader {
                 args.push(format!("-metadata:s:s:{}", i));
                 args.push(format!("language={}", language_code));
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     language = language_code,
                     stream_index = i,
@@ -234,7 +226,6 @@ impl Downloader {
         // Output file
         args.push(output_path.to_string_lossy().to_string());
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             args = ?args,
             arg_count = args.len(),
@@ -250,7 +241,6 @@ impl Downloader {
 
         executor.execute().await?;
 
-        #[cfg(feature = "tracing")]
         tracing::info!(
             "Successfully embedded subtitles into video at {:?}",
             output_path

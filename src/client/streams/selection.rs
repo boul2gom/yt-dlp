@@ -32,7 +32,6 @@ impl VideoSelection for Video {
     /// Returns the best video format available.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn best_video_format(&self) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
@@ -48,7 +47,6 @@ impl VideoSelection for Video {
     /// Returns the best audio format available.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn best_audio_format(&self) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
@@ -64,7 +62,6 @@ impl VideoSelection for Video {
     /// Returns the worst video format available.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn worst_video_format(&self) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
@@ -80,7 +77,6 @@ impl VideoSelection for Video {
     /// Returns the worst audio format available.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn worst_audio_format(&self) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
@@ -96,7 +92,6 @@ impl VideoSelection for Video {
     /// Compares two video formats.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn compare_video_formats(&self, a: &Format, b: &Format) -> Ordering {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             "Comparing video formats: {} and {}",
             a.format_id,
@@ -136,7 +131,6 @@ impl VideoSelection for Video {
     /// Compares two audio formats.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn compare_audio_formats(&self, a: &Format, b: &Format) -> Ordering {
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             "Comparing audio formats: {} and {}",
             a.format_id,
@@ -179,7 +173,6 @@ impl VideoSelection for Video {
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             quality = ?quality,
@@ -254,7 +247,6 @@ impl VideoSelection for Video {
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Option<&Format> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %self.id,
             quality = ?quality,
@@ -336,7 +328,6 @@ fn select_closest_video_height<'a>(
     target_height: u32,
     video: &Video,
 ) -> Option<&'a Format> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         target_height = target_height,
         available_formats = formats.len(),
@@ -409,7 +400,6 @@ fn select_closest_video_width<'a>(
     target_width: u32,
     video: &Video,
 ) -> Option<&'a Format> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         target_width = target_width,
         available_formats = formats.len(),
@@ -482,7 +472,6 @@ fn select_closest_audio_bitrate<'a>(
     target_bitrate: u32,
     video: &Video,
 ) -> Option<&'a Format> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         target_bitrate = target_bitrate,
         available_formats = formats.len(),
@@ -551,7 +540,6 @@ impl Downloader {
     pub fn list_subtitle_languages(&self, video: &Video) -> Vec<String> {
         let languages: Vec<String> = video.subtitles.keys().cloned().collect();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             language_count = languages.len(),
@@ -575,7 +563,6 @@ impl Downloader {
     pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
         let has_language = video.subtitles.contains_key(language_code);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             video_id = %video.id,
             language_code = language_code,

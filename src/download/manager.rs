@@ -355,7 +355,6 @@ impl DownloadManager {
             progress_callback: None,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Enqueuing download {} for {} -> {:?} (priority: {:?})",
             id,
@@ -519,7 +518,6 @@ impl DownloadManager {
     /// # }
     /// ```
     pub async fn cancel(&self, id: u64) -> bool {
-        #[cfg(feature = "tracing")]
         tracing::debug!(download_id = id, "Cancelling download");
 
         // Mark as cancelled first to prevent race conditions
@@ -729,7 +727,6 @@ impl DownloadManager {
 
     /// Process the download queue
     fn process_queue(&self) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             max_concurrent = self.config.max_concurrent_downloads,
             "Starting download queue processor"
@@ -746,7 +743,6 @@ impl DownloadManager {
 
         tokio::spawn(async move {
             loop {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     max_concurrent = config_clone.max_concurrent_downloads,
                     "Waiting for available download slot"
@@ -763,7 +759,6 @@ impl DownloadManager {
                     queue.pop()
                 };
 
-                #[cfg(feature = "tracing")]
                 if let Some(ref t) = task {
                     tracing::debug!(
                         task_id = t.id,
@@ -947,7 +942,6 @@ impl DownloadManager {
 
                 // Launch the download in a separate task
                 let destination = task.destination.clone();
-                #[cfg(feature = "tracing")]
                 let task_url = task.url.clone();
                 let statuses_for_task = statuses_clone.clone();
                 let tasks_for_task = tasks_clone.clone();
@@ -961,7 +955,6 @@ impl DownloadManager {
                     let start_time = std::time::Instant::now();
 
                     // Download the file
-                    #[cfg(feature = "tracing")]
                     tracing::debug!(
                         task_id = task_id,
                         url = %task_url,

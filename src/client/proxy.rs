@@ -57,7 +57,6 @@ impl ProxyConfig {
     pub fn new(proxy_type: ProxyType, url: impl Into<String>) -> Self {
         let url = url.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             proxy_type = ?proxy_type,
             url = %url,
@@ -86,7 +85,6 @@ impl ProxyConfig {
     pub fn with_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
         let username = username.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             username = %username,
             "Adding authentication to proxy"
@@ -107,7 +105,6 @@ impl ProxyConfig {
     ///
     /// Self for method chaining
     pub fn with_no_proxy(mut self, no_proxy: Vec<String>) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             no_proxy = ?no_proxy,
             count = no_proxy.len(),
@@ -149,7 +146,6 @@ impl ProxyConfig {
     ///
     /// The proxy URL with embedded authentication credentials if provided
     pub fn build_url(&self) -> String {
-        #[cfg(feature = "tracing")]
         tracing::debug!(has_auth = self.username.is_some(), "Building proxy URL");
 
         if let (Some(username), Some(password)) = (&self.username, &self.password) {

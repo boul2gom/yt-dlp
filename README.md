@@ -87,16 +87,13 @@ This library puts a lot of functionality behind optional features in order to op
 compile time for the most common use cases. The following features are
 available.
 
-- **`cache`** (enabled by default) — In-memory LRU backend (pulls in `lru`). Zero-dependency default; no persistence.
-- **`cache-json`** — JSON file-system backend. Superseded by `cache-sqlite` if both are active.
-- **`cache-sqlite`** — SQLite backend (pulls in `sqlx`). Highest-priority backend.
-- **`cache-backend`** — Internal umbrella feature, set automatically by all three backends. Do not enable directly.
-- **`tracing`** (enabled by default) — <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> Enables profiling with the [```tracing```](https://crates.io/crates/tracing) crate.
-  When this feature is enabled, the library will output span events at log levels `trace` and `debug`, depending on the importance of the called function.
-- **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
+- ⚡ **`cache`** (enabled by default) — In-memory LRU backend (pulls in `lru`). Zero-dependency default; no persistence.
+- 🗃️ **`cache-json`** — JSON file-system backend. Superseded by `cache-sqlite` if both are active.
+- <img align="center" width="20" alt="SQLite" src="https://avatars.githubusercontent.com/u/48680494?v=4&s=50" /> **`cache-sqlite`** — SQLite backend (pulls in `sqlx`). Highest-priority backend.
+- 🔒 **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
-- **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
-- **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
+- 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
+- 📡 **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
 
 ### 🗄️ Cache backends
 
@@ -132,13 +129,32 @@ yt-dlp = { version = "1.4.11", features = ["cache-json"] }
 yt-dlp = { version = "1.4.11", features = ["cache-sqlite"] }
 ```
 
-#### 📝 Profiling with `tracing` (enabled by default):
-The crate supports the `tracing` feature to enable profiling, which can be useful for debugging.
-You can enable it by adding the following to your `Cargo.toml` file:
+### 🔍 Observability & Tracing
+
+This crate always includes the <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> [`tracing`](https://crates.io/crates/tracing) crate. The library emits `debug` and `trace` span events throughout its internal operations (downloads, cache lookups, subprocess execution, etc.).
+
+⚠️ **Important:** `tracing` macros are **pure no-ops** without a configured subscriber. If you don't add one, there is zero runtime overhead.
+
+To capture logs, add a subscriber in your application:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["tracing"] }
+tracing-subscriber = "0.3.22"
 ```
+```rust,ignore
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
+
+let subscriber = FmtSubscriber::builder()
+        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+        // will be written to stdout.
+        .with_max_level(Level::TRACE)
+        // completes the builder.
+        .finish();
+tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
+```
+
+Refer to the [`tracing-subscriber` documentation](https://docs.rs/tracing-subscriber) for more advanced configuration (JSON output, log levels, targets, etc.).
 
 ---
 

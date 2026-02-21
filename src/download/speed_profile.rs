@@ -89,7 +89,6 @@ impl SpeedProfile {
             Self::Aggressive => AGGRESSIVE_CONCURRENT,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             max_concurrent = result,
@@ -111,7 +110,6 @@ impl SpeedProfile {
             Self::Aggressive => AGGRESSIVE_SEGMENT_SIZE,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             segment_size = result,
@@ -134,7 +132,6 @@ impl SpeedProfile {
             Self::Aggressive => AGGRESSIVE_PARALLEL,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             parallel_segments = result,
@@ -156,7 +153,6 @@ impl SpeedProfile {
             Self::Aggressive => AGGRESSIVE_BUFFER,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             buffer_size = result,
@@ -192,7 +188,6 @@ impl SpeedProfile {
         let total_segments = file_size.div_ceil(segment_size);
         let file_size_mb = file_size / (1024 * 1024);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             file_size = file_size,
@@ -234,7 +229,6 @@ impl SpeedProfile {
 
         let result = std::cmp::min(total_segments as usize, max_parallel_segments);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             profile = %self,
             file_size_mb = file_size_mb,

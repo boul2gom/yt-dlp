@@ -120,7 +120,6 @@ pub async fn execute_and_parse_video(
     args: &[String],
     timeout: Duration,
 ) -> Result<Video> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         arg_count = args.len(),
@@ -137,7 +136,6 @@ pub async fn execute_and_parse_video(
         .path()
         .join(format!("video_{}.json", uuid::Uuid::new_v4()));
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         output_path = ?output_path,
@@ -146,7 +144,6 @@ pub async fn execute_and_parse_video(
 
     let _output = executor.execute_to_file(&output_path).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         output_path = ?output_path,
         "Opening output file for parsing"
@@ -157,7 +154,6 @@ pub async fn execute_and_parse_video(
     // Convert to std::fs::File for serde_json which is synchronous
     let file = file.into_std().await;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!("Spawning blocking task for JSON parsing");
 
     // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
@@ -168,7 +164,6 @@ pub async fn execute_and_parse_video(
     })
     .await??;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         video_id = %video.id,
         title = %video.title,
@@ -181,7 +176,6 @@ pub async fn execute_and_parse_video(
         format.video_id = Some(video.id.clone());
     }
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         video_id = %video.id,
         "Set video_id on all formats"
@@ -210,7 +204,6 @@ pub async fn execute_and_parse_playlist(
     args: &[String],
     timeout: Duration,
 ) -> Result<Playlist> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         arg_count = args.len(),
@@ -226,7 +219,6 @@ pub async fn execute_and_parse_playlist(
         .path()
         .join(format!("playlist_{}.json", uuid::Uuid::new_v4()));
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         executable = ?executable_path,
         output_path = ?output_path,
@@ -235,7 +227,6 @@ pub async fn execute_and_parse_playlist(
 
     let _output = executor.execute_to_file(&output_path).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         output_path = ?output_path,
         "Opening output file for parsing"
@@ -245,7 +236,6 @@ pub async fn execute_and_parse_playlist(
     let file = tokio::fs::File::open(&output_path).await?;
     let file = file.into_std().await;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!("Spawning blocking task for JSON parsing");
 
     // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
@@ -255,7 +245,6 @@ pub async fn execute_and_parse_playlist(
     })
     .await??;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         playlist_id = %playlist.id,
         title = %playlist.title,

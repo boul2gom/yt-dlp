@@ -35,7 +35,6 @@ impl Generic {
     ///
     /// A new Generic extractor instance
     pub fn new(executable_path: PathBuf) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?executable_path,
             "Creating new Generic extractor"
@@ -60,7 +59,6 @@ impl Generic {
     ///
     /// A new Generic extractor instance for the specified extractor
     pub fn for_extractor(executable_path: PathBuf, name: String) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?executable_path,
             extractor_name = %name,
@@ -94,7 +92,6 @@ impl Generic {
     /// extractor.with_extractor_args("tiktok", "api_hostname=api-h2.tiktokv.com");
     /// ```
     pub fn with_extractor_args(&mut self, extractor: &str, args: &str) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             extractor = extractor,
             args = args,
@@ -124,7 +121,6 @@ impl Generic {
     /// extractor.with_cookies("instagram_cookies.txt");
     /// ```
     pub fn with_cookies(&mut self, cookie_file: &str) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cookie_file = cookie_file,
             "Adding cookie file for authentication"
@@ -153,7 +149,6 @@ impl Generic {
     /// extractor.with_credentials("user@email.com", "password");
     /// ```
     pub fn with_credentials(&mut self, username: &str, password: &str) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             username = username,
             has_password = !password.is_empty(),
@@ -179,7 +174,6 @@ impl Generic {
     /// extractor.with_netrc();
     /// ```
     pub fn with_netrc(&mut self) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Enabling .netrc authentication");
 
         self.args.push("--netrc".to_string());
@@ -196,7 +190,6 @@ impl Generic {
     ///
     /// Self for method chaining
     pub fn with_arg(&mut self, arg: String) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             arg = %arg,
             "Adding custom argument"
@@ -216,7 +209,6 @@ impl Generic {
     ///
     /// Self for method chaining
     pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             timeout_secs = timeout.as_secs(),
             "Setting timeout for extractor"
@@ -244,7 +236,6 @@ impl Generic {
 #[async_trait]
 impl VideoExtractor for Generic {
     async fn fetch_video(&self, url: &str) -> Result<Video> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             extractor_name = ?self.extractor_name,
@@ -257,7 +248,6 @@ impl VideoExtractor for Generic {
 
         let result = self.execute_for_video(&args).await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(video) => tracing::debug!(
                 url = %url,
@@ -276,7 +266,6 @@ impl VideoExtractor for Generic {
     }
 
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             extractor_name = ?self.extractor_name,
@@ -290,7 +279,6 @@ impl VideoExtractor for Generic {
 
         let result = self.execute_for_playlist(&args).await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(playlist) => tracing::debug!(
                 url = %url,

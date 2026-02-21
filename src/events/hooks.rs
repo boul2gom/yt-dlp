@@ -83,7 +83,6 @@ impl HookRegistry {
     ///
     /// A new empty HookRegistry
     pub fn new() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating new HookRegistry");
 
         Self {
@@ -99,7 +98,6 @@ impl HookRegistry {
     pub async fn register(&self, hook: impl EventHook + 'static) {
         let hook_name = hook.name();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hook_name = hook_name,
             parallel_execution = hook.parallel_execution(),
@@ -109,7 +107,6 @@ impl HookRegistry {
         let mut hooks = self.hooks.write().await;
         hooks.push(Box::new(hook));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hook_name = hook_name,
             total_hooks = hooks.len(),
@@ -125,7 +122,6 @@ impl HookRegistry {
     ///
     /// * `event` - The event to process
     pub async fn execute(&self, event: &DownloadEvent) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             download_id = event.download_id(),
@@ -151,7 +147,6 @@ impl HookRegistry {
         let parallel_count = parallel_hooks.len();
         let sequential_count = sequential_hooks.len();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             total_hooks = hooks.len(),
@@ -174,11 +169,9 @@ impl HookRegistry {
                     {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            #[cfg(feature = "tracing")]
                             tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
                         }
                         Err(_) => {
-                            #[cfg(feature = "tracing")]
                             tracing::warn!("Hook '{}' timed out", hook.name());
                         }
                     }
@@ -188,7 +181,6 @@ impl HookRegistry {
 
         futures_util::future::join_all(parallel_futures).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             parallel_hooks_completed = parallel_count,
@@ -202,17 +194,14 @@ impl HookRegistry {
             {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
                 }
                 Err(_) => {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!("Hook '{}' timed out", hook.name());
                 }
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             event_type = event.event_type(),
             sequential_hooks_completed = sequential_count,
@@ -232,14 +221,12 @@ impl HookRegistry {
 
     /// Clears all registered hooks
     pub async fn clear(&self) {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Clearing all registered hooks");
 
         let mut hooks = self.hooks.write().await;
         let count = hooks.len();
         hooks.clear();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(hooks_cleared = count, "All hooks cleared");
     }
 }

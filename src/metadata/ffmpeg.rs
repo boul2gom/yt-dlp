@@ -38,7 +38,6 @@ impl MetadataManager {
         _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let path: PathBuf = file_path.into();
-        #[cfg(feature = "tracing")]
         {
             let video_resolution = video_format.and_then(|f| {
                 match (f.video_resolution.width, f.video_resolution.height) {
@@ -83,7 +82,6 @@ impl MetadataManager {
         // Add video format metadata if available
         if let Some(format) = video_format {
             let video_metadata = Self::extract_video_format_metadata(format);
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 video_metadata_count = video_metadata.len(),
                 "Extracted video format metadata"
@@ -94,7 +92,6 @@ impl MetadataManager {
         // Add audio format metadata if available
         if let Some(format) = audio_format {
             let audio_metadata = Self::extract_audio_format_metadata(format);
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 audio_metadata_count = audio_metadata.len(),
                 "Extracted audio format metadata"
@@ -102,7 +99,6 @@ impl MetadataManager {
             all_metadata.extend(audio_metadata);
         }
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             total_metadata_count = all_metadata.len(),
             "Total metadata entries collected for WebM/MKV"
@@ -170,7 +166,6 @@ impl MetadataManager {
         let file_path: PathBuf = file_path.into();
         let thumbnail_path: PathBuf = thumbnail_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
@@ -210,7 +205,6 @@ impl MetadataManager {
         args.push("-y".to_string());
         args.push(temp_output_str.to_string());
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
@@ -225,7 +219,6 @@ impl MetadataManager {
         // Replace original file with the new one
         tokio::fs::rename(&temp_output_path, &file_path).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             "Thumbnail added successfully to WebM/MKV file"
@@ -259,7 +252,6 @@ impl MetadataManager {
         _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let path: std::path::PathBuf = file_path.into();
-        #[cfg(feature = "tracing")]
         {
             let video_resolution = video_format.and_then(|f| {
                 match (f.video_resolution.width, f.video_resolution.height) {
@@ -300,7 +292,6 @@ impl MetadataManager {
 
         if let Some(format) = video_format {
             let video_metadata = Self::extract_video_format_metadata(format);
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 video_metadata_count = video_metadata.len(),
                 "Extracted video format metadata"
@@ -310,7 +301,6 @@ impl MetadataManager {
 
         if let Some(format) = audio_format {
             let audio_metadata = Self::extract_audio_format_metadata(format);
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 audio_metadata_count = audio_metadata.len(),
                 "Extracted audio format metadata"
@@ -318,7 +308,6 @@ impl MetadataManager {
             all_metadata.extend(audio_metadata);
         }
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             total_metadata_count = all_metadata.len(),
             "Total metadata entries collected"
@@ -342,7 +331,6 @@ impl MetadataManager {
         .await
         .map_err(|e| Error::Unknown(format!("Failed to run ffmpeg metadata command: {}", e)))?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             video_id = %video.id,
@@ -372,7 +360,6 @@ impl MetadataManager {
         final_output_path: &Path,
         metadata_args: Vec<String>,
     ) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             input = input_str,
             output = output_str,
@@ -407,7 +394,6 @@ impl MetadataManager {
 
         let output = executor.execute().await?;
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             exit_code = output.code,
             stdout_len = output.stdout.len(),
@@ -430,7 +416,6 @@ impl MetadataManager {
             .await
             .map_err(|e| Error::Unknown(format!("Failed to replace original file: {}", e)))?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             output_path = ?final_output_path,
             "FFmpeg metadata command completed successfully"

@@ -37,7 +37,6 @@ impl MetadataManager {
     ) -> Result<PathBuf> {
         let output_path: PathBuf = output_path.into();
 
-        #[cfg(feature = "tracing")]
         {
             let total_duration = chapters.last().map(|c| c.end_time).unwrap_or(0.0);
             tracing::debug!(
@@ -60,7 +59,6 @@ impl MetadataManager {
             let start_us = (chapter.start_time * 1_000_000.0) as i64;
             let end_us = (chapter.end_time * 1_000_000.0) as i64;
 
-            #[cfg(feature = "tracing")]
             tracing::trace!(
                 chapter_index = idx,
                 start_time_secs = chapter.start_time,
@@ -90,7 +88,6 @@ impl MetadataManager {
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             output_path = ?output_path,
             chapter_count = chapters.len(),
@@ -125,7 +122,6 @@ impl MetadataManager {
         let path: PathBuf = file_path.into();
 
         if chapters.is_empty() {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 file_path = ?path,
                 "No chapters to add, skipping"
@@ -133,7 +129,6 @@ impl MetadataManager {
             return Ok(());
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             chapter_count = chapters.len(),
@@ -143,7 +138,6 @@ impl MetadataManager {
         // Determine file extension
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             file_path = ?path,
             extension = extension,
@@ -154,7 +148,6 @@ impl MetadataManager {
         let temp_metadata_path =
             std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             temp_metadata_path = ?temp_metadata_path,
             "Created temporary metadata file path"
@@ -197,7 +190,6 @@ impl MetadataManager {
             output_str.to_string(),
         ];
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             metadata_file = ?metadata_file,
@@ -213,7 +205,6 @@ impl MetadataManager {
 
         let output = executor.execute().await;
 
-        #[cfg(feature = "tracing")]
         if let Ok(ref result) = output {
             tracing::trace!(exit_code = result.code, "FFmpeg chapters command executed");
         }
@@ -239,7 +230,6 @@ impl MetadataManager {
             .await
             .map_err(|e| Error::Unknown(format!("Failed to replace original file: {}", e)))?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             chapter_count = chapters.len(),
@@ -273,7 +263,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let path: PathBuf = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             video_id = %video.id,
@@ -293,7 +282,6 @@ impl MetadataManager {
             self.add_chapters_metadata(&path, &video.chapters).await?;
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?path,
             video_id = %video.id,

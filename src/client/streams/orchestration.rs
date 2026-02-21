@@ -3,10 +3,12 @@ use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
 use crate::error::Error;
 use crate::executor::Executor;
+use crate::model::Video;
 use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
-use crate::model::{AudioCodecPreference, AudioQuality, Video, VideoCodecPreference, VideoQuality};
+#[cfg(feature = "cache-backend")]
+use crate::model::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::utils;
 
 use std::path::{Path, PathBuf};
@@ -25,13 +27,11 @@ impl Downloader {
     async fn check_video_cache(&self, url: &str) -> Option<Video> {
         #[cfg(feature = "cache-backend")]
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(url = url, "Checking video cache");
 
             let cache = self.cache.as_ref()?;
             let result = cache.get(url).await.ok().flatten();
 
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 url = url,
                 cache_hit = result.is_some(),
@@ -42,8 +42,8 @@ impl Downloader {
         }
         #[cfg(not(feature = "cache-backend"))]
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(url = url, "Cache feature disabled");
+            let _ = url;
 
             None
         }
@@ -61,7 +61,6 @@ impl Downloader {
     fn get_extractor(&self, url: &str) -> &dyn crate::extractor::VideoExtractor {
         let is_youtube = crate::extractor::Youtube::supports_url(url);
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             is_youtube = is_youtube,
@@ -107,11 +106,9 @@ impl Downloader {
     pub async fn fetch_video_infos(&self, url: impl AsRef<str>) -> crate::error::Result<Video> {
         let url_str = url.as_ref();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url_str, "Fetching video information");
 
         if let Some(video) = self.check_video_cache(url_str).await {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 url = url_str,
                 video_id = %video.id,
@@ -121,12 +118,10 @@ impl Downloader {
             return Ok(video);
         }
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url_str, "Cache miss, fetching from extractor");
 
         let video = self.get_extractor(url_str).fetch_video(url_str).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url_str,
             video_id = %video.id,
@@ -137,7 +132,6 @@ impl Downloader {
 
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
-            #[cfg(feature = "tracing")]
             tracing::debug!(video_id = %video.id, "Storing video in cache");
 
             let _ = cache.put(url_str.to_string(), video.clone()).await;
@@ -165,7 +159,6 @@ impl Downloader {
     ) -> crate::error::Result<Video> {
         let url_str = url.as_ref();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url_str,
             "Fetching fresh video information (bypassing cache)"
@@ -173,7 +166,6 @@ impl Downloader {
 
         let video = self.get_extractor(url_str).fetch_video(url_str).await?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url_str,
             video_id = %video.id,
@@ -184,7 +176,6 @@ impl Downloader {
 
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
-            #[cfg(feature = "tracing")]
             tracing::debug!(video_id = %video.id, "Updating cache with fresh video data");
 
             let _ = cache.put(url_str.to_string(), video.clone()).await;
@@ -205,14 +196,12 @@ impl Downloader {
     pub async fn get_video_by_id(&self, id: &str) -> Option<Video> {
         #[cfg(feature = "cache-backend")]
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(video_id = id, "Getting video from cache by ID");
 
             let cache = self.cache.as_ref()?;
             let cached_video = cache.get_by_id(id).await.ok()?;
             let video = cached_video.video().ok();
 
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 video_id = id,
                 found = video.is_some(),
@@ -223,8 +212,8 @@ impl Downloader {
         }
         #[cfg(not(feature = "cache-backend"))]
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(video_id = id, "Cache feature disabled");
+            let _ = id;
 
             None
         }
@@ -254,7 +243,6 @@ impl Downloader {
         match action(video.clone()).await {
             Ok(result) => Ok(result),
             Err(Error::UrlExpired) => {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("URL expired, refreshing metadata and retrying...");
 
                 // Refresh metadata bypassing cache
@@ -302,7 +290,6 @@ impl Downloader {
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output = output.as_ref().to_string();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -347,7 +334,6 @@ impl Downloader {
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         let output: PathBuf = output.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video from URL to path: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -408,7 +394,6 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video {}", video.title);
 
         let path = output.into();
@@ -418,7 +403,6 @@ impl Downloader {
         if let Some(download_cache) = &self.download_cache {
             // Try to find the video in the cache by its ID
             if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id).await {
-                #[cfg(feature = "tracing")]
                 tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
                 // Copy the file from the cache to the output directory
@@ -462,7 +446,6 @@ impl Downloader {
         // Cache the downloaded file if caching is enabled
         #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Caching downloaded video with ID: {}", video.id);
 
             let output_str = utils::try_name(path.as_path()).unwrap_or_default();
@@ -471,7 +454,6 @@ impl Downloader {
                 .put_file(&path, output_str, Some(video.id.clone()), None)
                 .await
             {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache downloaded video: {}", _e);
             }
         }
@@ -495,7 +477,6 @@ impl Downloader {
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output = output.as_ref().to_string();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -522,7 +503,6 @@ impl Downloader {
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         let output: PathBuf = output.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream from URL to path: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -552,7 +532,6 @@ impl Downloader {
         video: &Video,
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream {}", video.title);
 
         let best_video = video
@@ -581,7 +560,6 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading video stream to path {}", video.title);
 
         let best_video = video
@@ -611,7 +589,6 @@ impl Downloader {
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
         let output = output.as_ref().to_string();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -638,7 +615,6 @@ impl Downloader {
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         let output: PathBuf = output.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream from URL to path: {}", url);
 
         self.execute_with_retry(url, move |video| {
@@ -669,7 +645,6 @@ impl Downloader {
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         let output: PathBuf = output.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading thumbnail from URL: {}", url);
 
         let video = self.fetch_video_infos(url).await?;
@@ -721,7 +696,6 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading audio stream {}", video.title);
 
         let best_audio = video
@@ -769,7 +743,6 @@ impl Downloader {
         format: &Format,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading format {}", format.format_id);
 
         let output_path = output.into();
@@ -854,7 +827,6 @@ impl Downloader {
                 .get_by_video_and_format(video_id, &format.format_id)
                 .await
             {
-                #[cfg(feature = "tracing")]
                 tracing::debug!("Using cached format by ID: {}", format.format_id);
 
                 // Copy the file from the cache to the output directory
@@ -874,7 +846,6 @@ impl Downloader {
                     )
                     .await
             {
-                #[cfg(feature = "tracing")]
                 tracing::debug!("Using cached format by preferences");
 
                 // Copy the file from the cache to the output directory
@@ -914,7 +885,6 @@ impl Downloader {
         if let Some(download_cache) = &self.download_cache {
             let output_str = utils::try_name(path.as_path()).unwrap_or_default();
 
-            #[cfg(feature = "tracing")]
             tracing::debug!("Caching format with ID: {}", format.format_id);
 
             // Use the appropriate function depending on whether we have preferences or not
@@ -933,14 +903,12 @@ impl Downloader {
                         )
                         .await
                 {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!("Failed to cache format with preferences: {}", _e);
                 }
             } else if let Err(_e) = download_cache
                 .put_file(path, output_str, format.video_id.clone(), Some(format))
                 .await
             {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache format: {}", _e);
             }
         }
@@ -966,7 +934,6 @@ impl Downloader {
     ) -> crate::error::Result<PathBuf> {
         let language_code = language_code.as_ref();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading subtitle for video {} in language {}",
             video.id,
@@ -982,7 +949,6 @@ impl Downloader {
                 .get_subtitle_by_language(&video.id, language_code)
                 .await
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 "Using cached subtitle for video {} in language {}",
                 video.id,
@@ -1019,7 +985,6 @@ impl Downloader {
                 language: language_code.to_string(),
             })?;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading subtitle from {} to {:?}",
             subtitle.url,
@@ -1033,7 +998,6 @@ impl Downloader {
         // Cache the downloaded subtitle
         #[cfg(feature = "cache-backend")]
         if let Some(download_cache) = &self.download_cache {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 "Caching subtitle for video {} in language {}",
                 video.id,
@@ -1049,12 +1013,10 @@ impl Downloader {
                 )
                 .await
             {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache subtitle: {}", _e);
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::info!(
             "Successfully downloaded subtitle for language {} to {:?}",
             language_code,
@@ -1079,7 +1041,6 @@ impl Downloader {
         video: &Video,
         output_dir: impl AsRef<Path>,
     ) -> crate::error::Result<Vec<PathBuf>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Downloading all subtitles for video {}", video.id);
 
         let output_dir = output_dir.as_ref();
@@ -1095,7 +1056,6 @@ impl Downloader {
                 );
                 let output_path = output_dir.join(&filename);
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     "Downloading subtitle for language {} from {}",
                     language_code,
@@ -1108,7 +1068,6 @@ impl Downloader {
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::info!(
             "Successfully downloaded {} subtitle files",
             downloaded_files.len()
@@ -1151,7 +1110,6 @@ impl Downloader {
         url: impl AsRef<str>,
     ) -> crate::error::Result<Playlist> {
         let url_str = url.as_ref();
-        #[cfg(feature = "tracing")]
         tracing::debug!("Fetching playlist information from {}", url_str);
 
         // Check if the playlist is in the cache
@@ -1159,14 +1117,12 @@ impl Downloader {
         if let Some(cache) = &self.playlist_cache
             && let Some(playlist) = cache.get(url_str).await?
         {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Using cached playlist information for {}", url_str);
             return Ok(playlist);
         }
 
         // Delegate to the extractor
         let extractor = self.get_extractor(url_str);
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Fetching playlist information using {} extractor",
             extractor.name()
@@ -1180,16 +1136,13 @@ impl Downloader {
         // Cache the playlist if caching is enabled
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.playlist_cache {
-            #[cfg(feature = "tracing")]
             tracing::debug!("Caching playlist information for {}", url_str);
 
             if let Err(_e) = cache.put(url_str.to_string(), playlist.clone()).await {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Failed to cache playlist information: {}", _e);
             }
         }
 
-        #[cfg(feature = "tracing")]
         tracing::info!(
             "Successfully fetched playlist {} with {} videos",
             playlist.id,
@@ -1234,7 +1187,6 @@ impl Downloader {
         playlist: &Playlist,
         output_pattern: impl AsRef<str>,
     ) -> crate::error::Result<Vec<PathBuf>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading playlist {} with {} videos using parallel mode",
             playlist.id,
@@ -1255,7 +1207,6 @@ impl Downloader {
         let mut downloaded_files = Vec::new();
         let mut errors = Vec::new();
 
-        #[cfg(feature = "tracing")]
         for (video_idx, result) in results.into_iter().enumerate() {
             match result {
                 Ok(path) => downloaded_files.push(path),
@@ -1266,21 +1217,12 @@ impl Downloader {
             }
         }
 
-        #[cfg(not(feature = "tracing"))]
-        for result in results {
-            match result {
-                Ok(path) => downloaded_files.push(path),
-                Err(e) => errors.push(e),
-            }
-        }
-
         // If there were any errors, return the first one
         // (to maintain backward compatibility with the previous sequential behavior)
         if !errors.is_empty() && downloaded_files.is_empty() {
             return Err(errors.into_iter().next().unwrap());
         }
 
-        #[cfg(feature = "tracing")]
         tracing::info!(
             "Successfully downloaded {} out of {} videos from playlist {}",
             downloaded_files.len(),
@@ -1341,7 +1283,6 @@ impl Downloader {
     {
         use futures_util::stream::{FuturesUnordered, StreamExt};
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading playlist {} with {} videos in parallel (max {} concurrent)",
             playlist.id,
@@ -1364,7 +1305,6 @@ impl Downloader {
             while tasks.len() < max_concurrent {
                 if let Some(entry) = entry_iter.next() {
                     if !entry.is_available() {
-                        #[cfg(feature = "tracing")]
                         tracing::warn!(
                             "Skipping unavailable video: {} ({})",
                             entry.title,
@@ -1397,7 +1337,6 @@ impl Downloader {
                     let _callback = progress_callback.clone();
 
                     let task = tokio::spawn(async move {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!(
                             "Downloading video {} from playlist (index: {})",
                             entry.id,
@@ -1420,7 +1359,6 @@ impl Downloader {
                         // Download the video
                         let download_result = youtube.download_video(&video, &filename).await;
 
-                        #[cfg(feature = "tracing")]
                         if download_result.is_ok() {
                             tracing::info!(
                                 "Downloaded video from playlist: {} (index: {})",
@@ -1474,7 +1412,6 @@ impl Downloader {
             }
         }
 
-        #[cfg(feature = "tracing")]
         {
             let successful = results.iter().filter(|r| r.is_ok()).count();
             tracing::info!(
@@ -1505,7 +1442,6 @@ impl Downloader {
         indices: &[usize],
         output_pattern: impl AsRef<str>,
     ) -> crate::error::Result<Vec<PathBuf>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading {} specific videos from playlist {}",
             indices.len(),
@@ -1517,7 +1453,6 @@ impl Downloader {
         for &index in indices {
             if let Some(entry) = playlist.get_entry_by_index(index) {
                 if !entry.is_available() {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!(
                         "Skipping unavailable video at index {}: {}",
                         index,
@@ -1540,10 +1475,8 @@ impl Downloader {
                 let video_path = self.download_video(&video, &filename).await?;
                 downloaded_files.push(video_path);
 
-                #[cfg(feature = "tracing")]
                 tracing::info!("Downloaded video at index {}: {}", index, entry.title);
             } else {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Index {} is out of bounds for playlist", index);
             }
         }
@@ -1570,7 +1503,6 @@ impl Downloader {
         end: usize,
         output_pattern: impl AsRef<str>,
     ) -> crate::error::Result<Vec<PathBuf>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             "Downloading videos {}-{} from playlist {}",
             start,
@@ -1583,7 +1515,6 @@ impl Downloader {
 
         for entry in entries {
             if !entry.is_available() {
-                #[cfg(feature = "tracing")]
                 tracing::warn!("Skipping unavailable video: {} ({})", entry.title, entry.id);
                 continue;
             }
@@ -1602,7 +1533,6 @@ impl Downloader {
             let video_path = self.download_video(&video, &filename).await?;
             downloaded_files.push(video_path);
 
-            #[cfg(feature = "tracing")]
             tracing::info!("Downloaded video: {}", entry.title);
         }
 
@@ -1649,12 +1579,10 @@ impl Downloader {
             .await
         {
             Ok(path) => {
-                #[cfg(feature = "tracing")]
                 tracing::info!("Successfully downloaded partial video using yt-dlp");
                 Ok(path)
             }
             Err(_e) => {
-                #[cfg(feature = "tracing")]
                 tracing::warn!(
                     "yt-dlp partial download failed: {}, trying ffmpeg fallback",
                     _e

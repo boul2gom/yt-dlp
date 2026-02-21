@@ -228,7 +228,6 @@ impl Error {
     pub fn io(operation: impl Into<String>, source: std::io::Error) -> Self {
         let operation_str = operation.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             operation = %operation_str,
             error = %source,
@@ -261,7 +260,6 @@ impl Error {
         let operation_str = operation.into();
         let path_buf = path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             operation = %operation_str,
             path = ?path_buf,
@@ -295,7 +293,6 @@ impl Error {
         let url_str = url.into();
         let context_str = context.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             url = %url_str,
             context = %context_str,
@@ -326,7 +323,6 @@ impl Error {
     pub fn json(context: impl Into<String>, source: serde_json::Error) -> Self {
         let context_str = context.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             context = %context_str,
             error = %source,
@@ -355,7 +351,6 @@ impl Error {
     pub fn database(operation: impl Into<String>, source: sqlx::Error) -> Self {
         let operation_str = operation.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             operation = %operation_str,
             error = %source,
@@ -381,7 +376,6 @@ impl Error {
     pub fn runtime(context: impl Into<String>, source: tokio::task::JoinError) -> Self {
         let context_str = context.into();
 
-        #[cfg(feature = "tracing")]
         tracing::error!(
             context = %context_str,
             error = %source,
@@ -410,7 +404,6 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             url = %url_str,
             reason = %reason_str,
@@ -437,7 +430,6 @@ impl Error {
         let path_buf = path.into();
         let reason_str = reason.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             path = ?path_buf,
             reason = %reason_str,
@@ -464,7 +456,6 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             url = %url_str,
             reason = %reason_str,
@@ -490,7 +481,6 @@ impl Error {
     pub fn download_failed(download_id: u64, reason: impl Into<String>) -> Self {
         let reason_str = reason.into();
 
-        #[cfg(feature = "tracing")]
         tracing::error!(
             download_id = download_id,
             reason = %reason_str,
@@ -508,7 +498,6 @@ impl Error {
 
 impl From<tokio::task::JoinError> for Error {
     fn from(err: tokio::task::JoinError) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::error!(
             error = %err,
             is_cancelled = err.is_cancelled(),
@@ -525,7 +514,6 @@ impl From<tokio::task::JoinError> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             error = %err,
             kind = ?err.kind(),
@@ -544,7 +532,6 @@ impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
         let url = err.url().map(|u| u.to_string()).unwrap_or_default();
 
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             url = %url,
             error = %err,
@@ -564,7 +551,6 @@ impl From<reqwest::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             error = %err,
             line = err.line(),
@@ -582,7 +568,6 @@ impl From<serde_json::Error> for Error {
 #[cfg(feature = "cache-sqlite")]
 impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             error = %err,
             "Database error (automatic conversion)"
@@ -597,7 +582,6 @@ impl From<sqlx::Error> for Error {
 
 impl From<zip::result::ZipError> for Error {
     fn from(err: zip::result::ZipError) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             error = %err,
             "ZIP archive error (automatic conversion)"

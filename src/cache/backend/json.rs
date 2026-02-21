@@ -52,7 +52,6 @@ impl JsonVideoCache {
 
 impl VideoBackend for JsonVideoCache {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
@@ -68,7 +67,6 @@ impl VideoBackend for JsonVideoCache {
                     && cached.url == url
                 {
                     if is_expired(cached.cached_at, self.ttl) {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!(
                             url = url,
                             cached_at = cached.cached_at,
@@ -78,7 +76,6 @@ impl VideoBackend for JsonVideoCache {
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
-                    #[cfg(feature = "tracing")]
                     tracing::debug!(
                         url = url,
                         video_id = %cached.id,
@@ -93,7 +90,6 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             video_id = %video.id,
@@ -109,7 +105,6 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
@@ -131,7 +126,6 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,
@@ -203,7 +197,6 @@ impl JsonPlaylistCache {
 
 impl PlaylistBackend for JsonPlaylistCache {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
@@ -218,7 +211,6 @@ impl PlaylistBackend for JsonPlaylistCache {
                     && cached.url == url
                 {
                     if is_expired(cached.cached_at, self.ttl) {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!(
                             url = url,
                             cached_at = cached.cached_at,
@@ -228,7 +220,6 @@ impl PlaylistBackend for JsonPlaylistCache {
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
-                    #[cfg(feature = "tracing")]
                     tracing::debug!(
                         url = url,
                         playlist_id = %cached.id,
@@ -258,7 +249,6 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             playlist_id = %playlist.id,
@@ -275,7 +265,6 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
@@ -297,7 +286,6 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,
@@ -376,7 +364,6 @@ impl JsonFileCache {
 
 impl FileBackend for JsonFileCache {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             hash = hash,
             cache_dir = ?self.cache_dir,
@@ -392,7 +379,6 @@ impl FileBackend for JsonFileCache {
             let cached: CachedFile = serde_json::from_str(&content).ok()?;
 
             if is_expired(cached.cached_at, self.ttl) {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     hash = hash,
                     cached_at = cached.cached_at,
@@ -404,7 +390,6 @@ impl FileBackend for JsonFileCache {
 
             let file_path = self.cache_dir.join(&cached.relative_path);
             if file_path.exists() {
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     hash = hash,
                     filename = %cached.filename,
@@ -497,7 +482,6 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             filename = %file.filename,
             file_id = %file.id,
@@ -526,7 +510,6 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_id = id,
             cache_dir = ?self.cache_dir,
@@ -551,7 +534,6 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,

@@ -39,7 +39,6 @@ use std::path::PathBuf;
 /// assert!(validate_youtube_url("file:///etc/passwd").is_err());
 /// ```
 pub fn validate_youtube_url(url: &str) -> Result<()> {
-    #[cfg(feature = "tracing")]
     tracing::trace!(url = url, "Validating YouTube URL");
 
     // Try to parse the URL
@@ -72,7 +71,6 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
         || host.ends_with(".youtube-nocookie.com");
 
     if !is_youtube {
-        #[cfg(feature = "tracing")]
         tracing::warn!(
             url = url,
             host = host,
@@ -84,7 +82,6 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
         ));
     }
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(url = url, host = host, "YouTube URL validated successfully");
 
     Ok(())
@@ -120,7 +117,6 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
 pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
     let path = path.into();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         path = ?path,
         "Sanitizing file path"
@@ -184,7 +180,6 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
         ));
     }
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         original_path = ?path,
         sanitized_path = ?sanitized,
@@ -213,7 +208,6 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
 /// assert_eq!(sanitize_filename("file:name.mp4"), "filename.mp4");
 /// ```
 pub fn sanitize_filename(filename: &str) -> String {
-    #[cfg(feature = "tracing")]
     tracing::trace!(filename = filename, "Sanitizing filename");
 
     let sanitized = filename
@@ -227,7 +221,6 @@ pub fn sanitize_filename(filename: &str) -> String {
 
     let result = ternary!(sanitized.is_empty(), "download".to_string(), sanitized);
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         original_filename = filename,
         sanitized_filename = %result,

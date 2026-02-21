@@ -19,7 +19,6 @@ impl EventFilter {
     ///
     /// An EventFilter that matches all events
     pub fn all() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating EventFilter that accepts all events");
 
         Self {
@@ -37,7 +36,6 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches events with the given download ID
     pub fn download_id(id: u64) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             download_id = id,
             "Creating EventFilter for specific download ID"
@@ -56,7 +54,6 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches terminal events
     pub fn only_terminal() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating EventFilter for terminal events only");
 
         let mut filter = Self::all();
@@ -72,7 +69,6 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches completed download events
     pub fn only_completed() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating EventFilter for completed downloads only");
 
         let mut filter = Self::all();
@@ -88,7 +84,6 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches failed download events
     pub fn only_failed() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating EventFilter for failed downloads only");
 
         let mut filter = Self::all();
@@ -104,7 +99,6 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches progress events
     pub fn only_progress() -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Creating EventFilter for progress events only");
 
         let mut filter = Self::all();
@@ -136,7 +130,6 @@ impl EventFilter {
     where
         F: Fn(&DownloadEvent) -> bool + Send + Sync + 'static,
     {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             predicate_count_before = self.predicates.len(),
             "Adding custom predicate to filter"
@@ -144,7 +137,6 @@ impl EventFilter {
 
         self.predicates.push(Arc::new(predicate));
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             predicate_count_after = self.predicates.len(),
             "Custom predicate added to filter"
@@ -165,7 +157,6 @@ impl EventFilter {
     pub fn matches(&self, event: &DownloadEvent) -> bool {
         let result = self.predicates.iter().all(|predicate| predicate(event));
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             event_type = event.event_type(),
             download_id = event.download_id(),

@@ -98,7 +98,6 @@ impl LibraryInstaller {
         let owner: String = owner.into();
         let repo: String = repo.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             owner = %owner,
             repo = %repo,
@@ -126,7 +125,6 @@ impl LibraryInstaller {
     ///
     /// * `custom_name` - Optional custom name for the executable.
     pub async fn install_ffmpeg(&self, custom_name: Option<String>) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             custom_name = ?custom_name,
             destination = ?self.destination,
@@ -156,7 +154,6 @@ impl LibraryInstaller {
 impl Libraries {
     /// Install the required dependencies.
     pub async fn install_dependencies(&self) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             youtube_path = ?self.youtube,
             ffmpeg_path = ?self.ffmpeg,
@@ -178,7 +175,6 @@ impl Libraries {
         &self,
         auth_token: impl Into<String>,
     ) -> Result<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             youtube_path = ?self.youtube,
             ffmpeg_path = ?self.ffmpeg,
@@ -207,7 +203,6 @@ impl Libraries {
     }
 
     async fn install_youtube_internal(&self, auth_token: Option<String>) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             youtube_path = ?self.youtube,
             has_token = auth_token.is_some(),
@@ -244,7 +239,6 @@ impl Libraries {
     }
 
     async fn install_ffmpeg_internal(&self, _auth_token: Option<String>) -> Result<PathBuf> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             ffmpeg_path = ?self.ffmpeg,
             "Installing ffmpeg binary"
@@ -337,7 +331,6 @@ impl WantedRelease {
     /// or if the checksum verification fails.
     pub async fn download(&self, destination: impl Into<PathBuf>) -> Result<()> {
         let destination: PathBuf = destination.into();
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %self.url,
             destination = ?destination,
@@ -350,7 +343,6 @@ impl WantedRelease {
         fetcher.fetch_asset(destination.clone()).await?;
 
         if let Some(expected_checksum) = &self.checksum {
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 destination = ?destination,
                 expected_checksum = %expected_checksum,
@@ -399,7 +391,6 @@ impl WantedRelease {
                 )));
             }
 
-            #[cfg(feature = "tracing")]
             tracing::debug!(
                 expected = %expected_checksum,
                 actual = %actual_checksum,

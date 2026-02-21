@@ -38,7 +38,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let file_path = file_path.into();
 
-        #[cfg(feature = "tracing")]
         {
             let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
             let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
@@ -72,7 +71,6 @@ impl MetadataManager {
             .into_iter()
             .collect::<Vec<_>>();
         let has_format_info = audio_format.is_some() || video_format.is_some();
-        #[cfg(feature = "tracing")]
         let file_path_for_tracing = file_path.clone();
         let file_path_clone = file_path.clone();
 
@@ -119,7 +117,6 @@ impl MetadataManager {
         .await
         .map_err(|e| Error::Unknown(e.to_string()))??;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path_for_tracing,
             video_id = %video.id,
@@ -145,7 +142,6 @@ impl MetadataManager {
     ) -> Result<()> {
         let file_path = file_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
@@ -165,7 +161,6 @@ impl MetadataManager {
             _ => mp4ameta::ImgFmt::Jpeg,
         };
 
-        #[cfg(feature = "tracing")]
         tracing::trace!(
             thumbnail_path = ?thumbnail_path,
             image_format = ?fmt,
@@ -192,7 +187,6 @@ impl MetadataManager {
         .await
         .map_err(|e| Error::Unknown(e.to_string()))??;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             file_path = ?file_path,
             "Thumbnail added successfully to M4A/MP4 file"

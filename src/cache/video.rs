@@ -153,7 +153,6 @@ impl VideoCache {
     pub async fn new(cache_dir: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
         let cache_dir = cache_dir.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
@@ -178,12 +177,10 @@ impl VideoCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get(&self, url: &str) -> Result<Option<Video>> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Retrieving video from cache by URL");
 
         let result = self.backend.get(url).await;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = url,
             found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
@@ -208,7 +205,6 @@ impl VideoCache {
     ///
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, video: Video) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             video_id = %video.id,
@@ -218,7 +214,6 @@ impl VideoCache {
 
         let result = self.backend.put(url.clone(), video).await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!(url = %url, "Successfully cached video");
         } else {
@@ -242,12 +237,10 @@ impl VideoCache {
     ///
     /// Returns an error if the backend remove operation fails.
     pub async fn remove(&self, url: &str) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(url = url, "Removing video from cache");
 
         let result = self.backend.remove(url).await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!(url = url, "Successfully removed video from cache");
         } else {
@@ -267,12 +260,10 @@ impl VideoCache {
     ///
     /// Returns an error if the backend clean operation fails.
     pub async fn clean(&self) -> Result<()> {
-        #[cfg(feature = "tracing")]
         tracing::debug!("Cleaning video cache");
 
         let result = self.backend.clean().await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!("Successfully cleaned video cache");
         } else {
@@ -296,12 +287,10 @@ impl VideoCache {
     ///
     /// Returns an error if the video is not found, expired, or the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(video_id = id, "Retrieving video from cache by ID");
 
         let result = self.backend.get_by_id(id).await;
 
-        #[cfg(feature = "tracing")]
         if result.is_ok() {
             tracing::debug!(video_id = id, "Found video in cache by ID");
         } else {

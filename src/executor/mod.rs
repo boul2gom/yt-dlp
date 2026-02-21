@@ -65,7 +65,6 @@ impl Executor {
         let executable_path = executable_path.into();
         let args: Vec<String> = args.into_iter().map(Into::into).collect();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?executable_path,
             arg_count = args.len(),
@@ -117,7 +116,6 @@ impl Executor {
     ///
     /// This function will return an error if the command could not be executed, or if the process timed out.
     pub async fn execute(&self) -> Result<ProcessOutput> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?self.executable_path,
             arg_count = self.args.len(),
@@ -127,7 +125,6 @@ impl Executor {
 
         let result = execute_command(&self.executable_path, &self.args, self.timeout).await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(output) => tracing::debug!(
                 executable = ?self.executable_path,
@@ -163,7 +160,6 @@ impl Executor {
     pub async fn execute_to_file(&self, output_path: impl Into<PathBuf>) -> Result<ProcessOutput> {
         let output_path = output_path.into();
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             executable = ?self.executable_path,
             arg_count = self.args.len(),
@@ -180,7 +176,6 @@ impl Executor {
         )
         .await;
 
-        #[cfg(feature = "tracing")]
         match &result {
             Ok(output) => tracing::debug!(
                 executable = ?self.executable_path,

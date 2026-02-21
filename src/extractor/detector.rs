@@ -19,7 +19,6 @@ use crate::extractor::ExtractorName;
 ///
 /// Returns error if URL cannot be validated or no extractor is available
 pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<ExtractorName> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         executable = ?executable_path,
@@ -28,7 +27,6 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
 
     // Fast path: Pattern matching for YouTube
     if is_youtube_url(url) {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             url = %url,
             extractor = "youtube",
@@ -38,7 +36,6 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
         return Ok(ExtractorName::Youtube);
     }
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         "URL is not YouTube, querying yt-dlp for extractor detection"
@@ -47,7 +44,6 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
     // Slow path: Query yt-dlp to detect extractor
     let extractor_name = detect_via_ytdlp(url, executable_path).await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         extractor = %extractor_name,
@@ -87,7 +83,6 @@ fn is_youtube_url(url: &str) -> bool {
 ///
 /// Returns an error if yt-dlp fails, JSON parsing fails, or extractor field is missing
 async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         executable = ?executable_path,
@@ -107,7 +102,6 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
         crate::client::DEFAULT_TIMEOUT,
     );
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         "Executing yt-dlp with --simulate to detect extractor"
@@ -115,7 +109,6 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
 
     let output = executor.execute().await?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         stdout_len = output.stdout.len(),
@@ -125,7 +118,6 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     let json: serde_json::Value = serde_json::from_str(&output.stdout)?;
 
     let extractor = json["extractor"].as_str().ok_or_else(|| {
-        #[cfg(feature = "tracing")]
         tracing::error!(
             url = %url,
             "Missing extractor field in yt-dlp output"
@@ -134,7 +126,6 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
         crate::error::Error::Unknown("Missing extractor field in yt-dlp output".to_string())
     })?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!(
         url = %url,
         extractor = extractor,

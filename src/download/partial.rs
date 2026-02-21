@@ -98,7 +98,6 @@ impl PartialRange {
     ///
     /// A string in yt-dlp format (e.g., "*00:01:30-00:05:00")
     pub fn to_ytdlp_arg(&self) -> String {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             range = %self,
             "Converting partial range to yt-dlp argument"
@@ -118,7 +117,6 @@ impl PartialRange {
             }
         };
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             range = %self,
             ytdlp_arg = %result,
@@ -151,7 +149,6 @@ impl PartialRange {
     ///
     /// Returns None if chapter indices are out of bounds
     pub fn to_time_range(&self, chapters: &[crate::model::chapter::Chapter]) -> Option<Self> {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             range = %self,
             chapter_count = chapters.len(),
@@ -162,7 +159,6 @@ impl PartialRange {
             Self::TimeRange { .. } => Some(self.clone()),
             Self::ChapterRange { start, end } => {
                 if *end >= chapters.len() {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!(
                         start = start,
                         end = end,
@@ -174,7 +170,6 @@ impl PartialRange {
                 let start_time = chapters[*start].start_time;
                 let end_time = chapters[*end].end_time;
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     start_chapter = start,
                     end_chapter = end,
@@ -190,7 +185,6 @@ impl PartialRange {
             }
             Self::SingleChapter { index } => {
                 if *index >= chapters.len() {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!(
                         index = index,
                         chapter_count = chapters.len(),
@@ -201,7 +195,6 @@ impl PartialRange {
                 let start_time = chapters[*index].start_time;
                 let end_time = chapters[*index].end_time;
 
-                #[cfg(feature = "tracing")]
                 tracing::debug!(
                     chapter_index = index,
                     start_time = start_time,

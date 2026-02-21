@@ -31,7 +31,6 @@ pub use url_expiry::{ExpiryConfig, UrlStatus, check_download_error, should_refre
 ///
 /// A vector of owned strings
 pub fn to_owned(vec: Vec<impl AsRef<str>>) -> Vec<String> {
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         input_count = vec.len(),
         "Converting vector of string slices to owned strings"
@@ -53,7 +52,6 @@ pub fn find_executable(name: impl AsRef<str>) -> String {
     let platform = Platform::detect();
     let name_str = name.as_ref();
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         name = name_str,
         platform = %platform,
@@ -65,7 +63,6 @@ pub fn find_executable(name: impl AsRef<str>) -> String {
         _ => name_str.to_string(),
     };
 
-    #[cfg(feature = "tracing")]
     tracing::trace!(
         name = name_str,
         executable = %executable,
@@ -86,7 +83,6 @@ pub async fn await_two<T: std::fmt::Debug>(
     first: JoinHandle<Result<T>>,
     second: JoinHandle<Result<T>>,
 ) -> Result<(T, T)> {
-    #[cfg(feature = "tracing")]
     tracing::debug!("Awaiting two futures");
 
     let (first_result, second_result) = tokio::try_join!(first, second)?;
@@ -94,7 +90,6 @@ pub async fn await_two<T: std::fmt::Debug>(
     let first = first_result?;
     let second = second_result?;
 
-    #[cfg(feature = "tracing")]
     tracing::debug!("Both futures completed successfully");
 
     Ok((first, second))
@@ -119,14 +114,12 @@ where
     I: IntoIterator<Item = JoinHandle<Result<T>>> + std::fmt::Debug,
     T: Send + 'static,
 {
-    #[cfg(feature = "tracing")]
     tracing::debug!("Awaiting multiple futures");
 
     let results = futures_util::future::try_join_all(handles).await?;
 
     let result_vec: Result<Vec<T>> = results.into_iter().collect();
 
-    #[cfg(feature = "tracing")]
     if let Ok(ref vec) = result_vec {
         tracing::debug!(
             completed_count = vec.len(),

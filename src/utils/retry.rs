@@ -112,21 +112,18 @@ impl RetryPolicy {
         let mut last_error = None;
 
         for attempt in 0..self.max_attempts {
-            #[cfg(feature = "tracing")]
             if attempt > 0 {
                 tracing::debug!("Retry attempt {}/{}", attempt + 1, self.max_attempts);
             }
 
             match operation().await {
                 Ok(result) => {
-                    #[cfg(feature = "tracing")]
                     if attempt > 0 {
                         tracing::info!("Operation succeeded after {} retry attempts", attempt);
                     }
                     return Ok(result);
                 }
                 Err(e) => {
-                    #[cfg(feature = "tracing")]
                     tracing::warn!(
                         "Operation failed (attempt {}/{}): {}",
                         attempt + 1,
@@ -140,7 +137,6 @@ impl RetryPolicy {
                     if attempt + 1 < self.max_attempts {
                         let delay = self.calculate_delay(attempt);
 
-                        #[cfg(feature = "tracing")]
                         tracing::debug!("Waiting {:?} before retry", delay);
 
                         sleep(delay).await;
@@ -177,14 +173,12 @@ impl RetryPolicy {
         let mut last_error = None;
 
         for attempt in 0..self.max_attempts {
-            #[cfg(feature = "tracing")]
             if attempt > 0 {
                 tracing::debug!("Retry attempt {}/{}", attempt + 1, self.max_attempts);
             }
 
             match operation().await {
                 Ok(result) => {
-                    #[cfg(feature = "tracing")]
                     if attempt > 0 {
                         tracing::info!("Operation succeeded after {} retry attempts", attempt);
                     }
@@ -193,12 +187,10 @@ impl RetryPolicy {
                 Err(e) => {
                     // Check if the error is retryable
                     if !is_retryable(&e) {
-                        #[cfg(feature = "tracing")]
                         tracing::warn!("Non-retryable error encountered: {}", e);
                         return Err(e);
                     }
 
-                    #[cfg(feature = "tracing")]
                     tracing::warn!(
                         "Operation failed (attempt {}/{}): {}",
                         attempt + 1,
@@ -212,7 +204,6 @@ impl RetryPolicy {
                     if attempt + 1 < self.max_attempts {
                         let delay = self.calculate_delay(attempt);
 
-                        #[cfg(feature = "tracing")]
                         tracing::debug!("Waiting {:?} before retry", delay);
 
                         sleep(delay).await;

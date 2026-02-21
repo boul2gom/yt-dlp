@@ -38,7 +38,6 @@ impl SegmentContext {
         total_bytes: u64,
         progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Self {
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             total_bytes = total_bytes,
             has_callback = progress_callback.is_some(),
@@ -62,7 +61,6 @@ impl SegmentContext {
         let downloaded = self.downloaded_bytes.fetch_add(bytes, Ordering::Relaxed);
         let new_total = downloaded + bytes;
 
-        #[cfg(feature = "tracing")]
         tracing::debug!(
             bytes_downloaded = bytes,
             total_downloaded = new_total,
