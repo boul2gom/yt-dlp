@@ -117,19 +117,19 @@ Exactly one backend is ever compiled, regardless of how many feature flags are a
 **Default (in-memory LRU)** — no persistence, bounded by capacity, useful for short-lived processes:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache"], default-features = false }
+yt-dlp = { version = "1.4.11", features = ["cache"] }
 ```
 
 **JSON** — persistent, file-system backed, no extra dependencies:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache-json"], default-features = false }
+yt-dlp = { version = "1.4.11", features = ["cache-json"] }
 ```
 
 **SQLite** — better for large caches or concurrent access:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache-sqlite"], default-features = false }
+yt-dlp = { version = "1.4.11", features = ["cache-sqlite"] }
 ```
 
 #### 📝 Profiling with `tracing` (enabled by default):
@@ -137,7 +137,7 @@ The crate supports the `tracing` feature to enable profiling, which can be usefu
 You can enable it by adding the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["tracing"], default-features = false }
+yt-dlp = { version = "1.4.11", features = ["tracing"] }
 ```
 
 ---
@@ -157,9 +157,9 @@ This library now supports downloading from **1,800+ websites** through a flexibl
   - YouTube-specific methods: `search()`, `fetch_channel()`, `fetch_user()`, `fetch_playlist_paginated()`
 - **`extractor::Generic`** - Universal extractor for all other sites with authentication support
 
-### Usage Patterns
+### 🧩 Usage Patterns
 
-**For YouTube with optimizations:**
+- 🎬️ For YouTube with optimizations:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
@@ -184,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**For any website (YouTube, Vimeo, TikTok, etc.):**
+- 🌐 For any website (YouTube, Vimeo, TikTok, etc.):
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
@@ -649,6 +649,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+---
+
 ## 🎛️ Format Selection
 
 The library provides a powerful format selection system that allows you to download videos and audio with specific quality and codec preferences.
@@ -745,6 +747,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
 
 ## 📋 Metadata
 The project supports automatic addition of metadata to downloaded files in several formats:
@@ -1146,6 +1150,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+---
+
 ## 📂 Playlists
 
 The library provides full playlist support, including fetching playlist metadata and downloading videos with various selection options:
@@ -1338,14 +1344,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+---
+
 ## 🔔 Events, Hooks & Webhooks
 
 The library provides a comprehensive event system to monitor download lifecycle and react to events through Rust hooks or HTTP webhooks.
 
-### Event System
+### ⚡ Event System
 
 All download operations emit events that you can subscribe to:
 
+- 📡 Subscribing to the event stream:
 ```rust,no_run
 use yt_dlp::Downloader;
 use tokio_stream::StreamExt;
@@ -1356,7 +1365,7 @@ use yt_dlp::client::deps::Libraries;
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let libraries_dir = PathBuf::from("libs");
     let output_dir = PathBuf::from("output");
-    
+
     let libraries = Libraries::new(
         libraries_dir.join("yt-dlp"),
         libraries_dir.join("ffmpeg")
@@ -1368,12 +1377,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(Ok(event)) = stream.next().await {
         println!("Event: {} - {:?}", event.event_type(), event);
     }
-    
+
     Ok(())
 }
 ```
 
-### Available Events
+### ✉️ Available Events
 
 The library emits **22 different event types** covering the entire download lifecycle:
 
@@ -1403,15 +1412,16 @@ The library emits **22 different event types** covering the entire download life
 **Advanced:**
 - `SegmentStarted` / `SegmentCompleted` - Parallel segment downloads
 
-### Rust Hooks (Feature: `hooks`)
+### 🪝 Rust Hooks (Feature: `hooks`)
 
 Register async functions to be called when events occur:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.3", features = ["hooks"] }
+yt-dlp = { version = "1.4.11", features = ["hooks"] }
 ```
 
+- 🎣 Registering a hook for download events:
 ```rust,ignore
 use yt_dlp::events::{EventHook, EventFilter, DownloadEvent, HookResult};
 use async_trait::async_trait;
@@ -1419,6 +1429,7 @@ use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
 
+#[derive(Clone)]
 struct MyHook;
 
 #[async_trait]
@@ -1466,10 +1477,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Automatic timeout protection (30s)
 - Error isolation (hook failures don't stop downloads)
 
-**Event Filters:**
+#### 🔍 Event Filters
+
 ```rust,no_run
-# use yt_dlp::events::EventFilter;
-# fn main() {
+use yt_dlp::events::EventFilter;
+
 // Only completed downloads
 EventFilter::only_completed();
 
@@ -1496,18 +1508,18 @@ EventFilter::all().and_then(|event| {
     // Your custom logic
     true
 });
-# }
 ```
 
-### HTTP Webhooks (Feature: `webhooks`)
+### 📡 HTTP Webhooks (Feature: `webhooks`)
 
 Send events to external HTTP endpoints with automatic retry:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.3", features = ["webhooks"] }
+yt-dlp = { version = "1.4.11", features = ["webhooks"] }
 ```
 
+- 📡 Registering a webhook:
 ```rust,ignore
 use yt_dlp::events::{WebhookConfig, WebhookMethod, EventFilter};
 use std::time::Duration;
@@ -1554,27 +1566,28 @@ export YTDLP_WEBHOOK_METHOD="POST"  # Optional, default: POST
 export YTDLP_WEBHOOK_TIMEOUT="10"   # Optional, default: 10 seconds
 ```
 
-```rust,no_run
-# use yt_dlp::Downloader;
-# use yt_dlp::client::deps::Libraries;
-# use std::path::PathBuf;
-#
-# #[cfg(feature = "webhooks")]
-# use yt_dlp::events::WebhookConfig;
-#
-# #[cfg(feature = "webhooks")]
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
-// Load webhook from environment variables
-if let Some(webhook) = WebhookConfig::from_env() {
-    downloader.register_webhook(webhook).await;
+- 🔧 Loading a webhook from environment variables:
+```rust,ignore
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use yt_dlp::events::WebhookConfig;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg")
+    );
+    let mut downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
+
+    // Load webhook from environment variables
+    if let Some(webhook) = WebhookConfig::from_env() {
+        downloader.register_webhook(webhook).await;
+    }
+
+    Ok(())
 }
-# Ok(())
-# }
-#
-# #[cfg(not(feature = "webhooks"))]
-# fn main() {}
 ```
 
 **Webhook Payload:**
@@ -1592,14 +1605,13 @@ if let Some(webhook) = WebhookConfig::from_env() {
 }
 ```
 
-**Retry Strategy:**
-```rust,no_run
-#[cfg(feature = "webhooks")]
+#### ♻️ Retry Strategy
+
+- ♻️ Configuring a retry strategy:
+```rust,ignore
 use yt_dlp::events::RetryStrategy;
 use std::time::Duration;
 
-#[cfg(feature = "webhooks")]
-fn main() {
 // Exponential backoff (default)
 let strategy = RetryStrategy::exponential(
     3,                              // max attempts
@@ -1615,23 +1627,22 @@ let strategy = RetryStrategy::linear(
 
 // No retries
 let strategy = RetryStrategy::none();
-}
-#
-# #[cfg(not(feature = "webhooks"))]
-# fn main() {}
 ```
 
-### Combining Features
+### 🔗 Combining Hooks and Webhooks
 
 Use both hooks and webhooks together:
 
+- 🔗 Using hooks and webhooks simultaneously:
 ```rust,ignore
 use yt_dlp::Downloader;
 use yt_dlp::events::{EventHook, WebhookConfig, EventFilter};
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
 
+#[derive(Clone)]
 struct MyLocalHook;
+
 #[async_trait::async_trait]
 impl EventHook for MyLocalHook {
     async fn on_event(&self, _event: &yt_dlp::events::DownloadEvent) -> yt_dlp::events::HookResult { Ok(()) }
@@ -1655,6 +1666,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start downloads - both hooks and webhooks will receive events
     let video = downloader.fetch_video_infos("https://youtube.com/watch?v=...".to_string()).await?;
     downloader.download_video(&video, "video.mp4").await?;
+
     Ok(())
 }
 ```
@@ -1665,6 +1677,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The library supports HTTP, HTTPS, and SOCKS5 proxies for both `yt-dlp` and `reqwest` downloads:
 
+- 🔐 Configuring a proxy with authentication:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::proxy::{ProxyConfig, ProxyType};
@@ -1712,8 +1725,9 @@ Supported proxy types:
 
 Download only specific parts of a video using time ranges or chapters:
 
-#### Time-based partial download
+#### ⏱️ Time-based partial download
 
+- ⏱️ Downloading a specific time range:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::partial::PartialRange;
@@ -1742,8 +1756,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Chapter-based partial download
+#### 📖 Chapter-based partial download
 
+- 📖 Downloading specific chapters:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::partial::PartialRange;
@@ -1776,8 +1791,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Using DownloadBuilder for partial downloads
+#### ✨ Using DownloadBuilder for partial downloads
 
+- ✨ Partial download with the fluent API:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
@@ -1816,8 +1832,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Apply advanced post-processing to videos using FFmpeg:
 
-#### Basic codec conversion
+#### 🔧 Basic codec conversion
 
+- 🔧 Converting video codec and bitrate:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::postprocess::{PostProcessConfig, VideoCodec, AudioCodec};
@@ -1849,8 +1866,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Advanced post-processing with filters
+#### 🎛️ Advanced post-processing with filters
 
+- 🎛️ Applying resolution, framerate, and visual filters:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::postprocess::{
@@ -1890,7 +1908,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Available post-processing options
+#### 📋 Available post-processing options
 
 **Video Codecs:**
 - H.264 (libx264) - Most compatible
@@ -1937,7 +1955,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The library includes an intelligent speed optimization system that automatically configures download parameters based on your internet connection speed. This feature significantly improves download performance for both individual videos and playlists.
 
-#### Available Speed Profiles
+#### 📊 Available Speed Profiles
 
 Three pre-configured profiles are available:
 
@@ -1965,8 +1983,9 @@ Three pre-configured profiles are available:
 - 5 concurrent playlist downloads
 - Best for: High-bandwidth connections (fiber, gigabit), maximum speed
 
-#### Using Speed Profiles
+#### 🚀 Using Speed Profiles
 
+- 🚀 Selecting a speed profile at build time:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::SpeedProfile;
@@ -1997,10 +2016,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Manual Configuration (Advanced)
+#### ⚙️ Manual Configuration
 
-You can also manually configure download parameters if you need fine-grained control:
-
+- ⚙️ Fine-grained control over download parameters:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::download::ManagerConfig;
@@ -2033,7 +2051,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Performance Improvements
+#### 📈 Performance Improvements
 
 The speed optimization system includes several advanced features:
 
@@ -2063,7 +2081,8 @@ For playlists:
 
 While the examples focus on YouTube (the most common use case), the library works seamlessly with any site supported by yt-dlp. Simply pass the URL - yt-dlp automatically detects the correct extractor.
 
-### Supported Sites Include:
+### 🗂️ Supported Sites
+
 - **Video platforms**: YouTube, Vimeo, Dailymotion, Twitch
 - **Social media**: Instagram, TikTok, Twitter/X, Facebook
 - **Streaming services**: Netflix, Disney+, Crunchyroll (may require authentication)
@@ -2073,57 +2092,65 @@ While the examples focus on YouTube (the most common use case), the library work
 
 For the complete list, see [yt-dlp's supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
-### Examples
+### 🧩 Examples
 
-**Vimeo:**
+- 🎬 Downloading from Vimeo:
 ```rust,no_run
-# use yt_dlp::Downloader;
-# use yt_dlp::client::deps::Libraries;
-# use std::path::PathBuf;
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
-# let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
-let url = "https://vimeo.com/148751763".to_string();
-let video = downloader.fetch_video_infos(url).await?;
-downloader.download_video(&video, "vimeo-video.mp4").await?;
-# Ok(())
-# }
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
+
+    let url = "https://vimeo.com/148751763".to_string();
+    let video = downloader.fetch_video_infos(url).await?;
+    downloader.download_video(&video, "vimeo-video.mp4").await?;
+
+    Ok(())
+}
 ```
 
-**TikTok:**
+- 📱 Downloading from TikTok:
 ```rust,no_run
-# use yt_dlp::Downloader;
-# use yt_dlp::client::deps::Libraries;
-# use std::path::PathBuf;
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
-# let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
-let url = "https://www.tiktok.com/@user/video/123".to_string();
-let video = downloader.fetch_video_infos(url).await?;
-downloader.download_video(&video, "tiktok-video.mp4").await?;
-# Ok(())
-# }
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
+
+    let url = "https://www.tiktok.com/@user/video/123".to_string();
+    let video = downloader.fetch_video_infos(url).await?;
+    downloader.download_video(&video, "tiktok-video.mp4").await?;
+
+    Ok(())
+}
 ```
 
-**Instagram:**
+- 📸 Downloading from Instagram (may require cookies for authentication):
 ```rust,no_run
-# use yt_dlp::Downloader;
-# use yt_dlp::client::deps::Libraries;
-# use std::path::PathBuf;
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
-# let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
-// Note: May require cookies for authentication
-let url = "https://www.instagram.com/p/ABC123/".to_string();
-let video = downloader.fetch_video_infos(url).await?;
-# Ok(())
-# }
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    let downloader = Downloader::builder(libraries, PathBuf::from("output")).build().await?;
+
+    let url = "https://www.instagram.com/p/ABC123/".to_string();
+    let video = downloader.fetch_video_infos(url).await?;
+
+    Ok(())
+}
 ```
 
-**Check which extractor handles a URL:**
+- 🔍 Detecting which extractor handles a URL:
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
@@ -2132,7 +2159,7 @@ use std::path::PathBuf;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let libraries = Libraries::new(
-        PathBuf::from("libs/yt-dlp"), 
+        PathBuf::from("libs/yt-dlp"),
         PathBuf::from("libs/ffmpeg")
     );
     let downloader = Downloader::builder(libraries, "output").build().await?;

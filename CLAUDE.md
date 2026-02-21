@@ -59,4 +59,4 @@ Async Ecosystem
 
 Refer to Rust's async book and `tokio` documentation for in-depth information on async patterns, best practices, and advanced features.
 
-All edits in the codebase should be checked with `cargo clippy --all-features --all-targets -- -D warnings`
+All edits in the codebase should be checked with `cargo clippy --all-features --all-targets -- -D warnings` and `cargo test --doc`.
