@@ -169,10 +169,19 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
 
     steps:
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+  
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 100
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2
@@ -188,14 +197,22 @@ jobs:
       - name: 📌 Install cargo-release
         run: cargo install cargo-release
 
-      - name: 🪪 Set up Git identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: 🔐 Import GPG Key and setup Git
+        uses: crazy-max/ghaction-import-gpg@v6.3.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          trust_level: 5
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_tag_gpgsign: true
+          git_config_global: true
+          git_committer_name: "boul2gom-bot"
+          git_committer_email: "actions-bot@boul2gom.com"
 
       - name: 🚀 Create a new patch release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo release patch --execute --no-confirm
 
@@ -339,7 +356,7 @@ jobs:
       - name: 📝 Create GitHub Release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           tag_name: v${{ env.version }}
           release_name: 🔖 v${{ env.version }}
@@ -355,9 +372,16 @@ jobs:
       actions: write
 
     steps:
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+          
       - name: 🔌 Trigger CI-Prod Workflow
         uses: benc-uk/workflow-dispatch@v1.2.4
         with:
           workflow: ci-prod.yml
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           inputs: '{ "tag": "v${{ needs.create_release.outputs.version }}" }'
