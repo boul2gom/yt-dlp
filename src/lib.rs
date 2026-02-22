@@ -104,9 +104,10 @@ pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
 /// # let downloader = Downloader::builder(libraries, "output").build().await?;
 /// let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+/// let video = downloader.fetch_video_infos(url).await?;
 ///
 /// // Configure download with specific preferences
-/// downloader.download(url, "video.mp4")
+/// downloader.download(&video, "video.mp4")
 ///     .video_quality(VideoQuality::Best)
 ///     .audio_quality(AudioQuality::Best)
 ///     .video_codec(VideoCodecPreference::AVC1)
@@ -325,10 +326,11 @@ impl Downloader {
     /// let downloader = Downloader::builder(libraries, "output")
     ///     .build()
     ///     .await?;
-    /// let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    /// // Fetch metadata first
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     ///
     /// // Download a 1080p video with H264 codec
-    /// let video_path = downloader.download(url, "my-video.mp4")
+    /// let video_path = downloader.download(&video, "my-video.mp4")
     ///     .video_quality(VideoQuality::CustomHeight(1080))
     ///     .video_codec(VideoCodecPreference::AVC1)
     ///     .audio_quality(AudioQuality::Best)
@@ -337,12 +339,12 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn download(
-        &self,
-        url: impl AsRef<str>,
+    pub fn download<'a>(
+        &'a self,
+        video: &'a Video,
         output: impl Into<PathBuf>,
-    ) -> DownloadBuilder<'_> {
-        DownloadBuilder::new(self, url, output)
+    ) -> DownloadBuilder<'a> {
+        DownloadBuilder::new(self, video, output)
     }
 
     /// Creates a new YouTube fetcher, and installs the yt-dlp and ffmpeg binaries.
@@ -1344,20 +1346,20 @@ impl Downloader {
         self.download_manager.wait_for_completion(download_id).await
     }
 
-    /// Downloads a video with the specified video and audio quality preferences.
+    /// Downloads a video (video + audio combined) with the specified quality preferences.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The name of the output file
-    /// * `video_quality` - The desired video quality
-    /// * `video_codec` - The preferred video codec
-    /// * `audio_quality` - The desired audio quality
-    /// * `audio_codec` - The preferred audio codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The name of the output file.
+    /// * `video_quality` - The desired video quality.
+    /// * `video_codec` - The preferred video codec.
+    /// * `audio_quality` - The desired audio quality.
+    /// * `audio_codec` - The preferred audio codec.
     ///
     /// # Returns
     ///
-    /// The path to the downloaded video file
+    /// The path to the downloaded video file.
     ///
     /// # Example
     ///
@@ -1368,29 +1370,24 @@ impl Downloader {
     /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference, AudioQuality, AudioCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let yt_dlp = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(yt_dlp, ffmpeg);
-    /// # let downloader = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     ///
-    /// // Download a high quality video with VP9 codec and high quality audio with Opus codec
-    /// let video_path = downloader.download_video_with_quality(
-    ///     url,
+    /// let path = downloader.download_video_with_quality(
+    ///     &video,
     ///     "my-video.mp4",
     ///     VideoQuality::High,
     ///     VideoCodecPreference::VP9,
     ///     AudioQuality::High,
-    ///     AudioCodecPreference::Opus
+    ///     AudioCodecPreference::Opus,
     /// ).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn download_video_with_quality(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl AsRef<str>,
         video_quality: VideoQuality,
         video_codec: VideoCodecPreference,
@@ -1399,7 +1396,7 @@ impl Downloader {
     ) -> Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_video_with_quality_to_path(
-            url,
+            video,
             output_path,
             video_quality,
             video_codec,
@@ -1411,57 +1408,34 @@ impl Downloader {
 
     /// Downloads a video with quality preferences to a specific path.
     ///
-    /// Unlike [`download_video_with_quality`](Self::download_video_with_quality), this method writes
-    /// the file to the exact path specified, ignoring the configured `output_dir`.
+    /// Unlike [`download_video_with_quality`](Self::download_video_with_quality),
+    /// this method writes the file to the exact path specified, ignoring the configured `output_dir`.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The full path where the file will be saved
-    /// * `video_quality` - The desired video quality
-    /// * `video_codec` - The preferred video codec
-    /// * `audio_quality` - The desired audio quality
-    /// * `audio_codec` - The preferred audio codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The full path where the file will be saved.
+    /// * `video_quality` - The desired video quality.
+    /// * `video_codec` - The preferred video codec.
+    /// * `audio_quality` - The desired audio quality.
+    /// * `audio_codec` - The preferred audio codec.
     pub async fn download_video_with_quality_to_path(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl Into<PathBuf>,
         video_quality: VideoQuality,
         video_codec: VideoCodecPreference,
         audio_quality: AudioQuality,
         audio_codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
-        let url_str = url.as_ref().to_string();
-        let output: PathBuf = output.into();
-
-        tracing::debug!(
-            url = %url_str,
-            output = ?output,
-            video_quality = ?video_quality,
-            video_codec = ?video_codec,
-            audio_quality = ?audio_quality,
-            audio_codec = ?audio_codec,
-            "Downloading video with quality preferences"
-        );
-
-        self.execute_with_retry(url_str, move |video| {
-            let output = output.clone();
-            let downloader = self.clone();
-            let video_codec = video_codec.clone();
-            let audio_codec = audio_codec.clone();
-            async move {
-                downloader
-                    .download_video_with_quality_to_path_inner(
-                        &video,
-                        output,
-                        video_quality,
-                        video_codec,
-                        audio_quality,
-                        audio_codec,
-                    )
-                    .await
-            }
-        })
+        self.download_video_with_quality_to_path_inner(
+            video,
+            output,
+            video_quality,
+            video_codec,
+            audio_quality,
+            audio_codec,
+        )
         .await
     }
 
@@ -1524,34 +1498,22 @@ impl Downloader {
         let output_path: PathBuf = output.into();
 
         // Download and combine formats using the helper
-        self.download_and_combine_formats(
-            video_format,
-            audio_format,
-            &output_path,
-            #[cfg(feature = "cache-backend")]
-            Some(video_quality),
-            #[cfg(feature = "cache-backend")]
-            Some(audio_quality),
-            #[cfg(feature = "cache-backend")]
-            Some(video_codec),
-            #[cfg(feature = "cache-backend")]
-            Some(audio_codec),
-        )
-        .await
+        self.download_and_combine_formats(video_format, audio_format, &output_path)
+            .await
     }
 
-    /// Downloads a video stream with the specified quality preferences.
+    /// Downloads a video stream (video-only) with the specified quality preferences.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The name of the output file
-    /// * `quality` - The desired video quality
-    /// * `codec` - The preferred video codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The name of the output file.
+    /// * `quality` - The desired video quality.
+    /// * `codec` - The preferred video codec.
     ///
     /// # Returns
     ///
-    /// The path to the downloaded video file
+    /// The path to the downloaded video file.
     ///
     /// # Example
     ///
@@ -1562,17 +1524,13 @@ impl Downloader {
     /// # use yt_dlp::model::{VideoQuality, VideoCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let yt_dlp = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(yt_dlp, ffmpeg);
-    /// # let downloader = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     ///
     /// // Download a medium quality video with AVC1 codec
     /// let video_path = downloader.download_video_stream_with_quality(
-    ///     url,
+    ///     &video,
     ///     "video-only.mp4",
     ///     VideoQuality::Medium,
     ///     VideoCodecPreference::AVC1
@@ -1582,100 +1540,68 @@ impl Downloader {
     /// ```
     pub async fn download_video_stream_with_quality(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl AsRef<str>,
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
-        self.download_video_stream_with_quality_to_path(url, output_path, quality, codec)
+        self.download_video_stream_with_quality_to_path(video, output_path, quality, codec)
             .await
     }
 
     /// Downloads a video stream with quality preferences to a specific path.
     ///
-    /// Unlike [`download_video_stream_with_quality`](Self::download_video_stream_with_quality), this method
-    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    /// Unlike [`download_video_stream_with_quality`](Self::download_video_stream_with_quality),
+    /// this method writes the file to the exact path specified, ignoring the configured `output_dir`.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The full path where the file will be saved
-    /// * `quality` - The desired video quality
-    /// * `codec` - The preferred video codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The full path where the file will be saved.
+    /// * `quality` - The desired video quality.
+    /// * `codec` - The preferred video codec.
     pub async fn download_video_stream_with_quality_to_path(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl Into<PathBuf>,
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Result<PathBuf> {
-        let url_str = url.as_ref().to_string();
         let output: PathBuf = output.into();
 
         tracing::debug!(
-            url = %url_str,
+            video_id = %video.id,
             output = ?output,
             quality = ?quality,
             codec = ?codec,
             "Downloading video stream with quality preferences"
         );
 
-        self.execute_with_retry(url_str, move |video| {
-            let output = output.clone();
-            let downloader = self.clone();
-            let codec = codec.clone();
-            async move {
-                tracing::debug!(
-                    video_id = %video.id,
-                    quality = ?quality,
-                    codec = ?codec,
-                    "Selecting video format"
-                );
+        let video_format =
+            video
+                .select_video_format(quality, codec)
+                .ok_or_else(|| Error::FormatNotAvailable {
+                    video_id: video.id.clone(),
+                    format_type: FormatType::Video,
+                    available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+                })?;
 
-                // Select video format based on quality and codec preferences
-                let video_format = video
-                    .select_video_format(quality, codec.clone())
-                    .ok_or_else(|| Error::FormatNotAvailable {
-                        video_id: video.id.clone(),
-                        format_type: FormatType::Video,
-                        available_formats: video
-                            .formats
-                            .iter()
-                            .map(|f| f.format_id.clone())
-                            .collect(),
-                    })?;
-
-                tracing::debug!(
-                    video_id = %video.id,
-                    format_id = %video_format.format_id,
-                    width = ?video_format.video_resolution.width,
-                    height = ?video_format.video_resolution.height,
-                    codec = ?video_format.codec_info.video_codec,
-                    "Video format selected"
-                );
-
-                // Download directly to the specified path
-                downloader
-                    .download_format_to_path(video_format, &output)
-                    .await
-            }
-        })
-        .await
+        self.download_format_to_path(video_format, &output).await
     }
 
     /// Downloads an audio stream with the specified quality preferences.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The name of the output file
-    /// * `quality` - The desired audio quality
-    /// * `codec` - The preferred audio codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The name of the output file.
+    /// * `quality` - The desired audio quality.
+    /// * `codec` - The preferred audio codec.
     ///
     /// # Returns
     ///
-    /// The path to the downloaded audio file
+    /// The path to the downloaded audio file.
     ///
     /// # Example
     ///
@@ -1686,17 +1612,12 @@ impl Downloader {
     /// # use yt_dlp::model::{AudioQuality, AudioCodecPreference};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let yt_dlp = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(yt_dlp, ffmpeg);
-    /// # let downloader = Downloader::builder(libraries, output_dir).build().await?;
-    /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     ///
-    /// // Download a high quality audio with Opus codec
     /// let audio_path = downloader.download_audio_stream_with_quality(
-    ///     url,
+    ///     &video,
     ///     "audio-only.mp3",
     ///     AudioQuality::High,
     ///     AudioCodecPreference::Opus
@@ -1706,85 +1627,54 @@ impl Downloader {
     /// ```
     pub async fn download_audio_stream_with_quality(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl AsRef<str>,
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
-        self.download_audio_stream_with_quality_to_path(url, output_path, quality, codec)
+        self.download_audio_stream_with_quality_to_path(video, output_path, quality, codec)
             .await
     }
 
     /// Downloads an audio stream with quality preferences to a specific path.
     ///
-    /// Unlike [`download_audio_stream_with_quality`](Self::download_audio_stream_with_quality), this method
-    /// writes the file to the exact path specified, ignoring the configured `output_dir`.
+    /// Unlike [`download_audio_stream_with_quality`](Self::download_audio_stream_with_quality),
+    /// this method writes the file to the exact path specified, ignoring the configured `output_dir`.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL of the video to download
-    /// * `output` - The full path where the file will be saved
-    /// * `quality` - The desired audio quality
-    /// * `codec` - The preferred audio codec
+    /// * `video` - The pre-fetched `Video` metadata.
+    /// * `output` - The full path where the file will be saved.
+    /// * `quality` - The desired audio quality.
+    /// * `codec` - The preferred audio codec.
     pub async fn download_audio_stream_with_quality_to_path(
         &self,
-        url: impl AsRef<str>,
+        video: &Video,
         output: impl Into<PathBuf>,
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
-        let url_str = url.as_ref().to_string();
         let output: PathBuf = output.into();
 
         tracing::debug!(
-            url = %url_str,
+            video_id = %video.id,
             output = ?output,
             quality = ?quality,
             codec = ?codec,
             "Downloading audio stream with quality preferences"
         );
 
-        self.execute_with_retry(url_str, move |video| {
-            let output = output.clone();
-            let downloader = self.clone();
-            let codec = codec.clone();
-            async move {
-                tracing::debug!(
-                    video_id = %video.id,
-                    quality = ?quality,
-                    codec = ?codec,
-                    "Selecting audio format"
-                );
+        let audio_format =
+            video
+                .select_audio_format(quality, codec)
+                .ok_or_else(|| Error::FormatNotAvailable {
+                    video_id: video.id.clone(),
+                    format_type: FormatType::Audio,
+                    available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+                })?;
 
-                // Select audio format based on quality and codec preferences
-                let audio_format = video
-                    .select_audio_format(quality, codec.clone())
-                    .ok_or_else(|| Error::FormatNotAvailable {
-                        video_id: video.id.clone(),
-                        format_type: FormatType::Audio,
-                        available_formats: video
-                            .formats
-                            .iter()
-                            .map(|f| f.format_id.clone())
-                            .collect(),
-                    })?;
-
-                tracing::debug!(
-                    video_id = %video.id,
-                    format_id = %audio_format.format_id,
-                    bitrate = ?audio_format.rates_info.audio_rate,
-                    codec = ?audio_format.codec_info.audio_codec,
-                    "Audio format selected"
-                );
-
-                // Download directly to the specified path
-                downloader
-                    .download_format_to_path(audio_format, &output)
-                    .await
-            }
-        })
-        .await
+        self.download_format_to_path(audio_format, &output).await
     }
 
     /// Initiates a graceful shutdown of all ongoing operations.
