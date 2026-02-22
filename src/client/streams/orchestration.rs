@@ -120,15 +120,48 @@ impl Downloader {
 
         tracing::debug!(url = url_str, "Cache miss, fetching from extractor");
 
-        let video = self.get_extractor(url_str).fetch_video(url_str).await?;
+        let start = std::time::Instant::now();
+        let result = self.get_extractor(url_str).fetch_video(url_str).await;
+        let duration = start.elapsed();
 
-        tracing::debug!(
-            url = url_str,
-            video_id = %video.id,
-            video_title = %video.title,
-            format_count = video.formats.len(),
-            "Video information fetched successfully"
-        );
+        let video = match result {
+            Ok(v) => {
+                tracing::debug!(
+                    url = url_str,
+                    video_id = %v.id,
+                    video_title = %v.title,
+                    format_count = v.formats.len(),
+                    duration = ?duration,
+                    "Video information fetched successfully"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::VideoFetched {
+                        url: url_str.to_string(),
+                        video: v.clone(),
+                        duration,
+                    });
+
+                v
+            }
+            Err(e) => {
+                tracing::debug!(
+                    url = url_str,
+                    error = %e,
+                    duration = ?duration,
+                    "Video information fetch failed"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::VideoFetchFailed {
+                        url: url_str.to_string(),
+                        error: e.to_string(),
+                        duration,
+                    });
+
+                return Err(e);
+            }
+        };
 
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
@@ -164,15 +197,48 @@ impl Downloader {
             "Fetching fresh video information (bypassing cache)"
         );
 
-        let video = self.get_extractor(url_str).fetch_video(url_str).await?;
+        let start = std::time::Instant::now();
+        let result = self.get_extractor(url_str).fetch_video(url_str).await;
+        let duration = start.elapsed();
 
-        tracing::debug!(
-            url = url_str,
-            video_id = %video.id,
-            video_title = %video.title,
-            format_count = video.formats.len(),
-            "Fresh video information fetched successfully"
-        );
+        let video = match result {
+            Ok(v) => {
+                tracing::debug!(
+                    url = url_str,
+                    video_id = %v.id,
+                    video_title = %v.title,
+                    format_count = v.formats.len(),
+                    duration = ?duration,
+                    "Fresh video information fetched successfully"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::VideoFetched {
+                        url: url_str.to_string(),
+                        video: v.clone(),
+                        duration,
+                    });
+
+                v
+            }
+            Err(e) => {
+                tracing::debug!(
+                    url = url_str,
+                    error = %e,
+                    duration = ?duration,
+                    "Fresh video information fetch failed"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::VideoFetchFailed {
+                        url: url_str.to_string(),
+                        error: e.to_string(),
+                        duration,
+                    });
+
+                return Err(e);
+            }
+        };
 
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
@@ -1128,7 +1194,47 @@ impl Downloader {
             extractor.name()
         );
 
-        let mut playlist = extractor.fetch_playlist(url_str).await?;
+        let start = std::time::Instant::now();
+        let result = extractor.fetch_playlist(url_str).await;
+        let duration = start.elapsed();
+
+        let mut playlist = match result {
+            Ok(p) => {
+                tracing::debug!(
+                    url = url_str,
+                    playlist_id = %p.id,
+                    entry_count = p.entry_count(),
+                    duration = ?duration,
+                    "Playlist information fetched successfully"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::PlaylistFetched {
+                        url: url_str.to_string(),
+                        playlist: p.clone(),
+                        duration,
+                    });
+
+                p
+            }
+            Err(e) => {
+                tracing::debug!(
+                    url = url_str,
+                    error = %e,
+                    duration = ?duration,
+                    "Playlist information fetch failed"
+                );
+
+                self.event_bus
+                    .emit(crate::events::DownloadEvent::PlaylistFetchFailed {
+                        url: url_str.to_string(),
+                        error: e.to_string(),
+                        duration,
+                    });
+
+                return Err(e);
+            }
+        };
 
         // Store the URL in the playlist for caching purposes
         playlist.url = Some(url_str.to_string());

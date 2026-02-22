@@ -94,6 +94,7 @@ available.
   This enables building the application without openssl or other system sourced SSL libraries.
 - 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
 - 📡 **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
+- 📊 **`statistics`** - Enables real-time statistics and analytics on downloads and fetches. Exposes aggregate counters, averages, success rates, and a bounded history window.
 
 ### 🗄️ Cache backends
 
@@ -1687,6 +1688,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 📊 Statistics & Analytics (Feature: `statistics`)
+
+Enable real-time, aggregate metrics with zero manual bookkeeping:
+
+```toml
+[dependencies]
+yt-dlp = { version = "1.4.11", features = ["statistics"] }
+```
+
+The [`StatisticsTracker`](https://docs.rs/yt-dlp/latest/yt_dlp/stats/struct.StatisticsTracker.html) subscribes to the internal event bus in a background task and continuously updates running counters. Call `snapshot()` at any time to obtain an atomic view of all metrics:
+
+```rust,ignore
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    // Perform some downloads and fetches ...
+    let video = downloader.fetch_video_infos("https://youtube.com/watch?v=...".to_string()).await?;
+    downloader.download_video(&video, "video.mp4").await?;
+
+    let snapshot = downloader.statistics().snapshot().await;
+    println!("Downloads completed:  {}", snapshot.downloads.completed);
+    println!("Total bytes:          {}", snapshot.downloads.total_bytes);
+    println!("Avg speed (B/s):      {:?}", snapshot.downloads.avg_speed_bytes_per_sec);
+    println!("Download success %:   {:?}", snapshot.downloads.success_rate);
+    println!("Fetch success %:      {:?}", snapshot.fetches.success_rate);
+    println!("Post-process success: {:?}", snapshot.post_processing.success_rate);
+
+    Ok(())
+}
+```
+
+The snapshot exposes:
+- **`downloads`** — attempted, completed, failed, canceled, total bytes, average speed, peak speed, success rate
+- **`fetches`** — attempted, succeeded, failed, average duration, success rate (video + playlist fetches)
+- **`post_processing`** — attempted, succeeded, failed, average duration
+- **`playlists`** — playlists fetched, failed, per-item success rate
+- **`recent_downloads`** — bounded history window of completed downloads with per-download details
+
 ## 🚀 Advanced Features
 
 ### 🔐 Proxy Support
@@ -2190,7 +2235,7 @@ For detailed documentation, examples, and authentication instructions, see the [
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with `ffmpeg` or `reqwest`
-- [ ] Statistics and analytics on downloads and fetches
+- [x] Statistics and analytics on downloads and fetches
 - [ ] Benchmark pure yt-dlp vs this library performance
 - [ ] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
 

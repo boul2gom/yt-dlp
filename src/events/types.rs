@@ -12,7 +12,18 @@ use crate::model::playlist::Playlist;
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum DownloadEvent {
     /// Video metadata has been fetched from the URL
-    VideoFetched { url: String, video: Video },
+    VideoFetched {
+        url: String,
+        video: Video,
+        duration: Duration,
+    },
+
+    /// Video metadata fetch failed
+    VideoFetchFailed {
+        url: String,
+        error: String,
+        duration: Duration,
+    },
 
     /// Download has been queued in the download manager
     DownloadQueued {
@@ -104,7 +115,18 @@ pub enum DownloadEvent {
     },
 
     /// Playlist metadata has been fetched
-    PlaylistFetched { url: String, playlist: Playlist },
+    PlaylistFetched {
+        url: String,
+        playlist: Playlist,
+        duration: Duration,
+    },
+
+    /// Playlist metadata fetch failed
+    PlaylistFetchFailed {
+        url: String,
+        error: String,
+        duration: Duration,
+    },
 
     /// Playlist item download has started
     PlaylistItemStarted {
@@ -223,6 +245,7 @@ impl DownloadEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
             Self::VideoFetched { .. } => "video_fetched",
+            Self::VideoFetchFailed { .. } => "video_fetch_failed",
             Self::DownloadQueued { .. } => "download_queued",
             Self::DownloadStarted { .. } => "download_started",
             Self::DownloadProgress { .. } => "download_progress",
@@ -238,6 +261,7 @@ impl DownloadEvent {
             Self::PostProcessCompleted { .. } => "post_process_completed",
             Self::PostProcessFailed { .. } => "post_process_failed",
             Self::PlaylistFetched { .. } => "playlist_fetched",
+            Self::PlaylistFetchFailed { .. } => "playlist_fetch_failed",
             Self::PlaylistItemStarted { .. } => "playlist_item_started",
             Self::PlaylistItemCompleted { .. } => "playlist_item_completed",
             Self::PlaylistItemFailed { .. } => "playlist_item_failed",
