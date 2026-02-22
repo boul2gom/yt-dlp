@@ -21,7 +21,7 @@ use std::sync::Arc;
 /// codec preferences, and progress tracking.
 pub struct DownloadBuilder<'a> {
     downloader: &'a Downloader,
-    url: String,
+    video: &'a Video,
     output: PathBuf,
     video_quality: Option<VideoQuality>,
     audio_quality: Option<AudioQuality>,
@@ -40,23 +40,18 @@ impl<'a> DownloadBuilder<'a> {
     /// * `downloader` - Reference to the Downloader client
     /// * `url` - The video URL to download
     /// * `output` - Output path for the downloaded file
-    pub fn new(
-        downloader: &'a Downloader,
-        url: impl AsRef<str>,
-        output: impl Into<PathBuf>,
-    ) -> Self {
-        let url = url.as_ref().to_string();
+    pub fn new(downloader: &'a Downloader, video: &'a Video, output: impl Into<PathBuf>) -> Self {
         let output = output.into();
 
         tracing::debug!(
-            url = %url,
+            video_id = %video.id,
             output = ?output,
             "Creating new DownloadBuilder"
         );
 
         Self {
             downloader,
-            url,
+            video,
             output,
             video_quality: None,
             audio_quality: None,
@@ -176,7 +171,7 @@ impl<'a> DownloadBuilder<'a> {
         let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
 
         tracing::debug!(
-            url = %self.url,
+            video_id = %self.video.id,
             output = ?self.output,
             video_quality = ?video_quality,
             audio_quality = ?audio_quality,
@@ -188,25 +183,17 @@ impl<'a> DownloadBuilder<'a> {
             "Executing download"
         );
 
-        // Fetch video information
-        let video = self.downloader.fetch_video_infos(self.url.clone()).await?;
-
-        tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
-            format_count = video.formats.len(),
-            "Fetched video information"
-        );
-
         // Select video format based on quality and codec preferences
-        let video_format = video
+        let video_format = self
+            .video
             .select_video_format(video_quality, video_codec.clone())
-            .ok_or_else(|| Self::format_not_available(&video, FormatType::Video))?;
+            .ok_or_else(|| Self::format_not_available(self.video, FormatType::Video))?;
 
         // Select audio format based on quality and codec preferences
-        let audio_format = video
+        let audio_format = self
+            .video
             .select_audio_format(audio_quality, audio_codec.clone())
-            .ok_or_else(|| Self::format_not_available(&video, FormatType::Audio))?;
+            .ok_or_else(|| Self::format_not_available(self.video, FormatType::Audio))?;
 
         tracing::debug!(
             video_format_id = %video_format.format_id,
@@ -236,13 +223,13 @@ impl<'a> DownloadBuilder<'a> {
             .download_info
             .url
             .as_ref()
-            .ok_or_else(|| Self::format_no_url(&video.id, &video_format.format_id))?;
+            .ok_or_else(|| Self::format_no_url(&self.video.id, &video_format.format_id))?;
 
         let audio_url = audio_format
             .download_info
             .url
             .as_ref()
-            .ok_or_else(|| Self::format_no_url(&video.id, &audio_format.format_id))?;
+            .ok_or_else(|| Self::format_no_url(&self.video.id, &audio_format.format_id))?;
 
         // Create output paths
         let video_path = self.downloader.output_dir.join(&video_filename);

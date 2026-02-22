@@ -16,7 +16,7 @@ categories = ["api-bindings", "asynchronous", "multimedia", "multimedia::audio",
 keywords = ["youtube", "downloader", "async", "yt-dlp", "youtube-dl"]
 
 [package.metadata.docs.rs]
-features = ["cache-json", "hooks", "webhooks", "statistics"]
+features = ["cache-json", "hooks", "webhooks", "statistics", "profiling"]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [workspace.metadata.release]
@@ -48,6 +48,7 @@ rustls = ["reqwest/rustls"]
 hooks = []
 webhooks = []
 statistics = []
+profiling = ["dep:dhat"]
 
 [dependencies]
 # The `cargo-outdated` tool is used with: `cargo outdated --root-deps-only`
@@ -63,6 +64,9 @@ tokio-util = "0.7.18"
 # Cache backends (optional)
 sqlx = { version = "0.8.6", optional = true, default-features = false, features = ["sqlite", "runtime-tokio", "derive", "macros"] }
 lru = { version = "0.16.3", optional = true }
+
+# Heap profiler (optional, enabled via the "profiling" feature)
+dhat = { version = "0.3", optional = true }
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
@@ -107,3 +111,13 @@ cfg-if = "1.0.4"
 
 # Logging
 tracing = "0.1.44"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+indicatif = "0.18.4"
+console = "0.16.2"
+
+[[bench]]
+name = "benchmarks"
+harness = false

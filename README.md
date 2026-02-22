@@ -75,7 +75,7 @@ Using an external program is not ideal, but it is the most reliable and maintain
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = "1.4.11"
+yt-dlp = "1.4.12"
 ```
 
 A new release is automatically published every two weeks, to keep up to date with dependencies and features.
@@ -115,19 +115,19 @@ Exactly one backend is ever compiled, regardless of how many feature flags are a
 **Default (in-memory LRU)** — no persistence, bounded by capacity, useful for short-lived processes:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache"] }
+yt-dlp = { version = "1.4.12", features = ["cache"] }
 ```
 
 **JSON** — persistent, file-system backed, no extra dependencies:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache-json"] }
+yt-dlp = { version = "1.4.12", features = ["cache-json"] }
 ```
 
 **SQLite** — better for large caches or concurrent access:
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["cache-sqlite"] }
+yt-dlp = { version = "1.4.12", features = ["cache-sqlite"] }
 ```
 
 ### 🔍 Observability & Tracing
@@ -218,8 +218,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Works with any supported site
-    let video = downloader.download_video_from_url(
-        "https://vimeo.com/123456789".to_string(),
+    let video = downloader.fetch_video_infos("https://vimeo.com/123456789").await?;
+    let video_path = downloader.download_video(
+        &video,
         "output.mp4"
     ).await?;
     Ok(())
@@ -322,7 +323,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    let video_path = downloader.download_video_from_url(url, "my-video.mp4").await?;
+    let video = downloader.fetch_video_infos(url).await?;
+    let video_path = downloader.download_video(&video, "my-video.mp4").await?;
     Ok(())
 }
 ```
@@ -347,11 +349,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let video = downloader.fetch_video_infos(url).await?;
     
     // Download to an absolute path — the file is written directly to the given path,
     // bypassing the configured output_dir.
     let path = PathBuf::from("/Users/me/Videos/my-video.mp4");
-    let video_path = downloader.download_video_from_url_to_path(url, path).await?;
+    let video_path = downloader.download_video_to_path(&video, path).await?;
     Ok(())
 }
 ```
@@ -377,9 +380,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Use the fluent download builder API
-    let video_path = downloader.download(url, "my-video.mp4")
+    let video_path = downloader.download(&video, "my-video.mp4")
         .video_quality(VideoQuality::CustomHeight(1080))
         .video_codec(VideoCodecPreference::AVC1)
         .audio_quality(AudioQuality::Best)
@@ -410,7 +414,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    downloader.download_video_stream_from_url(url, "video.mp4").await?;
+    let video = downloader.fetch_video_infos(url).await?;
+    downloader.download_video_stream(&video, "video.mp4").await?;
     Ok(())
 }
 ```
@@ -435,7 +440,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    downloader.download_audio_stream_from_url(url, "audio.mp3").await?;
+    let video = downloader.fetch_video_infos(url).await?;
+    downloader.download_audio_stream(&video, "audio.mp3").await?;
     Ok(())
 }
 ```
@@ -528,7 +534,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    let thumbnail_path = downloader.download_thumbnail_from_url(url, "thumbnail.jpg").await?;
+    let video = downloader.fetch_video_infos(url).await?;
+    let thumbnail_path = downloader.download_thumbnail(&video, "thumbnail.jpg").await?;
     Ok(())
 }
 ```
@@ -729,10 +736,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download a high quality video with VP9 codec and high quality audio with Opus codec
     let video_path = downloader.download_video_with_quality(
-        url.clone(),
+        &video,
         "complete-video.mp4",
         VideoQuality::High,
         VideoCodecPreference::VP9,
@@ -742,7 +750,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Download just the video stream with medium quality and AVC1 codec
     let video_stream_path = downloader.download_video_stream_with_quality(
-        url.clone(),
+        &video,
         "video-only.mp4",
         VideoQuality::Medium,
         VideoCodecPreference::AVC1
@@ -750,7 +758,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Download just the audio stream with high quality and AAC codec
     let audio_stream_path = downloader.download_audio_stream_with_quality(
-        url,
+        &video,
         "audio-only.m4a",
         AudioQuality::High,
         AudioCodecPreference::AAC
@@ -1435,7 +1443,7 @@ Register async functions to be called when events occur:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["hooks"] }
+yt-dlp = { version = "1.4.12", features = ["hooks"] }
 ```
 
 - 🎣 Registering a hook for download events:
@@ -1533,7 +1541,7 @@ Send events to external HTTP endpoints with automatic retry:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["webhooks"] }
+yt-dlp = { version = "1.4.12", features = ["webhooks"] }
 ```
 
 - 📡 Registering a webhook:
@@ -1694,7 +1702,7 @@ Enable real-time, aggregate metrics with zero manual bookkeeping:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.11", features = ["statistics"] }
+yt-dlp = { version = "1.4.12", features = ["statistics"] }
 ```
 
 The [`StatisticsTracker`](https://docs.rs/yt-dlp/latest/yt_dlp/stats/struct.StatisticsTracker.html) subscribes to the internal event bus in a background task and continuously updates running counters. Call `snapshot()` at any time to obtain an atomic view of all metrics:
@@ -1872,9 +1880,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let downloader = Downloader::builder(libraries, output_dir).build().await?;
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let video = downloader.fetch_video_infos(url).await?;
 
     // Download with fluent API
-    downloader.download(url.clone(), "partial.mp4")
+    downloader.download(&video, "partial.mp4")
         .time_range(90.0, 300.0)  // Download from 1:30 to 5:00
         .execute()
         .await?;
@@ -2071,7 +2080,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // All downloads will now use optimized settings
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    downloader.download_video_from_url(url, "video.mp4").await?;
+    let video = downloader.fetch_video_infos(url).await?;
+    downloader.download_video(&video, "video.mp4").await?;
 
     Ok(())
 }
@@ -2232,12 +2242,88 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For detailed documentation, examples, and authentication instructions, see the [`extractor`](https://docs.rs/yt-dlp/latest/yt_dlp/extractor/) module documentation.
 
+## 🔬 Profiling (Feature: `profiling`)
+
+See [PROFILING.md](PROFILING.md) for the complete guide (flamegraph, samply, dhat-rs, heaptrack, Criterion, and the raw vs library comparison tool).
+
+---
+
+## 🏎️ Performances
+
+The library fetches video metadata via `yt-dlp --dump-json`, then **downloads format streams
+directly over HTTP using parallel segments** — bypassing yt-dlp's sequential download engine.
+Run [`examples/compare.rs`](#-profiling-feature-profiling) with any public YouTube URL to
+reproduce these numbers on your own connection:
+
+```bash
+cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --runs 3
+```
+
+> Results below are averages over 3 runs on a typical broadband connection.
+> `—` = fill in after running the benchmark locally.
+>
+> **Methodology**: raw `yt-dlp` re-fetches metadata on every download. The library fetches metadata
+> **once**, caches it, and then downloads each format via parallel HTTP segments — this separation
+> is the core optimisation reflected in the results below.
+
+### 🎵 Audio streams
+
+| Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
+|---|---|---|---|---|
+| Audio 96 kbps (Low) | —s | —s | —s | —s |
+| Audio 128 kbps (Medium) | —s | —s | —s | —s |
+| Audio 192 kbps (High) | —s | —s | —s | —s |
+| Audio best quality | —s | —s | —s | —s |
+
+### 🎬 Video streams (no audio)
+
+| Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
+|---|---|---|---|---|
+| Video 480p | —s | —s | —s | —s |
+| Video 720p | —s | —s | —s | —s |
+| Video 1080p | —s | —s | —s | —s |
+| Video best quality | —s | —s | —s | —s |
+
+### 📦 Muxed streams — native (YouTube pre-muxed, no ffmpeg)
+
+YouTube serves some formats already containing both video and audio tracks. No post-processing
+is needed — the file is downloaded as-is.
+
+| Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
+|---|---|---|---|---|
+| Native 360p (mp4) | —s | —s | —s | —s |
+| Native 720p (mp4) | —s | —s | —s | —s |
+
+### 📦 Muxed streams — combined by ffmpeg
+
+For higher-quality streams, YouTube only provides separate video and audio tracks. The library
+downloads both in parallel, then ffmpeg merges them into the final container.
+
+| Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
+|---|---|---|---|---|
+| Muxed 480p | —s | —s | —s | —s |
+| Muxed 720p | —s | —s | —s | —s |
+| Muxed 1080p | —s | —s | —s | —s |
+| Muxed best quality | —s | —s | —s | —s |
+
+### 🚀 Speed profiles
+
+| Profile | Parallel segments | Segment size | Use case |
+|---|---|---|---|
+| `Conservative` | 4–8 | 5 MB | < 50 Mbps connections |
+| `Balanced` *(default)* | 8–16 | 8 MB | Most modern connections |
+| `Aggressive` | 16–32 | 10 MB | Fibre / gigabit |
+
+See [PROFILING.md](PROFILING.md) for detailed micro-benchmarks.
+
+---
+
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
 - [ ] Live streams recording, with `ffmpeg` or `reqwest`
 - [x] Statistics and analytics on downloads and fetches
-- [ ] Benchmark pure yt-dlp vs this library performance
-- [ ] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
+- [x] Benchmark pure yt-dlp vs this library performance (`examples/compare.rs`)
+- [x] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
 
 ---
 

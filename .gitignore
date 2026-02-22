@@ -7,3 +7,13 @@ libs/
 temp/
 
 example.json
+REPORT.md
+
+# Profiling artefacts
+profiling-libs/
+profiling-output/
+dhat-heap.json
+heaptrack.profiling.*
+flamegraph.svg
+perf.data
+perf.data.old
