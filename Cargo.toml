@@ -16,7 +16,7 @@ categories = ["api-bindings", "asynchronous", "multimedia", "multimedia::audio",
 keywords = ["youtube", "downloader", "async", "yt-dlp", "youtube-dl"]
 
 [package.metadata.docs.rs]
-features = ["cache-json", "hooks", "webhooks"]
+features = ["cache-json", "hooks", "webhooks", "statistics"]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [workspace.metadata.release]
@@ -47,6 +47,7 @@ cache-sqlite = ["cache-backend", "dep:sqlx"]
 rustls = ["reqwest/rustls"]
 hooks = []
 webhooks = []
+statistics = []
 
 [dependencies]
 # The `cargo-outdated` tool is used with: `cargo outdated --root-deps-only`

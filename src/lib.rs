@@ -35,6 +35,10 @@ pub mod extractor;
 // Event system
 pub mod events;
 
+// Statistics and analytics
+#[cfg(feature = "statistics")]
+pub mod stats;
+
 // Convenience modules
 pub mod macros;
 pub mod prelude;
@@ -190,6 +194,9 @@ pub struct Downloader {
     /// Webhook delivery system (feature: webhooks).
     #[cfg(feature = "webhooks")]
     pub(crate) webhook_delivery: Option<events::WebhookDelivery>,
+    /// Statistics tracker (feature: statistics).
+    #[cfg(feature = "statistics")]
+    pub(crate) statistics: Arc<stats::StatisticsTracker>,
 }
 
 impl Clone for Downloader {
@@ -220,6 +227,8 @@ impl Clone for Downloader {
             hook_registry: self.hook_registry.clone(),
             #[cfg(feature = "webhooks")]
             webhook_delivery: self.webhook_delivery.clone(),
+            #[cfg(feature = "statistics")]
+            statistics: self.statistics.clone(),
         }
     }
 }
@@ -2223,6 +2232,34 @@ impl Downloader {
     /// Returns the number of active event subscribers.
     pub fn event_subscriber_count(&self) -> usize {
         self.event_bus.subscriber_count()
+    }
+
+    #[cfg(feature = "statistics")]
+    /// Returns a reference to the statistics tracker.
+    ///
+    /// Call [`stats::StatisticsTracker::snapshot`] to obtain aggregate metrics for all
+    /// downloads and metadata fetches that have occurred since the tracker was created.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// # let libs = Libraries::new(PathBuf::from("yt-dlp"), PathBuf::from("ffmpeg"));
+    /// let downloader = Downloader::builder(libs, "output").build().await?;
+    ///
+    /// // ... perform downloads ...
+    ///
+    /// let snapshot = downloader.statistics().snapshot().await;
+    /// println!("Completed: {}", snapshot.downloads.completed);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn statistics(&self) -> &stats::StatisticsTracker {
+        &self.statistics
     }
 
     #[cfg(feature = "hooks")]

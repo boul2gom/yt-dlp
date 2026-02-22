@@ -36,5 +36,12 @@ pub use crate::utils::platform::Platform;
 pub use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
 pub use crate::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
 
+// Statistics types (if enabled)
+#[cfg(feature = "statistics")]
+pub use crate::stats::{
+    ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats,
+    GlobalSnapshot, PlaylistStats, PostProcessStats, StatisticsTracker, TrackerConfig,
+};
+
 // Re-export common traits
 pub use crate::model::utils::{AllTraits, CommonTraits};

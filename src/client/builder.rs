@@ -315,6 +315,9 @@ impl DownloaderBuilder {
         let youtube_extractor = crate::extractor::Youtube::new(self.libraries.youtube.clone());
         let generic_extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
 
+        #[cfg(feature = "statistics")]
+        let statistics = Arc::new(crate::stats::StatisticsTracker::new(&event_bus));
+
         Ok(Downloader {
             youtube_extractor,
             generic_extractor,
@@ -337,6 +340,8 @@ impl DownloaderBuilder {
             hook_registry: Some(crate::events::HookRegistry::new()),
             #[cfg(feature = "webhooks")]
             webhook_delivery: Some(crate::events::WebhookDelivery::new()),
+            #[cfg(feature = "statistics")]
+            statistics,
         })
     }
 }
