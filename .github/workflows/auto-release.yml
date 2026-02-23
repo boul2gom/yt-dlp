@@ -10,6 +10,15 @@ on:
         required: false
         type: boolean
         default: false
+      release_type:
+        description: 'Version bump level'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
 
 permissions:
   contents: read
@@ -209,11 +218,11 @@ jobs:
           git_committer_name: "boul2gom-bot"
           git_committer_email: "actions-bot@boul2gom.com"
 
-      - name: 🚀 Create a new patch release
+      - name: 🚀 Create a new ${{ github.event.inputs.release_type || 'patch' }} release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo release patch --execute --no-confirm
+        run: cargo release ${{ github.event.inputs.release_type || 'patch' }} --execute --no-confirm
 
       - name: 🔍 Get new version
         id: get_version
