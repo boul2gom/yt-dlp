@@ -20,9 +20,8 @@ static SRT_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid SRT timestamp regex")
 });
 
-static SRT_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\d+$").expect("valid SRT index regex")
-});
+static SRT_INDEX_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\d+$").expect("valid SRT index regex"));
 
 /// Validation result containing detailed information about subtitle file validity.
 #[derive(Debug, Clone, PartialEq)]

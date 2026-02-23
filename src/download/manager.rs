@@ -861,11 +861,8 @@ impl DownloadManager {
                     }
 
                     // Build the fetcher
-                    let fetcher_result = Fetcher::new(
-                        &task.url,
-                        config.proxy.as_ref(),
-                        config.user_agent.clone(),
-                    );
+                    let fetcher_result =
+                        Fetcher::new(&task.url, config.proxy.as_ref(), config.user_agent.clone());
 
                     let mut fetcher = match fetcher_result {
                         Ok(f) => f,
@@ -888,8 +885,8 @@ impl DownloadManager {
                                     retry_count: 0,
                                 });
                             }
-                            let _ = completion_tx
-                                .send((task.id, DownloadStatus::Failed { reason }));
+                            let _ =
+                                completion_tx.send((task.id, DownloadStatus::Failed { reason }));
                             continue;
                         }
                     };
@@ -927,12 +924,14 @@ impl DownloadManager {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_nanos() as u64;
-                        let start_nanos = speed_start_nanos.compare_exchange(
-                            0,
-                            now_nanos,
-                            AtomicOrdering::Relaxed,
-                            AtomicOrdering::Relaxed,
-                        ).unwrap_or_else(|current| current);
+                        let start_nanos = speed_start_nanos
+                            .compare_exchange(
+                                0,
+                                now_nanos,
+                                AtomicOrdering::Relaxed,
+                                AtomicOrdering::Relaxed,
+                            )
+                            .unwrap_or_else(|current| current);
                         let elapsed_nanos = now_nanos.saturating_sub(start_nanos);
                         let speed = if elapsed_nanos > 0 {
                             downloaded as f64 / (elapsed_nanos as f64 / 1_000_000_000.0)

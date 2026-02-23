@@ -679,11 +679,13 @@ impl Fetcher {
                     // We write chunk by chunk, keeping the memory footprint low.
                     while let Some(chunk_result) = chunk_stream.next().await {
                         let chunk = chunk_result?;
-                        
+
                         let mut file_guard = context.file.lock().await;
-                        file_guard.seek(std::io::SeekFrom::Start(current_offset)).await?;
+                        file_guard
+                            .seek(std::io::SeekFrom::Start(current_offset))
+                            .await?;
                         file_guard.write_all(&chunk).await?;
-                        
+
                         current_offset += chunk.len() as u64;
 
                         // Update the progress counter WITHOUT holding the file lock
@@ -697,11 +699,11 @@ impl Fetcher {
                             callback(new_total, context.total_bytes);
                         }
                     }
-                    
+
                     // Flush after the segment is totally downloaded
                     let mut file_guard = context.file.lock().await;
                     file_guard.flush().await?;
-                    
+
                     Ok(())
                 },
                 |err: &Error| {

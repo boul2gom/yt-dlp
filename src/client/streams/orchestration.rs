@@ -1292,15 +1292,13 @@ impl Downloader {
                                 .await;
                             }
                             Err(e) => {
-                                self.emit_event(
-                                    crate::events::DownloadEvent::PlaylistItemFailed {
-                                        playlist_id: playlist.id.clone(),
-                                        index: entry.index.unwrap_or(0),
-                                        total: total_videos,
-                                        video_id: entry.id.clone(),
-                                        error: e.to_string(),
-                                    },
-                                )
+                                self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
+                                    playlist_id: playlist.id.clone(),
+                                    index: entry.index.unwrap_or(0),
+                                    total: total_videos,
+                                    video_id: entry.id.clone(),
+                                    error: e.to_string(),
+                                })
                                 .await;
                             }
                         }
