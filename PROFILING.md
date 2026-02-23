@@ -10,7 +10,7 @@ Add the `profiling` feature to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "1.4.12", features = ["profiling"] }
+yt-dlp = { version = "2.0.0", features = ["profiling"] }
 ```
 
 This enables the `dhat` global allocator hook so heap profiling data is collected automatically when running the profiling example.
