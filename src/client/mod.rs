@@ -13,8 +13,8 @@ pub use deps::{Libraries, LibraryInstaller};
 pub use download_builder::DownloadBuilder;
 pub use proxy::{ProxyConfig, ProxyType};
 
-/// Default timeout for network operations (60 seconds)
-pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Default timeout for network operations (300 seconds)
+pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 // Re-export from root lib.rs (where Downloader is currently defined)
 // This maintains the code in one place while providing the new API structure

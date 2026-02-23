@@ -2154,16 +2154,16 @@ Three pre-configured profiles are available:
 - Best for: Standard internet, avoiding network congestion, limited bandwidth
 
 **⚖️ Balanced** (for connections 50-500 Mbps) - **Default**
-- 5 concurrent downloads
-- 8-16 parallel segments per file
+- 4 concurrent downloads
+- 5–20 parallel segments per file
 - 8 MB segment size
 - 20 MB buffer
 - 3 concurrent playlist downloads
 - Best for: Most modern internet connections, general use
 
 **🚀 Aggressive** (for connections > 500 Mbps)
-- 8 concurrent downloads
-- 16-32 parallel segments per file
+- 6 concurrent downloads
+- 6–24 parallel segments per file
 - 10 MB segment size
 - 30 MB buffer
 - 5 concurrent playlist downloads
@@ -2385,19 +2385,19 @@ cargo run --example compare --features profiling --release -- https://www.youtub
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Audio 96 kbps (Low) | 10.7s | 1.16s | 1.23s | 1.32s |
-| Audio 128 kbps (Medium) | 8.35s | 1.34s | 1.30s | 1.36s |
-| Audio 192 kbps (High) | 16.3s | 1.35s | 1.57s | 1.93s |
-| Audio best quality | 8.54s | 1.18s | 1.33s | 1.41s |
+| Audio 96 kbps (Low) | 8.80s | 1.21s | 939ms | 1.06s |
+| Audio 128 kbps (Medium) | 8.60s | 1.18s | 1.05s | 1.41s |
+| Audio 192 kbps (High) | 8.65s | 1.39s | 1.05s | 1.12s |
+| Audio best quality | 8.80s | 1.22s | 1.07s | 1.45s |
 
 ### 🎬 Video streams (no audio)
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Video 480p | 8.61s | 2.21s | 2.60s | 2.30s |
-| Video 720p | 10.8s | 3.83s | 4.31s | 4.59s |
-| Video 1080p | 31.9s | 10.6s | 10.9s | 10.8s |
-| Video best quality | 33.2s | 15.7s | 11.5s | 13.6s |
+| Video 480p | 8.98s | 2.17s | 2.28s | 2.18s |
+| Video 720p | 9.99s | 4.48s | 4.09s | 3.80s |
+| Video 1080p | 17.5s | 8.67s | 8.60s | 8.86s |
+| Video best quality | 17.3s | 13.1s | 12.8s | 13.2s |
 
 ### 📦 Muxed streams — native (YouTube pre-muxed, no ffmpeg)
 
@@ -2406,28 +2406,29 @@ is needed — the file is downloaded as-is.
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Native 360p (mp4) | 15.2s | 2.39s | 3.54s | 2.34s |
-| Native 720p (mp4) | 27.7s | 2.49s | 2.90s | 2.96s |
+| Native 360p (mp4) | 12.2s | 2.47s | 2.26s | 2.61s |
+| Native 720p (mp4) | 26.4s | 2.43s | 2.06s | 2.00s |
 
 ### 📦 Muxed streams — combined by ffmpeg
 
 For higher-quality streams, YouTube only provides separate video and audio tracks. The library
-downloads both in parallel, then ffmpeg merges them into the final container.
+downloads both in parallel, then ffmpeg merges them using **stream copy** (no re-encoding) when
+the audio container is compatible with the output format (e.g. AAC/m4a → mp4).
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Muxed 480p | 10.9s | 48.1s | 48.3s | 48.4s |
-| Muxed 720p | 11.2s | 49.9s | 57.3s | 59.3s |
-| Muxed 1080p | 35.4s | 56.9s | 55.8s | 57.7s |
-| Muxed best quality | 27.8s | 60.1s | 59.3s | 59.7s |
+| Muxed 480p | 10.4s | 4.68s | 4.24s | 3.47s |
+| Muxed 720p | 11.0s | 5.73s | 7.75s | 6.03s |
+| Muxed 1080p | 22.4s | 11.2s | 10.2s | 10.8s |
+| Muxed best quality | 21.4s | 14.8s | 14.9s | 21.7s |
 
 ### 🚀 Speed profiles
 
 | Profile | Parallel segments | Segment size | Use case |
 |---|---|---|---|
-| `Conservative` | 4–8 | 5 MB | < 50 Mbps connections |
-| `Balanced` *(default)* | 8–16 | 8 MB | Most modern connections |
-| `Aggressive` | 16–32 | 10 MB | Fibre / gigabit |
+| `Conservative` | 1–16 | 5 MB | < 50 Mbps connections |
+| `Balanced` *(default)* | 2–20 | 8 MB | Most modern connections |
+| `Aggressive` | 3–24 | 10 MB | Fibre / gigabit |
 
 See [PROFILING.md](PROFILING.md) for detailed micro-benchmarks.
 

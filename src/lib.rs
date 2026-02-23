@@ -251,7 +251,10 @@ impl Display for Downloader {
 /// Uses stream copy (`"copy"`) when the audio format is natively compatible with the output
 /// container (e.g., AAC/M4A into MP4, Opus/WebM into WebM, any codec into MKV).
 /// Falls back to `"aac"` re-encoding otherwise.
-fn audio_codec_for_mux(audio_path: &Path, output_path: &Path) -> &'static str {
+///
+/// The optional `audio_codec` hint (e.g. `"mp4a.40.2"`, `"opus"`) takes precedence over
+/// the file extension heuristic, providing robustness against extension deserialization issues.
+fn audio_codec_for_mux(audio_path: &Path, output_path: &Path, audio_codec: Option<&str>) -> &'static str {
     let audio_ext = audio_path
         .extension()
         .and_then(|e| e.to_str())
@@ -263,8 +266,13 @@ fn audio_codec_for_mux(audio_path: &Path, output_path: &Path) -> &'static str {
         .unwrap_or("")
         .to_lowercase();
 
-    let is_aac = matches!(audio_ext.as_str(), "m4a" | "aac");
-    let is_opus = matches!(audio_ext.as_str(), "webm" | "opus" | "ogg");
+    // Prefer codec metadata over extension heuristic (robust to unknown/mangled extensions)
+    let is_aac = audio_codec
+        .map(|c| c.contains("aac") || c.contains("mp4a"))
+        .unwrap_or_else(|| matches!(audio_ext.as_str(), "m4a" | "aac"));
+    let is_opus = audio_codec
+        .map(|c| c.contains("opus"))
+        .unwrap_or_else(|| matches!(audio_ext.as_str(), "webm" | "opus" | "ogg"));
 
     match output_ext.as_str() {
         "mp4" | "m4a" | "mov" if is_aac => "copy",
@@ -784,7 +792,7 @@ impl Downloader {
 
         // Perform the combination with FFmpeg
         if let Err(e) = self
-            .execute_ffmpeg_combine(&audio_path, &video_path, &output_path, None)
+            .execute_ffmpeg_combine(&audio_path, &video_path, &output_path, None, None)
             .await
         {
             self.emit_event(crate::events::DownloadEvent::PostProcessFailed {
@@ -828,12 +836,17 @@ impl Downloader {
     /// natively compatible with the output container (e.g., AAC into MP4, Opus into WebM),
     /// otherwise re-encodes to AAC. Optionally embeds a pre-built FFMETADATA1 file
     /// (metadata + chapters) in the same pass when `metadata_file` is provided.
+    ///
+    /// The optional `audio_codec_hint` (e.g. `"mp4a.40.2"`) takes precedence over the
+    /// file-extension heuristic in [`audio_codec_for_mux`], providing robustness when the
+    /// audio temp file has an unexpected extension.
     async fn execute_ffmpeg_combine(
         &self,
         audio_path: &Path,
         video_path: &Path,
         output_path: &Path,
         metadata_file: Option<&Path>,
+        audio_codec_hint: Option<&str>,
     ) -> Result<()> {
         let audio = audio_path
             .to_str()
@@ -845,7 +858,7 @@ impl Downloader {
             .to_str()
             .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
-        let audio_codec = audio_codec_for_mux(audio_path, output_path);
+        let audio_codec = audio_codec_for_mux(audio_path, output_path, audio_codec_hint);
 
         tracing::debug!(
             audio_path = ?audio_path,

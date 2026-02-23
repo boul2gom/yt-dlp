@@ -8,9 +8,9 @@ use std::fmt;
 /// Default concurrent downloads for Conservative profile
 const CONSERVATIVE_CONCURRENT: usize = 3;
 /// Default concurrent downloads for Balanced profile
-const BALANCED_CONCURRENT: usize = 5;
+const BALANCED_CONCURRENT: usize = 4;
 /// Default concurrent downloads for Aggressive profile
-const AGGRESSIVE_CONCURRENT: usize = 8;
+const AGGRESSIVE_CONCURRENT: usize = 6;
 
 /// Default segment size for Conservative profile (5 MB)
 const CONSERVATIVE_SEGMENT_SIZE: usize = 5 * 1024 * 1024;
@@ -22,9 +22,9 @@ const AGGRESSIVE_SEGMENT_SIZE: usize = 10 * 1024 * 1024;
 /// Default parallel segments for Conservative profile
 const CONSERVATIVE_PARALLEL: usize = 4;
 /// Default parallel segments for Balanced profile
-const BALANCED_PARALLEL: usize = 8;
+const BALANCED_PARALLEL: usize = 5;
 /// Default parallel segments for Aggressive profile
-const AGGRESSIVE_PARALLEL: usize = 12;
+const AGGRESSIVE_PARALLEL: usize = 6;
 
 /// Default buffer size for Conservative profile (10 MB)
 const CONSERVATIVE_BUFFER: usize = 10 * 1024 * 1024;
@@ -168,9 +168,9 @@ impl SpeedProfile {
     /// This is used by the dynamic segment calculation in Fetcher
     pub fn max_parallel_segments_for_large_files(&self) -> usize {
         match self {
-            Self::Conservative => 24,
-            Self::Balanced => 32,
-            Self::Aggressive => 48,
+            Self::Conservative => 16,
+            Self::Balanced => 20,
+            Self::Aggressive => 24,
         }
     }
 
@@ -202,28 +202,28 @@ impl SpeedProfile {
                 size if size < 10 => 1,
                 size if size < 50 => 2,
                 size if size < 100 => 4,
-                size if size < 500 => 8,
-                size if size < 1000 => 12,
-                size if size < 2000 => 16,
-                _ => 24,
+                size if size < 500 => 6,
+                size if size < 1000 => 8,
+                size if size < 2000 => 12,
+                _ => 16,
             },
             Self::Balanced => match file_size_mb {
                 size if size < 10 => 2,
-                size if size < 50 => 4,
-                size if size < 100 => 8,
-                size if size < 500 => 12,
-                size if size < 1000 => 16,
-                size if size < 2000 => 24,
-                _ => 32,
+                size if size < 50 => 3,
+                size if size < 100 => 5,
+                size if size < 500 => 8,
+                size if size < 1000 => 12,
+                size if size < 2000 => 16,
+                _ => 20,
             },
             Self::Aggressive => match file_size_mb {
-                size if size < 10 => 4,
-                size if size < 50 => 8,
-                size if size < 100 => 12,
-                size if size < 500 => 16,
-                size if size < 1000 => 24,
-                size if size < 2000 => 32,
-                _ => 48,
+                size if size < 10 => 3,
+                size if size < 50 => 5,
+                size if size < 100 => 6,
+                size if size < 500 => 10,
+                size if size < 1000 => 14,
+                size if size < 2000 => 20,
+                _ => 24,
             },
         };
 

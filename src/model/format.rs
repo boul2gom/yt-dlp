@@ -354,6 +354,7 @@ impl fmt::Display for HttpHeaders {
 #[serde(rename_all = "snake_case")]
 pub enum Extension {
     /// The M4A extension.
+    #[serde(rename = "m4a")] // Override: rename_all would produce "m4_a" (broken, digit-uppercase boundary)
     M4A,
     /// The MP3 extension.
     Mp3,

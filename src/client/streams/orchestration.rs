@@ -1751,6 +1751,7 @@ impl Downloader {
                 &video_temp_path,
                 output_path,
                 metadata_file.as_deref(),
+                audio_format.codec_info.audio_codec.as_deref(),
             )
             .await;
 
