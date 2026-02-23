@@ -254,7 +254,11 @@ impl Display for Downloader {
 ///
 /// The optional `audio_codec` hint (e.g. `"mp4a.40.2"`, `"opus"`) takes precedence over
 /// the file extension heuristic, providing robustness against extension deserialization issues.
-fn audio_codec_for_mux(audio_path: &Path, output_path: &Path, audio_codec: Option<&str>) -> &'static str {
+fn audio_codec_for_mux(
+    audio_path: &Path,
+    output_path: &Path,
+    audio_codec: Option<&str>,
+) -> &'static str {
     let audio_ext = audio_path
         .extension()
         .and_then(|e| e.to_str())

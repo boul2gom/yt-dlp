@@ -79,6 +79,9 @@ struct Args {
     verbose: bool,
     dry_run: bool,
     scenario: Option<String>,
+    cookies: Option<String>,
+    cookies_from_browser: Option<String>,
+    extra_args: Vec<String>,
 }
 
 fn parse_args() -> Args {
@@ -87,6 +90,9 @@ fn parse_args() -> Args {
     let mut verbose = false;
     let mut dry_run = false;
     let mut scenario: Option<String> = None;
+    let mut cookies = None;
+    let mut cookies_from_browser = None;
+    let mut extra_args = Vec::new();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -95,8 +101,14 @@ fn parse_args() -> Args {
             "--scenario" => {
                 scenario = args.next();
             }
+            "--cookies" => {
+                cookies = args.next();
+            }
+            "--cookies-from-browser" => {
+                cookies_from_browser = args.next();
+            }
             s if s.starts_with("http") => url = s.to_string(),
-            _ => {}
+            _ => extra_args.push(arg),
         }
     }
 
@@ -105,17 +117,30 @@ fn parse_args() -> Args {
         verbose,
         dry_run,
         scenario,
+        cookies,
+        cookies_from_browser,
+        extra_args,
     }
 }
 
-async fn setup_downloader(libs: &Path, output: &Path) -> yt_dlp::error::Result<Downloader> {
+async fn setup_downloader(
+    libs: &Path,
+    output: &Path,
+    args: &Args,
+) -> yt_dlp::error::Result<Downloader> {
     tokio::fs::create_dir_all(libs).await?;
     tokio::fs::create_dir_all(output).await?;
 
-    let downloader = Downloader::with_new_binaries(libs, output)
-        .await?
-        .build()
-        .await?;
+    let mut builder = Downloader::with_new_binaries(libs, output).await?;
+
+    if let Some(cookies) = &args.cookies {
+        builder = builder.with_cookies(cookies);
+    }
+    if let Some(cookies_from_browser) = &args.cookies_from_browser {
+        builder = builder.with_cookies_from_browser(cookies_from_browser);
+    }
+
+    let downloader = builder.with_args(args.extra_args.clone()).build().await?;
 
     Ok(downloader)
 }
@@ -272,9 +297,11 @@ fn make_video(n_formats: usize) -> Video {
     }
 }
 
-async fn run_setup(libs: &Path, output: &Path) -> ScenarioResult {
+async fn run_setup(libs: &Path, output: &Path, args: &Args) -> ScenarioResult {
     let start = Instant::now();
-    let _downloader = setup_downloader(libs, output).await.expect("setup failed");
+    let _downloader = setup_downloader(libs, output, args)
+        .await
+        .expect("setup failed");
     ScenarioResult {
         name: "setup".to_string(),
         iterations: 1,
@@ -550,7 +577,7 @@ async fn main() {
 
     if run_scenario("setup") {
         println!("[setup] Building downloader and checking binaries...");
-        let r = run_setup(&libs, &output).await;
+        let r = run_setup(&libs, &output, &args).await;
         println!("  done in {}", fmt_duration(r.total));
         results.push(r);
     }
@@ -604,7 +631,7 @@ async fn main() {
     }
 
     if !args.dry_run {
-        let downloader = setup_downloader(&libs, &output)
+        let downloader = setup_downloader(&libs, &output, &args)
             .await
             .expect("failed to build downloader");
 
@@ -691,7 +718,7 @@ async fn main() {
 
     #[cfg(feature = "statistics")]
     if !args.dry_run
-        && let Ok(downloader) = setup_downloader(&libs, &output).await
+        && let Ok(downloader) = setup_downloader(&libs, &output, &args).await
     {
         let snap = downloader.statistics().snapshot().await;
         println!("=== Statistics Snapshot ===");

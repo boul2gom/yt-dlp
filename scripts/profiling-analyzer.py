@@ -9,18 +9,23 @@
 
 import json
 import gzip
-import sys
+import os
 
 def analyze_dhat():
     print("╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ DHAT MEMORY ANALYSIS                                                       │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
+    
+    if not os.path.exists('dhat-heap.json'):
+        print("dhat-heap.json not found!\n")
+        return
+
     try:
         with open('dhat-heap.json') as f:
             d = json.load(f)
         
-        frames = d.get('frames', [])
-        pps = d.get('props', [])
+        frames = d.get('ftbl', [])
+        pps = d.get('pps', [])
         
         # Calculate total
         total_bytes = sum(p.get('tb', 0) for p in pps)
@@ -39,10 +44,10 @@ def analyze_dhat():
             
             # Reconstruct stack trace
             stack = []
-            for f_idx in fs[:15]: # Deeper stack trace
-                if f_idx < len(frames):
+            for f_idx in fs[:15]: 
+                if isinstance(f_idx, int) and f_idx < len(frames):
                     name = frames[f_idx]
-                    name = name.split("::h")[0] # remove hash
+                    name = name.split("::h")[0] 
                     # Hide basic alloc frames
                     if not any(x in name for x in ["alloc::", "dhat::"]):
                         stack.append(name)
@@ -51,18 +56,21 @@ def analyze_dhat():
             pct = (tb / total_bytes * 100) if total_bytes > 0 else 0
             print(f"- {tb:12,} bytes ({pct:5.1f}%) | {tbk:8,} allocs | {name}")
             if len(stack) > 1:
-                print(f"    <- {' <- '.join(stack[1:4])}")
+                for s in stack[1:4]:
+                    print(f"    <- {s}")
                 
     except Exception as e:
         print(f"Error analyzing DHAT: {e}")
-
-def get_col(schema, col_name):
-    return schema.get(col_name)
 
 def analyze_samply():
     print("\n╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ SAMPLY CPU ANALYSIS                                                        │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
+    
+    if not os.path.exists('profile.json.gz'):
+        print("profile.json.gz not found!\n")
+        return
+
     try:
         with gzip.open('profile.json.gz', 'rt') as f:
             prof = json.load(f)
@@ -75,7 +83,7 @@ def analyze_samply():
             
             samples = t.get('samples', {})
             stack_data = samples.get('stack', [])
-            
+
             if not stack_data or len(stack_data) < 100:
                 continue # Skip idle threads
                 
@@ -93,39 +101,40 @@ def analyze_samply():
             st_frame = stack_table.get('frame', [])
             st_prefix = stack_table.get('prefix', [])
             
-            # Tally self time (where the sample landed) and total time (all frames in the stack)
             self_counts = {}
             total_counts = {}
             
             for stack_idx in stack_data:
                 if stack_idx is None: continue
                 
-                # Trace up the stack
                 curr_st = stack_idx
                 is_leaf = True
-                
                 seen_in_this_sample = set()
                 
                 while curr_st is not None:
                     try:
+                        if curr_st >= len(st_frame): break
                         frame_idx = st_frame[curr_st]
-                        prefix_idx = st_prefix[curr_st]
+                        prefix_idx = st_prefix[curr_st] if curr_st < len(st_prefix) else None
                         
-                        func_idx = f_func[frame_idx]
-                        name_idx = fn_name[func_idx]
-                        func_name = string_array[name_idx]
-                        
-                        # Clean up name
-                        func_name = func_name.split("::h")[0]
-                        
-                        if is_leaf:
-                            self_counts[func_name] = self_counts.get(func_name, 0) + 1
-                            is_leaf = False
+                        if frame_idx is not None and frame_idx < len(f_func):
+                            func_idx = f_func[frame_idx]
                             
-                        if func_name not in seen_in_this_sample:
-                            total_counts[func_name] = total_counts.get(func_name, 0) + 1
-                            seen_in_this_sample.add(func_name)
-                            
+                            if func_idx is not None and func_idx < len(fn_name):
+                                name_idx = fn_name[func_idx]
+                                
+                                if name_idx is not None and name_idx < len(string_array):
+                                    func_name = string_array[name_idx]
+                                    func_name = func_name.split("::h")[0]
+                                    
+                                    if is_leaf:
+                                        self_counts[func_name] = self_counts.get(func_name, 0) + 1
+                                        is_leaf = False
+                                        
+                                    if func_name not in seen_in_this_sample:
+                                        total_counts[func_name] = total_counts.get(func_name, 0) + 1
+                                        seen_in_this_sample.add(func_name)
+                                        
                         curr_st = prefix_idx
                     except IndexError:
                         break

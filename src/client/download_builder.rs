@@ -212,14 +212,14 @@ impl<'a> DownloadBuilder<'a> {
         );
 
         // Generate temporary filenames for video and audio
-        let video_ext = format!("{:?}", video_format.download_info.ext);
+        let video_ext = video_format.download_info.ext.as_str();
         let video_filename = format!(
             "temp_video_{}.{}",
             crate::utils::fs::random_filename(8),
             video_ext
         );
 
-        let audio_ext = format!("{:?}", audio_format.download_info.ext);
+        let audio_ext = audio_format.download_info.ext.as_str();
         let audio_filename = format!(
             "temp_audio_{}.{}",
             crate::utils::fs::random_filename(8),

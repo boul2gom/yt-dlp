@@ -1633,9 +1633,9 @@ impl Downloader {
         output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
         // Generate temporary filenames
-        let video_ext = format!("{:?}", video_format.download_info.ext);
+        let video_ext = video_format.download_info.ext.as_str();
         let video_filename = format!("temp_video_{}.{}", utils::fs::random_filename(8), video_ext);
-        let audio_ext = format!("{:?}", audio_format.download_info.ext);
+        let audio_ext = audio_format.download_info.ext.as_str();
         let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
 
         // Download video and audio in parallel
