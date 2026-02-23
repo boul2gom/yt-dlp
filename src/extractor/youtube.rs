@@ -236,7 +236,10 @@ impl Youtube {
     /// Self for method chaining
     pub fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
         let cookie_path = path.as_ref().display().to_string();
-        tracing::debug!(cookie_file = cookie_path, "Adding cookie file for authentication");
+        tracing::debug!(
+            cookie_file = cookie_path,
+            "Adding cookie file for authentication"
+        );
         self.args.push(format!("--cookies={}", cookie_path));
         self
     }
@@ -252,7 +255,8 @@ impl Youtube {
     /// Self for method chaining
     pub fn with_cookies_from_browser(&mut self, browser: &str) -> &mut Self {
         tracing::debug!(browser = browser, "Adding browser cookie extraction");
-        self.args.push(format!("--cookies-from-browser={}", browser));
+        self.args
+            .push(format!("--cookies-from-browser={}", browser));
         self
     }
 

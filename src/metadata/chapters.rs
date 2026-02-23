@@ -67,8 +67,7 @@ impl MetadataManager {
             let end_us = (chapter.end_time * 1_000_000.0) as i64;
 
             writeln!(file, "[CHAPTER]").map_err(|e| Error::io("write chapter marker", e))?;
-            writeln!(file, "TIMEBASE=1/1000000")
-                .map_err(|e| Error::io("write timebase", e))?;
+            writeln!(file, "TIMEBASE=1/1000000").map_err(|e| Error::io("write timebase", e))?;
             writeln!(file, "START={}", start_us)
                 .map_err(|e| Error::io("write chapter start", e))?;
             writeln!(file, "END={}", end_us).map_err(|e| Error::io("write chapter end", e))?;

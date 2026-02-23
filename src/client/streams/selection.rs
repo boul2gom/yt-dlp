@@ -182,18 +182,25 @@ impl VideoSelection for Video {
         );
 
         let video_formats = self.formats.iter().filter(|f| f.is_video());
-        
+
         video_formats.clone().next()?;
 
-        let has_codec_match = codec != VideoCodecPreference::Any && video_formats.clone().any(|f| {
-            f.codec_info.video_codec.as_ref().is_some_and(|c| matches_video_codec(c, &codec))
-        });
+        let has_codec_match = codec != VideoCodecPreference::Any
+            && video_formats.clone().any(|f| {
+                f.codec_info
+                    .video_codec
+                    .as_ref()
+                    .is_some_and(|c| matches_video_codec(c, &codec))
+            });
 
         let formats_iter = video_formats.filter(move |f| {
             if !has_codec_match {
                 true
             } else {
-                f.codec_info.video_codec.as_ref().is_some_and(|c| matches_video_codec(c, &codec))
+                f.codec_info
+                    .video_codec
+                    .as_ref()
+                    .is_some_and(|c| matches_video_codec(c, &codec))
             }
         });
 
@@ -204,8 +211,12 @@ impl VideoSelection for Video {
             VideoQuality::High => select_closest_video_height(formats_iter, 1080, self),
             VideoQuality::Medium => select_closest_video_height(formats_iter, 720, self),
             VideoQuality::Low => select_closest_video_height(formats_iter, 480, self),
-            VideoQuality::CustomHeight(height) => select_closest_video_height(formats_iter, height, self),
-            VideoQuality::CustomWidth(width) => select_closest_video_width(formats_iter, width, self),
+            VideoQuality::CustomHeight(height) => {
+                select_closest_video_height(formats_iter, height, self)
+            }
+            VideoQuality::CustomWidth(width) => {
+                select_closest_video_width(formats_iter, width, self)
+            }
         }
     }
 
@@ -227,15 +238,22 @@ impl VideoSelection for Video {
 
         audio_formats.clone().next()?;
 
-        let has_codec_match = codec != AudioCodecPreference::Any && audio_formats.clone().any(|f| {
-            f.codec_info.audio_codec.as_ref().is_some_and(|c| matches_audio_codec(c, &codec))
-        });
+        let has_codec_match = codec != AudioCodecPreference::Any
+            && audio_formats.clone().any(|f| {
+                f.codec_info
+                    .audio_codec
+                    .as_ref()
+                    .is_some_and(|c| matches_audio_codec(c, &codec))
+            });
 
         let formats_iter = audio_formats.filter(move |f| {
             if !has_codec_match {
                 true
             } else {
-                f.codec_info.audio_codec.as_ref().is_some_and(|c| matches_audio_codec(c, &codec))
+                f.codec_info
+                    .audio_codec
+                    .as_ref()
+                    .is_some_and(|c| matches_audio_codec(c, &codec))
             }
         });
 
@@ -246,7 +264,9 @@ impl VideoSelection for Video {
             AudioQuality::High => select_closest_audio_bitrate(formats_iter, 192, self),
             AudioQuality::Medium => select_closest_audio_bitrate(formats_iter, 128, self),
             AudioQuality::Low => select_closest_audio_bitrate(formats_iter, 96, self),
-            AudioQuality::CustomBitrate(bitrate) => select_closest_audio_bitrate(formats_iter, bitrate, self),
+            AudioQuality::CustomBitrate(bitrate) => {
+                select_closest_audio_bitrate(formats_iter, bitrate, self)
+            }
         }
     }
 }
@@ -276,11 +296,25 @@ where
         "Selecting video format closest to target height"
     );
 
-    let closest_above = formats.clone()
-        .filter(|format| format.video_resolution.height.is_some_and(|h| h >= target_height))
+    let closest_above = formats
+        .clone()
+        .filter(|format| {
+            format
+                .video_resolution
+                .height
+                .is_some_and(|h| h >= target_height)
+        })
         .min_by(|a, b| {
-            let a_diff = a.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
-            let b_diff = b.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
+            let a_diff = a
+                .video_resolution
+                .height
+                .unwrap_or(0)
+                .saturating_sub(target_height);
+            let b_diff = b
+                .video_resolution
+                .height
+                .unwrap_or(0)
+                .saturating_sub(target_height);
 
             // Compare difference then quality
             a_diff
@@ -329,11 +363,25 @@ where
         "Selecting video format closest to target width"
     );
 
-    let closest_above = formats.clone()
-        .filter(|format| format.video_resolution.width.is_some_and(|w| w >= target_width))
+    let closest_above = formats
+        .clone()
+        .filter(|format| {
+            format
+                .video_resolution
+                .width
+                .is_some_and(|w| w >= target_width)
+        })
         .min_by(|a, b| {
-            let a_diff = a.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
-            let b_diff = b.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
+            let a_diff = a
+                .video_resolution
+                .width
+                .unwrap_or(0)
+                .saturating_sub(target_width);
+            let b_diff = b
+                .video_resolution
+                .width
+                .unwrap_or(0)
+                .saturating_sub(target_width);
 
             // Compare difference then quality
             a_diff
@@ -384,8 +432,14 @@ where
 
     let target_float = OrderedFloat(target_bitrate as f64);
 
-    let closest_above = formats.clone()
-        .filter(|format| format.rates_info.audio_rate.is_some_and(|r| r >= target_float))
+    let closest_above = formats
+        .clone()
+        .filter(|format| {
+            format
+                .rates_info
+                .audio_rate
+                .is_some_and(|r| r >= target_float)
+        })
         .min_by(|a, b| {
             let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
             let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));

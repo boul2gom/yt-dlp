@@ -146,7 +146,8 @@ impl RetryPolicy {
         }
 
         // All retries failed, return the last error
-        Err(last_error.unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
+        Err(last_error
+            .unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
     }
 
     /// Execute an async operation with retry logic and a condition for retryable errors.
@@ -213,7 +214,8 @@ impl RetryPolicy {
         }
 
         // All retries failed, return the last error
-        Err(last_error.unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
+        Err(last_error
+            .unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
     }
 
     /// Get the maximum number of attempts.

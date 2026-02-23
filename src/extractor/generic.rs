@@ -142,7 +142,8 @@ impl Generic {
     /// Self for method chaining
     pub fn with_cookies_from_browser(&mut self, browser: &str) -> &mut Self {
         tracing::debug!(browser = browser, "Adding browser cookie extraction");
-        self.args.push(format!("--cookies-from-browser={}", browser));
+        self.args
+            .push(format!("--cookies-from-browser={}", browser));
         self
     }
 

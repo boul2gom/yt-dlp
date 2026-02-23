@@ -859,8 +859,10 @@ impl Downloader {
         );
 
         let mut args = vec![
-            "-i".to_string(), audio.to_string(),
-            "-i".to_string(), video.to_string(),
+            "-i".to_string(),
+            audio.to_string(),
+            "-i".to_string(),
+            video.to_string(),
         ];
 
         if let Some(meta) = metadata_file {
@@ -873,20 +875,26 @@ impl Downloader {
 
         // Map audio from input 0 and video from input 1 explicitly
         args.extend_from_slice(&[
-            "-map".to_string(), "0:a".to_string(),
-            "-map".to_string(), "1:v".to_string(),
+            "-map".to_string(),
+            "0:a".to_string(),
+            "-map".to_string(),
+            "1:v".to_string(),
         ]);
 
         if metadata_file.is_some() {
             args.extend_from_slice(&[
-                "-map_metadata".to_string(), "2".to_string(),
-                "-map_chapters".to_string(), "2".to_string(),
+                "-map_metadata".to_string(),
+                "2".to_string(),
+                "-map_chapters".to_string(),
+                "2".to_string(),
             ]);
         }
 
         args.extend_from_slice(&[
-            "-c:v".to_string(), "copy".to_string(),
-            "-c:a".to_string(), audio_codec.to_string(),
+            "-c:v".to_string(),
+            "copy".to_string(),
+            "-c:a".to_string(),
+            audio_codec.to_string(),
             output.to_string(),
         ]);
 
@@ -1649,15 +1657,13 @@ impl Downloader {
                 output_ext = ?output_path.extension(),
                 "Trying container-compatible audio codec to avoid re-encoding"
             );
-            video
-                .select_audio_format(audio_quality, pref)
-                .or_else(|| {
-                    tracing::debug!(
-                        video_id = %video.id,
-                        "Container-compatible audio not available, falling back to any codec"
-                    );
-                    video.select_audio_format(audio_quality, AudioCodecPreference::Any)
-                })
+            video.select_audio_format(audio_quality, pref).or_else(|| {
+                tracing::debug!(
+                    video_id = %video.id,
+                    "Container-compatible audio not available, falling back to any codec"
+                );
+                video.select_audio_format(audio_quality, AudioCodecPreference::Any)
+            })
         } else {
             video.select_audio_format(audio_quality, audio_codec)
         }

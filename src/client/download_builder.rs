@@ -343,11 +343,7 @@ impl<'a> DownloadBuilder<'a> {
                         }
                     })?;
                     self.downloader
-                        .combine_audio_and_video(
-                            &audio_filename,
-                            &video_filename,
-                            output_str,
-                        )
+                        .combine_audio_and_video(&audio_filename, &video_filename, output_str)
                         .await
                 }
             }
