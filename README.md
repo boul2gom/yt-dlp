@@ -2372,11 +2372,10 @@ Run [`examples/compare.rs`](#-profiling-feature-profiling) with any public YouTu
 reproduce these numbers on your own connection:
 
 ```bash
-cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --cookies-from-browser safari --runs 3
+cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --cookies-from-browser safari --runs 10
 ```
 
-> Results below are averages over 3 runs on a typical broadband connection.
-> `—` = fill in after running the benchmark locally.
+> Results below are averages over 10 runs on a typical broadband connection.
 >
 > **Methodology**: raw `yt-dlp` re-fetches metadata on every download. The library fetches metadata
 > **once**, caches it, and then downloads each format via parallel HTTP segments — this separation
@@ -2386,19 +2385,19 @@ cargo run --example compare --features profiling --release -- https://www.youtub
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Audio 96 kbps (Low) | —s | —s | —s | —s |
-| Audio 128 kbps (Medium) | —s | —s | —s | —s |
-| Audio 192 kbps (High) | —s | —s | —s | —s |
-| Audio best quality | —s | —s | —s | —s |
+| Audio 96 kbps (Low) | 10.7s | 1.16s | 1.23s | 1.32s |
+| Audio 128 kbps (Medium) | 8.35s | 1.34s | 1.30s | 1.36s |
+| Audio 192 kbps (High) | 16.3s | 1.35s | 1.57s | 1.93s |
+| Audio best quality | 8.54s | 1.18s | 1.33s | 1.41s |
 
 ### 🎬 Video streams (no audio)
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Video 480p | —s | —s | —s | —s |
-| Video 720p | —s | —s | —s | —s |
-| Video 1080p | —s | —s | —s | —s |
-| Video best quality | —s | —s | —s | —s |
+| Video 480p | 8.61s | 2.21s | 2.60s | 2.30s |
+| Video 720p | 10.8s | 3.83s | 4.31s | 4.59s |
+| Video 1080p | 31.9s | 10.6s | 10.9s | 10.8s |
+| Video best quality | 33.2s | 15.7s | 11.5s | 13.6s |
 
 ### 📦 Muxed streams — native (YouTube pre-muxed, no ffmpeg)
 
@@ -2407,8 +2406,8 @@ is needed — the file is downloaded as-is.
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Native 360p (mp4) | —s | —s | —s | —s |
-| Native 720p (mp4) | —s | —s | —s | —s |
+| Native 360p (mp4) | 15.2s | 2.39s | 3.54s | 2.34s |
+| Native 720p (mp4) | 27.7s | 2.49s | 2.90s | 2.96s |
 
 ### 📦 Muxed streams — combined by ffmpeg
 
@@ -2417,10 +2416,10 @@ downloads both in parallel, then ffmpeg merges them into the final container.
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Muxed 480p | —s | —s | —s | —s |
-| Muxed 720p | —s | —s | —s | —s |
-| Muxed 1080p | —s | —s | —s | —s |
-| Muxed best quality | —s | —s | —s | —s |
+| Muxed 480p | 10.9s | 48.1s | 48.3s | 48.4s |
+| Muxed 720p | 11.2s | 49.9s | 57.3s | 59.3s |
+| Muxed 1080p | 35.4s | 56.9s | 55.8s | 57.7s |
+| Muxed best quality | 27.8s | 60.1s | 59.3s | 59.7s |
 
 ### 🚀 Speed profiles
 
