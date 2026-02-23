@@ -65,17 +65,26 @@ impl MetadataManager {
 
         if let Some(format) = video_format {
             let video_metadata = Self::extract_video_format_metadata(format);
-            tracing::trace!(video_metadata_count = video_metadata.len(), "Extracted video format metadata");
+            tracing::trace!(
+                video_metadata_count = video_metadata.len(),
+                "Extracted video format metadata"
+            );
             all_metadata.extend(video_metadata);
         }
 
         if let Some(format) = audio_format {
             let audio_metadata = Self::extract_audio_format_metadata(format);
-            tracing::trace!(audio_metadata_count = audio_metadata.len(), "Extracted audio format metadata");
+            tracing::trace!(
+                audio_metadata_count = audio_metadata.len(),
+                "Extracted audio format metadata"
+            );
             all_metadata.extend(audio_metadata);
         }
 
-        tracing::trace!(total_metadata_count = all_metadata.len(), "Total metadata entries collected");
+        tracing::trace!(
+            total_metadata_count = all_metadata.len(),
+            "Total metadata entries collected"
+        );
 
         all_metadata
     }
@@ -118,7 +127,13 @@ impl MetadataManager {
             .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
-        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
+        let all_metadata = self.prepare_and_collect_metadata(
+            &path,
+            video,
+            file_format,
+            video_format,
+            audio_format,
+        );
 
         // Build FFmpeg metadata arguments for WebM format
         // WebM is based on Matroska format and uses specific metadata tags
@@ -278,7 +293,13 @@ impl MetadataManager {
             .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
-        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
+        let all_metadata = self.prepare_and_collect_metadata(
+            &path,
+            video,
+            file_format,
+            video_format,
+            audio_format,
+        );
 
         // Build FFmpeg metadata arguments
         let metadata_args: Vec<String> = all_metadata

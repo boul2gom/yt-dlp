@@ -300,13 +300,23 @@ impl<'a> DownloadBuilder<'a> {
             let video_id = self
                 .downloader
                 .download_manager
-                .enqueue_with_headers(video_url, video_path.clone(), Some(self.priority), Some(video_format.download_info.http_headers.clone()))
+                .enqueue_with_headers(
+                    video_url,
+                    video_path.clone(),
+                    Some(self.priority),
+                    Some(video_format.download_info.http_headers.clone()),
+                )
                 .await;
 
             let audio_id = self
                 .downloader
                 .download_manager
-                .enqueue_with_headers(audio_url, audio_path.clone(), Some(self.priority), Some(audio_format.download_info.http_headers.clone()))
+                .enqueue_with_headers(
+                    audio_url,
+                    audio_path.clone(),
+                    Some(self.priority),
+                    Some(audio_format.download_info.http_headers.clone()),
+                )
                 .await;
 
             (video_id, audio_id)

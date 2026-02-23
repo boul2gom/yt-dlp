@@ -909,17 +909,19 @@ impl DownloadManager {
 
                     // Generate an HttpHeaders from default user agent if task doesn't have one
                     let headers = task.http_headers.or_else(|| {
-                        config.user_agent.clone().map(|ua| crate::model::format::HttpHeaders {
-                            user_agent: ua,
-                            accept: "*/*".to_string(),
-                            accept_language: "en-US,en".to_string(),
-                            sec_fetch_mode: "navigate".to_string(),
-                        })
+                        config
+                            .user_agent
+                            .clone()
+                            .map(|ua| crate::model::format::HttpHeaders {
+                                user_agent: ua,
+                                accept: "*/*".to_string(),
+                                accept_language: "en-US,en".to_string(),
+                                sec_fetch_mode: "navigate".to_string(),
+                            })
                     });
 
                     // Build the fetcher
-                    let fetcher_result =
-                        Fetcher::new(&task.url, config.proxy.as_ref(), headers);
+                    let fetcher_result = Fetcher::new(&task.url, config.proxy.as_ref(), headers);
 
                     let mut fetcher = match fetcher_result {
                         Ok(f) => f,

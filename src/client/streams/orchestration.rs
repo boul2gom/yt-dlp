@@ -521,13 +521,18 @@ impl Downloader {
         tracing::debug!("Downloading thumbnail for {}", video.title);
 
         if let Some(thumbnail_url) = &video.thumbnail {
-            let fetcher =
-                Fetcher::new(thumbnail_url, self.proxy.as_ref(), self.user_agent.clone().map(|ua| crate::model::format::HttpHeaders {
-                    user_agent: ua,
-                    accept: "*/*".to_string(),
-                    accept_language: "en-US,en".to_string(),
-                    sec_fetch_mode: "navigate".to_string(),
-                }))?;
+            let fetcher = Fetcher::new(
+                thumbnail_url,
+                self.proxy.as_ref(),
+                self.user_agent
+                    .clone()
+                    .map(|ua| crate::model::format::HttpHeaders {
+                        user_agent: ua,
+                        accept: "*/*".to_string(),
+                        accept_language: "en-US,en".to_string(),
+                        sec_fetch_mode: "navigate".to_string(),
+                    }),
+            )?;
             fetcher.fetch_asset(&output).await?;
             Ok(output)
         } else {

@@ -114,7 +114,7 @@ impl Fetcher {
             if let Ok(hv) = HeaderValue::from_bytes(headers.sec_fetch_mode.as_bytes()) {
                 default_headers.insert("Sec-Fetch-Mode", hv);
             }
-            
+
             builder = builder.default_headers(default_headers);
         } else {
             builder = builder.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
@@ -231,7 +231,8 @@ impl Fetcher {
             headers.insert(reqwest::header::AUTHORIZATION, value);
         }
 
-        let response = self.client
+        let response = self
+            .client
             .get(&self.url)
             .headers(headers)
             .send()
