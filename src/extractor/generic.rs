@@ -4,7 +4,7 @@
 //! with optional authentication support.
 
 use async_trait::async_trait;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::Result;
@@ -120,13 +120,29 @@ impl Generic {
     /// let mut extractor = Generic::new(PathBuf::from("yt-dlp"));
     /// extractor.with_cookies("instagram_cookies.txt");
     /// ```
-    pub fn with_cookies(&mut self, cookie_file: &str) -> &mut Self {
+    pub fn with_cookies(&mut self, cookie_file: impl AsRef<Path>) -> &mut Self {
+        let cookie_path = cookie_file.as_ref().display().to_string();
         tracing::debug!(
-            cookie_file = cookie_file,
+            cookie_file = cookie_path,
             "Adding cookie file for authentication"
         );
 
-        self.args.push(format!("--cookies={}", cookie_file));
+        self.args.push(format!("--cookies={}", cookie_path));
+        self
+    }
+
+    /// Extract cookies from a browser for authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
+    pub fn with_cookies_from_browser(&mut self, browser: &str) -> &mut Self {
+        tracing::debug!(browser = browser, "Adding browser cookie extraction");
+        self.args.push(format!("--cookies-from-browser={}", browser));
         self
     }
 

@@ -616,11 +616,9 @@ impl Fetcher {
     ) -> Result<()> {
         let client = Arc::clone(&self.client);
 
-        // Check if the segment is already downloaded by reading the start AND the end
-        // This reduces the risk of partial writes being detected as complete
+        // Check if the segment is already downloaded
         let mut file_guard = context.file.lock().await;
 
-        // Check start
         file_guard.seek(std::io::SeekFrom::Start(start)).await?;
         let mut start_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
         let start_read = file_guard.read(&mut start_buffer).await?;
@@ -644,15 +642,11 @@ impl Fetcher {
         drop(file_guard);
 
         if start_has_data && end_has_data {
-            // We don't update the downloaded_bytes counter here because it was already
-            // initialized with the sum of already downloaded segments
             tracing::debug!(
                 segment_start = start,
                 segment_end = end,
-                segment_size = end - start + 1,
                 "Segment already downloaded (verified), skipping"
             );
-
             return Ok(());
         } else if start_has_data {
             tracing::warn!(
@@ -669,8 +663,7 @@ impl Fetcher {
         let url_clone = url.to_string();
         let range_clone = range_header.clone();
 
-        let data = self
-            .retry_policy
+        self.retry_policy
             .execute_with_condition(
                 || async {
                     let response = client
@@ -680,32 +673,46 @@ impl Fetcher {
                         .await?
                         .error_for_status()?;
 
-                    // Read the data
-                    response.bytes().await
+                    let mut current_offset = start;
+                    let mut chunk_stream = response.bytes_stream();
+
+                    // We write chunk by chunk, keeping the memory footprint low.
+                    while let Some(chunk_result) = chunk_stream.next().await {
+                        let chunk = chunk_result?;
+                        
+                        let mut file_guard = context.file.lock().await;
+                        file_guard.seek(std::io::SeekFrom::Start(current_offset)).await?;
+                        file_guard.write_all(&chunk).await?;
+                        
+                        current_offset += chunk.len() as u64;
+
+                        // Update the progress counter WITHOUT holding the file lock
+                        let new_total = context
+                            .downloaded_bytes
+                            .fetch_add(chunk.len() as u64, Ordering::Relaxed)
+                            + chunk.len() as u64;
+
+                        // Call the progress callback if available
+                        if let Some(callback) = &context.progress_callback {
+                            callback(new_total, context.total_bytes);
+                        }
+                    }
+                    
+                    // Flush after the segment is totally downloaded
+                    let mut file_guard = context.file.lock().await;
+                    file_guard.flush().await?;
+                    
+                    Ok(())
                 },
-                is_http_error_retryable,
+                |err: &Error| {
+                    if let Error::Http { source, .. } = err {
+                        is_http_error_retryable(source)
+                    } else {
+                        false
+                    }
+                },
             )
             .await?;
-
-        // Acquire the mutex ONLY for seek+write+flush (minimal lock duration)
-        {
-            let mut file_guard = context.file.lock().await;
-            file_guard.seek(std::io::SeekFrom::Start(start)).await?;
-            file_guard.write_all(&data).await?;
-            file_guard.flush().await?;
-        } // Lock released here - critical section is minimal
-
-        // Update the progress counter WITHOUT holding the file lock
-        let segment_size = data.len() as u64;
-        let new_total = context
-            .downloaded_bytes
-            .fetch_add(segment_size, Ordering::Relaxed)
-            + segment_size;
-
-        // Call the progress callback if available (no lock needed)
-        if let Some(callback) = &context.progress_callback {
-            callback(new_total, context.total_bytes);
-        }
 
         Ok(())
     }

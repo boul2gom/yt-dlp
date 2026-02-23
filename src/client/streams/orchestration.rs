@@ -3,6 +3,7 @@ use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
 use crate::error::Error;
 use crate::executor::Executor;
+use crate::metadata::MetadataManager;
 use crate::model::Video;
 use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
@@ -423,8 +424,8 @@ impl Downloader {
                 available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
             })?;
 
-        // Download and combine video and audio
-        self.download_and_combine_formats(best_video, best_audio, &path)
+        // Download and combine video and audio, embedding metadata in a single ffmpeg pass
+        self.download_and_combine_with_meta(video, best_video, best_audio, &path)
             .await?;
 
         // Cache the downloaded file if caching is enabled
@@ -694,11 +695,11 @@ impl Downloader {
                 format_id: format.format_id.clone(),
             })?;
 
-        // Create an optimized fetcher with parallel downloading
+        // Create an optimized fetcher with parallel downloading, driven by the configured SpeedProfile
         let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)?
-            .with_parallel_segments(8) // Use 8 parallel segments
-            .with_segment_size(1024 * 1024 * 5) // 5 MB per segment
-            .with_retry_attempts(3); // 3 attempts in case of failure
+            .with_parallel_segments(self.download_manager.parallel_segments())
+            .with_segment_size(self.download_manager.segment_size())
+            .with_retry_attempts(self.download_manager.retry_attempts());
 
         fetcher.fetch_asset(path.clone()).await?;
 
@@ -1677,5 +1678,112 @@ impl Downloader {
         utils::remove_temp_file(&audio_temp_path).await;
 
         Ok(output_path.to_path_buf())
+    }
+
+    /// Downloads two format streams in parallel and combines them with ffmpeg in a single pass,
+    /// embedding video metadata and chapters at the same time.
+    ///
+    /// Unlike [`download_and_combine_formats`](Self::download_and_combine_formats), this method:
+    /// - Selects a container-compatible audio codec to avoid re-encoding when possible
+    /// - Embeds metadata (title, artist, chapters, etc.) in the same ffmpeg invocation
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata used to build the embedded FFMETADATA1 file.
+    /// * `video_format` - The video format to download.
+    /// * `audio_format` - The audio format to download.
+    /// * `output_path` - The full path for the combined output file.
+    ///
+    /// # Returns
+    ///
+    /// The path to the combined output file.
+    pub(crate) async fn download_and_combine_with_meta(
+        &self,
+        video: &Video,
+        video_format: &Format,
+        audio_format: &Format,
+        output_path: &Path,
+    ) -> crate::error::Result<PathBuf> {
+        let video_ext = video_format.download_info.ext.as_str();
+        let audio_ext = audio_format.download_info.ext.as_str();
+        let video_filename = format!("temp_video_{}.{}", utils::fs::random_filename(8), video_ext);
+        let audio_filename = format!("temp_audio_{}.{}", utils::fs::random_filename(8), audio_ext);
+
+        // Download video and audio in parallel
+        let (video_result, audio_result) = tokio::join!(
+            self.download_format(video_format, &video_filename),
+            self.download_format(audio_format, &audio_filename)
+        );
+
+        let video_temp_path = video_result?;
+        let audio_temp_path = audio_result?;
+
+        // Build FFMETADATA1 file with global metadata and chapters for a single-pass embed.
+        // Errors are non-fatal: we fall back to combining without metadata.
+        let video_clone = video.clone();
+        let metadata_file = tokio::task::spawn_blocking(move || {
+            MetadataManager::create_combined_metadata_file(&video_clone)
+        })
+        .await
+        .ok()
+        .and_then(|r| {
+            if let Err(ref e) = r {
+                tracing::warn!("Failed to build metadata file for combine: {}", e);
+            }
+            r.ok()
+        });
+
+        let operation = crate::events::PostProcessOperation::CombineStreams {
+            audio_path: audio_temp_path.clone(),
+            video_path: video_temp_path.clone(),
+        };
+        let start_time = std::time::Instant::now();
+
+        self.emit_event(crate::events::DownloadEvent::PostProcessStarted {
+            input_path: audio_temp_path.clone(),
+            operation: operation.clone(),
+        })
+        .await;
+
+        utils::create_parent_dir(output_path).await?;
+
+        let combine_result = self
+            .execute_ffmpeg_combine(
+                &audio_temp_path,
+                &video_temp_path,
+                output_path,
+                metadata_file.as_deref(),
+            )
+            .await;
+
+        // Always clean up temp files regardless of outcome
+        utils::remove_temp_file(&video_temp_path).await;
+        utils::remove_temp_file(&audio_temp_path).await;
+        if let Some(ref meta) = metadata_file {
+            utils::remove_temp_file(meta).await;
+        }
+
+        match combine_result {
+            Err(e) => {
+                self.emit_event(crate::events::DownloadEvent::PostProcessFailed {
+                    input_path: audio_temp_path,
+                    operation,
+                    error: e.to_string(),
+                })
+                .await;
+                Err(e)
+            }
+            Ok(()) => {
+                let duration = start_time.elapsed();
+                self.emit_event(crate::events::DownloadEvent::PostProcessCompleted {
+                    input_path: audio_temp_path,
+                    output_path: output_path.to_path_buf(),
+                    operation,
+                    duration,
+                })
+                .await;
+                Ok(output_path.to_path_buf())
+            }
+        }
     }
 }

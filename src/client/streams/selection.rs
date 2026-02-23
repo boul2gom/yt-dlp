@@ -181,63 +181,31 @@ impl VideoSelection for Video {
             "Selecting video format with preferences"
         );
 
-        let video_formats: Vec<&Format> = self
-            .formats
-            .iter()
-            .filter(|format| format.is_video())
-            .collect();
+        let video_formats = self.formats.iter().filter(|f| f.is_video());
+        
+        video_formats.clone().next()?;
 
-        if video_formats.is_empty() {
-            return None;
-        }
+        let has_codec_match = codec != VideoCodecPreference::Any && video_formats.clone().any(|f| {
+            f.codec_info.video_codec.as_ref().is_some_and(|c| matches_video_codec(c, &codec))
+        });
 
-        // Filter by codec if a specific one is requested
-        let codec_filtered: Vec<&Format> = match codec {
-            VideoCodecPreference::Any => video_formats,
-            _ => {
-                let filtered: Vec<&Format> = video_formats
-                    .iter()
-                    .filter(|format| {
-                        if let Some(video_codec) = &format.codec_info.video_codec {
-                            matches_video_codec(video_codec, &codec)
-                        } else {
-                            false
-                        }
-                    })
-                    .copied()
-                    .collect();
-
-                if filtered.is_empty() {
-                    video_formats
-                } else {
-                    filtered
-                }
+        let formats_iter = video_formats.filter(move |f| {
+            if !has_codec_match {
+                true
+            } else {
+                f.codec_info.video_codec.as_ref().is_some_and(|c| matches_video_codec(c, &codec))
             }
-        };
+        });
 
         // Select based on quality preference
         match quality {
-            VideoQuality::Best => codec_filtered
-                .into_iter()
-                .max_by(|a, b| self.compare_video_formats(a, b)),
-
-            VideoQuality::Worst => codec_filtered
-                .into_iter()
-                .min_by(|a, b| self.compare_video_formats(a, b)),
-
-            VideoQuality::High => select_closest_video_height(codec_filtered, 1080, self),
-
-            VideoQuality::Medium => select_closest_video_height(codec_filtered, 720, self),
-
-            VideoQuality::Low => select_closest_video_height(codec_filtered, 480, self),
-
-            VideoQuality::CustomHeight(height) => {
-                select_closest_video_height(codec_filtered, height, self)
-            }
-
-            VideoQuality::CustomWidth(width) => {
-                select_closest_video_width(codec_filtered, width, self)
-            }
+            VideoQuality::Best => formats_iter.max_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Worst => formats_iter.min_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::High => select_closest_video_height(formats_iter, 1080, self),
+            VideoQuality::Medium => select_closest_video_height(formats_iter, 720, self),
+            VideoQuality::Low => select_closest_video_height(formats_iter, 480, self),
+            VideoQuality::CustomHeight(height) => select_closest_video_height(formats_iter, height, self),
+            VideoQuality::CustomWidth(width) => select_closest_video_width(formats_iter, width, self),
         }
     }
 
@@ -255,59 +223,30 @@ impl VideoSelection for Video {
             "Selecting audio format with preferences"
         );
 
-        let audio_formats: Vec<&Format> = self
-            .formats
-            .iter()
-            .filter(|format| format.is_audio())
-            .collect();
+        let audio_formats = self.formats.iter().filter(|f| f.is_audio());
 
-        if audio_formats.is_empty() {
-            return None;
-        }
+        audio_formats.clone().next()?;
 
-        // Filter by codec if a specific one is requested
-        let codec_filtered: Vec<&Format> = match codec {
-            AudioCodecPreference::Any => audio_formats,
-            _ => {
-                let filtered: Vec<&Format> = audio_formats
-                    .iter()
-                    .filter(|format| {
-                        if let Some(audio_codec) = &format.codec_info.audio_codec {
-                            matches_audio_codec(audio_codec, &codec)
-                        } else {
-                            false
-                        }
-                    })
-                    .copied()
-                    .collect();
+        let has_codec_match = codec != AudioCodecPreference::Any && audio_formats.clone().any(|f| {
+            f.codec_info.audio_codec.as_ref().is_some_and(|c| matches_audio_codec(c, &codec))
+        });
 
-                if filtered.is_empty() {
-                    audio_formats
-                } else {
-                    filtered
-                }
+        let formats_iter = audio_formats.filter(move |f| {
+            if !has_codec_match {
+                true
+            } else {
+                f.codec_info.audio_codec.as_ref().is_some_and(|c| matches_audio_codec(c, &codec))
             }
-        };
+        });
 
         // Select based on quality preference
         match quality {
-            AudioQuality::Best => codec_filtered
-                .into_iter()
-                .max_by(|a, b| self.compare_audio_formats(a, b)),
-
-            AudioQuality::Worst => codec_filtered
-                .into_iter()
-                .min_by(|a, b| self.compare_audio_formats(a, b)),
-
-            AudioQuality::High => select_closest_audio_bitrate(codec_filtered, 192, self),
-
-            AudioQuality::Medium => select_closest_audio_bitrate(codec_filtered, 128, self),
-
-            AudioQuality::Low => select_closest_audio_bitrate(codec_filtered, 96, self),
-
-            AudioQuality::CustomBitrate(bitrate) => {
-                select_closest_audio_bitrate(codec_filtered, bitrate, self)
-            }
+            AudioQuality::Best => formats_iter.max_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Worst => formats_iter.min_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::High => select_closest_audio_bitrate(formats_iter, 192, self),
+            AudioQuality::Medium => select_closest_audio_bitrate(formats_iter, 128, self),
+            AudioQuality::Low => select_closest_audio_bitrate(formats_iter, 96, self),
+            AudioQuality::CustomBitrate(bitrate) => select_closest_audio_bitrate(formats_iter, bitrate, self),
         }
     }
 }
@@ -323,57 +262,38 @@ impl VideoSelection for Video {
 /// # Returns
 ///
 /// The format with the closest height to the target, or None if no formats available
-fn select_closest_video_height<'a>(
-    formats: Vec<&'a Format>,
+fn select_closest_video_height<'a, I>(
+    formats: I,
     target_height: u32,
     video: &Video,
-) -> Option<&'a Format> {
+) -> Option<&'a Format>
+where
+    I: Iterator<Item = &'a Format> + Clone,
+{
     tracing::debug!(
         target_height = target_height,
-        available_formats = formats.len(),
         video_id = %video.id,
         "Selecting video format closest to target height"
     );
 
-    if formats.is_empty() {
-        return None;
-    }
-
-    // First try to find formats with height >= target
-    let formats_above_target: Vec<&Format> = formats
-        .iter()
-        .filter(|format| {
-            format
-                .video_resolution
-                .height
-                .is_some_and(|h| h >= target_height)
-        })
-        .copied()
-        .collect();
-
-    if !formats_above_target.is_empty() {
-        // Find the one with the closest height to target
-        return formats_above_target.into_iter().min_by(|a, b| {
-            let a_diff = a
-                .video_resolution
-                .height
-                .unwrap_or(0)
-                .saturating_sub(target_height);
-            let b_diff = b
-                .video_resolution
-                .height
-                .unwrap_or(0)
-                .saturating_sub(target_height);
+    let closest_above = formats.clone()
+        .filter(|format| format.video_resolution.height.is_some_and(|h| h >= target_height))
+        .min_by(|a, b| {
+            let a_diff = a.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
+            let b_diff = b.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
 
             // Compare difference then quality
             a_diff
                 .cmp(&b_diff)
                 .then_with(|| video.compare_video_formats(a, b))
         });
+
+    if let Some(closest) = closest_above {
+        return Some(closest);
     }
 
     // If no format with height >= target, get the highest available
-    formats.into_iter().max_by(|a, b| {
+    formats.max_by(|a, b| {
         let a_height = a.video_resolution.height.unwrap_or(0);
         let b_height = b.video_resolution.height.unwrap_or(0);
 
@@ -395,57 +315,38 @@ fn select_closest_video_height<'a>(
 /// # Returns
 ///
 /// The format with the closest width to the target, or None if no formats available
-fn select_closest_video_width<'a>(
-    formats: Vec<&'a Format>,
+fn select_closest_video_width<'a, I>(
+    formats: I,
     target_width: u32,
     video: &Video,
-) -> Option<&'a Format> {
+) -> Option<&'a Format>
+where
+    I: Iterator<Item = &'a Format> + Clone,
+{
     tracing::debug!(
         target_width = target_width,
-        available_formats = formats.len(),
         video_id = %video.id,
         "Selecting video format closest to target width"
     );
 
-    if formats.is_empty() {
-        return None;
-    }
-
-    // First try to find formats with width >= target
-    let formats_above_target: Vec<&Format> = formats
-        .iter()
-        .filter(|format| {
-            format
-                .video_resolution
-                .width
-                .is_some_and(|w| w >= target_width)
-        })
-        .copied()
-        .collect();
-
-    if !formats_above_target.is_empty() {
-        // Find the one with the closest width to target
-        return formats_above_target.into_iter().min_by(|a, b| {
-            let a_diff = a
-                .video_resolution
-                .width
-                .unwrap_or(0)
-                .saturating_sub(target_width);
-            let b_diff = b
-                .video_resolution
-                .width
-                .unwrap_or(0)
-                .saturating_sub(target_width);
+    let closest_above = formats.clone()
+        .filter(|format| format.video_resolution.width.is_some_and(|w| w >= target_width))
+        .min_by(|a, b| {
+            let a_diff = a.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
+            let b_diff = b.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
 
             // Compare difference then quality
             a_diff
                 .cmp(&b_diff)
                 .then_with(|| video.compare_video_formats(a, b))
         });
+
+    if let Some(closest) = closest_above {
+        return Some(closest);
     }
 
     // If no format with width >= target, get the highest available
-    formats.into_iter().max_by(|a, b| {
+    formats.max_by(|a, b| {
         let a_width = a.video_resolution.width.unwrap_or(0);
         let b_width = b.video_resolution.width.unwrap_or(0);
 
@@ -467,39 +368,25 @@ fn select_closest_video_width<'a>(
 /// # Returns
 ///
 /// The format with the closest bitrate to the target, or None if no formats available
-fn select_closest_audio_bitrate<'a>(
-    formats: Vec<&'a Format>,
+fn select_closest_audio_bitrate<'a, I>(
+    formats: I,
     target_bitrate: u32,
     video: &Video,
-) -> Option<&'a Format> {
+) -> Option<&'a Format>
+where
+    I: Iterator<Item = &'a Format> + Clone,
+{
     tracing::debug!(
         target_bitrate = target_bitrate,
-        available_formats = formats.len(),
         video_id = %video.id,
         "Selecting audio format closest to target bitrate"
     );
 
-    if formats.is_empty() {
-        return None;
-    }
-
     let target_float = OrderedFloat(target_bitrate as f64);
 
-    // First try to find formats with bitrate >= target
-    let formats_above_target: Vec<&Format> = formats
-        .iter()
-        .filter(|format| {
-            format
-                .rates_info
-                .audio_rate
-                .is_some_and(|r| r >= target_float)
-        })
-        .copied()
-        .collect();
-
-    if !formats_above_target.is_empty() {
-        // Find the one with the closest bitrate to target
-        return formats_above_target.into_iter().min_by(|a, b| {
+    let closest_above = formats.clone()
+        .filter(|format| format.rates_info.audio_rate.is_some_and(|r| r >= target_float))
+        .min_by(|a, b| {
             let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
             let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
 
@@ -512,10 +399,13 @@ fn select_closest_audio_bitrate<'a>(
                 .unwrap_or(Ordering::Equal)
                 .then_with(|| video.compare_audio_formats(a, b))
         });
+
+    if let Some(closest) = closest_above {
+        return Some(closest);
     }
 
     // If no format with bitrate >= target, get the highest available
-    formats.into_iter().max_by(|a, b| {
+    formats.max_by(|a, b| {
         let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
         let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
 

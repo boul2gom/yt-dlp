@@ -11,7 +11,7 @@ use crate::utils::fs;
 #[cfg(feature = "cache-backend")]
 use cache::{DownloadCache, PlaylistCache, VideoCache};
 use std::fmt::{self, Display};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -243,6 +243,35 @@ impl Display for Downloader {
             self.args,
             self.proxy.is_some()
         )
+    }
+}
+
+/// Returns the appropriate FFmpeg audio codec argument for muxing based on container compatibility.
+///
+/// Uses stream copy (`"copy"`) when the audio format is natively compatible with the output
+/// container (e.g., AAC/M4A into MP4, Opus/WebM into WebM, any codec into MKV).
+/// Falls back to `"aac"` re-encoding otherwise.
+fn audio_codec_for_mux(audio_path: &Path, output_path: &Path) -> &'static str {
+    let audio_ext = audio_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let output_ext = output_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let is_aac = matches!(audio_ext.as_str(), "m4a" | "aac");
+    let is_opus = matches!(audio_ext.as_str(), "webm" | "opus" | "ogg");
+
+    match output_ext.as_str() {
+        "mp4" | "m4a" | "mov" if is_aac => "copy",
+        "webm" if is_opus => "copy",
+        // Matroska supports any codec natively
+        "mkv" | "mka" => "copy",
+        _ => "aac",
     }
 }
 
@@ -572,6 +601,48 @@ impl Downloader {
         self
     }
 
+    /// Use a Netscape cookie file for authentication.
+    ///
+    /// Pushes `--cookies=<path>` to both extractors and the raw yt-dlp arg list,
+    /// so that metadata fetches and direct downloads are both authenticated.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Netscape cookie file
+    pub fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        let s = path.as_ref().display().to_string();
+        self.youtube_extractor.with_cookies(path.as_ref());
+        self.generic_extractor.with_cookies(path.as_ref());
+        self.args.push(format!("--cookies={}", s));
+        self
+    }
+
+    /// Extract cookies from a browser for authentication.
+    ///
+    /// Pushes `--cookies-from-browser=<browser>` to both extractors and the raw
+    /// yt-dlp arg list.
+    ///
+    /// # Arguments
+    ///
+    /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
+    pub fn with_cookies_from_browser(&mut self, browser: impl AsRef<str>) -> &mut Self {
+        let b = browser.as_ref();
+        self.youtube_extractor.with_cookies_from_browser(b);
+        self.generic_extractor.with_cookies_from_browser(b);
+        self.args.push(format!("--cookies-from-browser={}", b));
+        self
+    }
+
+    /// Use .netrc for authentication.
+    ///
+    /// Pushes `--netrc` to both extractors and the raw yt-dlp arg list.
+    pub fn with_netrc(&mut self) -> &mut Self {
+        self.youtube_extractor.with_netrc();
+        self.generic_extractor.with_netrc();
+        self.args.push("--netrc".to_string());
+        self
+    }
+
     /// Updates the yt-dlp executable.
     /// Be careful, this function may take a while to execute.
     ///
@@ -713,7 +784,7 @@ impl Downloader {
 
         // Perform the combination with FFmpeg
         if let Err(e) = self
-            .execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
+            .execute_ffmpeg_combine(&audio_path, &video_path, &output_path, None)
             .await
         {
             self.emit_event(crate::events::DownloadEvent::PostProcessFailed {
@@ -751,26 +822,19 @@ impl Downloader {
         Ok(output_path)
     }
 
-    /// Executes the FFmpeg command to combine audio and video files
+    /// Executes the FFmpeg command to combine audio and video files.
+    ///
+    /// Selects the audio codec automatically: uses stream copy when the audio format is
+    /// natively compatible with the output container (e.g., AAC into MP4, Opus into WebM),
+    /// otherwise re-encodes to AAC. Optionally embeds a pre-built FFMETADATA1 file
+    /// (metadata + chapters) in the same pass when `metadata_file` is provided.
     async fn execute_ffmpeg_combine(
         &self,
-        audio_path: impl Into<PathBuf>,
-        video_path: impl Into<PathBuf>,
-        output_path: impl Into<PathBuf>,
+        audio_path: &Path,
+        video_path: &Path,
+        output_path: &Path,
+        metadata_file: Option<&Path>,
     ) -> Result<()> {
-        let audio_path: PathBuf = audio_path.into();
-        let video_path: PathBuf = video_path.into();
-        let output_path: PathBuf = output_path.into();
-
-        tracing::debug!(
-            audio_path = ?audio_path,
-            video_path = ?video_path,
-            output_path = ?output_path,
-            ffmpeg_path = ?self.libraries.ffmpeg,
-            timeout = ?self.timeout,
-            "Executing FFmpeg combine operation"
-        );
-
         let audio = audio_path
             .to_str()
             .ok_or(Error::Unknown("Invalid audio path".to_string()))?;
@@ -781,20 +845,57 @@ impl Downloader {
             .to_str()
             .ok_or(Error::Unknown("Invalid output path".to_string()))?;
 
-        let args = vec![
-            "-i", audio, "-i", video, "-c:v", "copy", "-c:a", "aac", output,
+        let audio_codec = audio_codec_for_mux(audio_path, output_path);
+
+        tracing::debug!(
+            audio_path = ?audio_path,
+            video_path = ?video_path,
+            output_path = ?output_path,
+            audio_codec = audio_codec,
+            has_metadata = metadata_file.is_some(),
+            ffmpeg_path = ?self.libraries.ffmpeg,
+            timeout = ?self.timeout,
+            "Executing FFmpeg combine operation"
+        );
+
+        let mut args = vec![
+            "-i".to_string(), audio.to_string(),
+            "-i".to_string(), video.to_string(),
         ];
+
+        if let Some(meta) = metadata_file {
+            let meta_str = meta
+                .to_str()
+                .ok_or(Error::Unknown("Invalid metadata path".to_string()))?;
+            args.push("-i".to_string());
+            args.push(meta_str.to_string());
+        }
+
+        // Map audio from input 0 and video from input 1 explicitly
+        args.extend_from_slice(&[
+            "-map".to_string(), "0:a".to_string(),
+            "-map".to_string(), "1:v".to_string(),
+        ]);
+
+        if metadata_file.is_some() {
+            args.extend_from_slice(&[
+                "-map_metadata".to_string(), "2".to_string(),
+                "-map_chapters".to_string(), "2".to_string(),
+            ]);
+        }
+
+        args.extend_from_slice(&[
+            "-c:v".to_string(), "copy".to_string(),
+            "-c:a".to_string(), audio_codec.to_string(),
+            output.to_string(),
+        ]);
 
         tracing::debug!(
             args = ?args,
             "FFmpeg combine command arguments"
         );
 
-        let executor = Executor::new(
-            self.libraries.ffmpeg.clone(),
-            utils::to_owned(args),
-            self.timeout,
-        );
+        let executor = Executor::new(self.libraries.ffmpeg.clone(), args, self.timeout);
 
         executor.execute().await?;
 
@@ -1519,14 +1620,52 @@ impl Downloader {
             "Selected video format"
         );
 
-        // Select audio format based on quality and codec preferences
-        let audio_format = video
-            .select_audio_format(audio_quality, audio_codec.clone())
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Audio,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let output_path: PathBuf = output.into();
+
+        // When no explicit codec preference, prefer a codec that is natively compatible
+        // with the output container to avoid re-encoding during muxing.
+        // For example, AAC audio can be stream-copied into MP4 without re-encoding,
+        // while Opus requires an expensive software transcode to AAC (~50x real-time).
+        let preferred_audio_codec = if audio_codec == AudioCodecPreference::Any {
+            let ext = output_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            match ext.as_str() {
+                "mp4" | "m4a" | "mov" => Some(AudioCodecPreference::AAC),
+                "webm" => Some(AudioCodecPreference::Opus),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        // Select audio format: try the container-compatible codec first, fall back to any
+        let audio_format = if let Some(pref) = preferred_audio_codec {
+            tracing::debug!(
+                video_id = %video.id,
+                preferred_codec = ?pref,
+                output_ext = ?output_path.extension(),
+                "Trying container-compatible audio codec to avoid re-encoding"
+            );
+            video
+                .select_audio_format(audio_quality, pref)
+                .or_else(|| {
+                    tracing::debug!(
+                        video_id = %video.id,
+                        "Container-compatible audio not available, falling back to any codec"
+                    );
+                    video.select_audio_format(audio_quality, AudioCodecPreference::Any)
+                })
+        } else {
+            video.select_audio_format(audio_quality, audio_codec)
+        }
+        .ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Audio,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         tracing::debug!(
             video_id = %video.id,
@@ -1536,10 +1675,8 @@ impl Downloader {
             "Selected audio format"
         );
 
-        let output_path: PathBuf = output.into();
-
-        // Download and combine formats using the helper
-        self.download_and_combine_formats(video_format, audio_format, &output_path)
+        // Download and combine formats, embedding metadata in a single ffmpeg pass
+        self.download_and_combine_with_meta(video, video_format, audio_format, &output_path)
             .await
     }
 

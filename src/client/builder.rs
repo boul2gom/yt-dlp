@@ -42,6 +42,9 @@ pub struct DownloaderBuilder {
     args: Vec<String>,
     timeout: Duration,
     proxy: Option<ProxyConfig>,
+    cookies: Option<PathBuf>,
+    cookies_from_browser: Option<String>,
+    use_netrc: bool,
     #[cfg(feature = "cache-backend")]
     cache_dir: Option<PathBuf>,
     download_manager_config: Option<ManagerConfig>,
@@ -69,6 +72,9 @@ impl DownloaderBuilder {
             args: Vec::new(),
             timeout: crate::client::DEFAULT_TIMEOUT,
             proxy: None,
+            cookies: None,
+            cookies_from_browser: None,
+            use_netrc: false,
             #[cfg(feature = "cache-backend")]
             cache_dir: None,
             download_manager_config: None,
@@ -130,6 +136,32 @@ impl DownloaderBuilder {
         );
 
         self.proxy = Some(proxy);
+        self
+    }
+
+    /// Use a Netscape cookie file for authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Netscape cookie file
+    pub fn with_cookies(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cookies = Some(path.into());
+        self
+    }
+
+    /// Extract cookies from a browser for authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
+    pub fn with_cookies_from_browser(mut self, browser: impl Into<String>) -> Self {
+        self.cookies_from_browser = Some(browser.into());
+        self
+    }
+
+    /// Use .netrc for authentication.
+    pub fn with_netrc(mut self) -> Self {
+        self.use_netrc = true;
         self
     }
 
@@ -293,6 +325,27 @@ impl DownloaderBuilder {
             args.push(proxy.to_ytdlp_arg());
         }
 
+        // Create extractors (must be mut so cookie args can be pushed)
+        let mut youtube_extractor = crate::extractor::Youtube::new(self.libraries.youtube.clone());
+        let mut generic_extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
+
+        // Propagate cookie configuration to both extractors and raw args
+        if let Some(ref path) = self.cookies {
+            youtube_extractor.with_cookies(path);
+            generic_extractor.with_cookies(path);
+            args.push(format!("--cookies={}", path.display()));
+        }
+        if let Some(ref browser) = self.cookies_from_browser {
+            youtube_extractor.with_cookies_from_browser(browser);
+            generic_extractor.with_cookies_from_browser(browser);
+            args.push(format!("--cookies-from-browser={}", browser));
+        }
+        if self.use_netrc {
+            youtube_extractor.with_netrc();
+            generic_extractor.with_netrc();
+            args.push("--netrc".to_string());
+        }
+
         // Create caches if enabled
         #[cfg(feature = "cache-backend")]
         let (cache, download_cache, playlist_cache) = if let Some(cache_dir) = self.cache_dir {
@@ -310,10 +363,6 @@ impl DownloaderBuilder {
         } else {
             (None, None, None)
         };
-
-        // Create extractors
-        let youtube_extractor = crate::extractor::Youtube::new(self.libraries.youtube.clone());
-        let generic_extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
 
         #[cfg(feature = "statistics")]
         let statistics = Arc::new(crate::stats::StatisticsTracker::new(&event_bus));

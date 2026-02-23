@@ -1790,6 +1790,122 @@ Supported proxy types:
 - **Authentication**: Username/password authentication
 - **No-proxy list**: Exclude specific domains from proxying
 
+### 🔑 Authentication & Cookies
+
+Many platforms (YouTube bot-protection, Twitch, age-restricted content, etc.) require authentication.
+The library supports three authentication modes that are propagated to both metadata extraction and
+all download operations automatically.
+
+#### Cookie file (Netscape format)
+
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+
+    // Export cookies from your browser with a browser extension (e.g. "Get cookies.txt LOCALLY")
+    let downloader = Downloader::builder(libraries, PathBuf::from("output"))
+        .with_cookies("cookies.txt")
+        .build()
+        .await?;
+
+    let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
+    downloader.download_video(&video, "video.mp4").await?;
+
+    Ok(())
+}
+```
+
+#### Browser cookies
+
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+
+    // yt-dlp will read cookies directly from your browser's cookie store
+    let downloader = Downloader::builder(libraries, PathBuf::from("output"))
+        .with_cookies_from_browser("chrome") // or "firefox", "safari", "edge", …
+        .build()
+        .await?;
+
+    let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
+    downloader.download_video(&video, "video.mp4").await?;
+
+    Ok(())
+}
+```
+
+#### Runtime (after build)
+
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+
+    let mut downloader = Downloader::builder(libraries, PathBuf::from("output"))
+        .build()
+        .await?;
+
+    // Apply cookies after build — propagates to both extractors and download args
+    downloader.with_cookies("cookies.txt");
+    // or: downloader.with_cookies_from_browser("chrome");
+    // or: downloader.with_netrc();
+
+    let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
+    downloader.download_video(&video, "video.mp4").await?;
+
+    Ok(())
+}
+```
+
+#### .netrc
+
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+
+    let downloader = Downloader::builder(libraries, PathBuf::from("output"))
+        .with_netrc()
+        .build()
+        .await?;
+
+    let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
+    downloader.download_video(&video, "video.mp4").await?;
+
+    Ok(())
+}
+```
+
 ### ✂️ Partial Download
 
 Download only specific parts of a video using time ranges or chapters:
@@ -2256,7 +2372,7 @@ Run [`examples/compare.rs`](#-profiling-feature-profiling) with any public YouTu
 reproduce these numbers on your own connection:
 
 ```bash
-cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --runs 3
+cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --cookies-from-browser safari --runs 3
 ```
 
 > Results below are averages over 3 runs on a typical broadband connection.
