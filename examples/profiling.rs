@@ -466,6 +466,8 @@ fn run_event_bus() -> ScenarioResult {
     let mut rx = bus.subscribe();
 
     let start = Instant::now();
+
+    // Loop 1: DownloadQueued events — realistic allocation cost (String + PathBuf per event)
     for i in 0..N {
         let event = DownloadEvent::DownloadQueued {
             download_id: i as u64,
@@ -477,9 +479,24 @@ fn run_event_bus() -> ScenarioResult {
         // Drain the receiver to prevent lagging
         while rx.try_recv().is_ok() {}
     }
+
+    // Loop 2: DownloadProgress events — all-numeric fields, zero extra allocations;
+    // isolates pure channel throughput from event construction cost
+    for i in 0..N {
+        let event = DownloadEvent::DownloadProgress {
+            download_id: i as u64,
+            downloaded_bytes: (i as u64) * 1024,
+            total_bytes: N as u64 * 1024,
+            speed_bytes_per_sec: 1_000_000.0,
+            eta_seconds: Some((N - i) as u64),
+        };
+        bus.emit(event);
+        while rx.try_recv().is_ok() {}
+    }
+
     ScenarioResult {
         name: "event_bus".to_string(),
-        iterations: N,
+        iterations: N * 2,
         total: start.elapsed(),
     }
 }

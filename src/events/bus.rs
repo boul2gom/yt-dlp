@@ -44,17 +44,19 @@ impl EventBus {
 
     /// Emits an event to all subscribers
     ///
-    /// Events are wrapped in Arc for efficient cloning across subscribers.
+    /// Accepts either a bare `DownloadEvent` (wrapped in `Arc` internally) or an existing
+    /// `Arc<DownloadEvent>` to avoid a redundant allocation when the caller already holds one.
     /// If no subscribers are listening, the event is silently dropped.
     ///
     /// # Arguments
     ///
-    /// * `event` - The event to emit
+    /// * `event` - The event to emit (any type that converts into `Arc<DownloadEvent>`)
     ///
     /// # Returns
     ///
     /// The number of active receivers that received the event. If 0, no one is listening.
-    pub fn emit(&self, event: DownloadEvent) -> usize {
+    pub fn emit(&self, event: impl Into<Arc<DownloadEvent>>) -> usize {
+        let event = event.into();
         let event_type = event.event_type();
         let download_id = event.download_id();
 
@@ -65,7 +67,6 @@ impl EventBus {
             "Emitting event"
         );
 
-        let event = Arc::new(event);
         // send returns Err if there are no receivers, which is fine
         let receiver_count = self.tx.send(event).unwrap_or(0);
 

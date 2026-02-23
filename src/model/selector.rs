@@ -68,30 +68,43 @@ pub enum AudioCodecPreference {
     Any,
 }
 
+/// Case-insensitive substring check without allocation.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
 /// Helper function to check if a video codec matches the preference
 pub fn matches_video_codec(codec: &str, preference: &VideoCodecPreference) -> bool {
-    let codec_lower = codec.to_lowercase();
     match preference {
-        VideoCodecPreference::VP9 => codec_lower.contains("vp9"),
+        VideoCodecPreference::VP9 => contains_ignore_ascii_case(codec, "vp9"),
         VideoCodecPreference::AVC1 => {
-            codec_lower.contains("avc1")
-                || codec_lower.contains("h264")
-                || codec_lower.contains("h.264")
+            contains_ignore_ascii_case(codec, "avc1")
+                || contains_ignore_ascii_case(codec, "h264")
+                || contains_ignore_ascii_case(codec, "h.264")
         }
-        VideoCodecPreference::AV1 => codec_lower.contains("av1") || codec_lower.contains("av01"),
-        VideoCodecPreference::Custom(custom) => codec_lower.contains(&custom.to_lowercase()),
+        VideoCodecPreference::AV1 => {
+            contains_ignore_ascii_case(codec, "av1") || contains_ignore_ascii_case(codec, "av01")
+        }
+        VideoCodecPreference::Custom(custom) => contains_ignore_ascii_case(codec, custom),
         VideoCodecPreference::Any => true,
     }
 }
 
 /// Helper function to check if an audio codec matches the preference
 pub fn matches_audio_codec(codec: &str, preference: &AudioCodecPreference) -> bool {
-    let codec_lower = codec.to_lowercase();
     match preference {
-        AudioCodecPreference::Opus => codec_lower.contains("opus"),
-        AudioCodecPreference::AAC => codec_lower.contains("aac") || codec_lower.contains("mp4a"),
-        AudioCodecPreference::MP3 => codec_lower.contains("mp3"),
-        AudioCodecPreference::Custom(custom) => codec_lower.contains(&custom.to_lowercase()),
+        AudioCodecPreference::Opus => contains_ignore_ascii_case(codec, "opus"),
+        AudioCodecPreference::AAC => {
+            contains_ignore_ascii_case(codec, "aac") || contains_ignore_ascii_case(codec, "mp4a")
+        }
+        AudioCodecPreference::MP3 => contains_ignore_ascii_case(codec, "mp3"),
+        AudioCodecPreference::Custom(custom) => contains_ignore_ascii_case(codec, custom),
         AudioCodecPreference::Any => true,
     }
 }

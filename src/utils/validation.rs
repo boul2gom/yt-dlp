@@ -3,10 +3,7 @@
 //! This module provides functions to validate YouTube URLs and sanitize file paths
 //! to prevent security vulnerabilities like path traversal attacks.
 
-use crate::{
-    error::{Error, Result},
-    ternary,
-};
+use crate::error::{Error, Result};
 use std::path::PathBuf;
 
 /// Validates a YouTube URL.
@@ -210,16 +207,32 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
 pub fn sanitize_filename(filename: &str) -> String {
     tracing::trace!(filename = filename, "Sanitizing filename");
 
-    let sanitized = filename
-        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "")
-        .replace("..", "")
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .to_string();
+    // Single-pass: remove forbidden chars, control chars, and consecutive dots (..)
+    let mut result = String::with_capacity(filename.len());
+    let mut prev_dot = false;
+    for c in filename.chars() {
+        if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+            prev_dot = false;
+            continue;
+        }
+        if c == '.' && prev_dot {
+            result.pop();
+            prev_dot = false;
+            continue;
+        }
+        prev_dot = c == '.';
+        result.push(c);
+    }
 
-    let result = ternary!(sanitized.is_empty(), "download".to_string(), sanitized);
+    // Compute trimmed length up front so `result` is not borrowed when potentially moved
+    let trimmed_len = result.trim().len();
+    let result = if trimmed_len == 0 {
+        "download".to_string()
+    } else if trimmed_len == result.len() {
+        result
+    } else {
+        result.trim().to_string()
+    };
 
     tracing::trace!(
         original_filename = filename,

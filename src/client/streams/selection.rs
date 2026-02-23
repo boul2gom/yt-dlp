@@ -181,41 +181,41 @@ impl VideoSelection for Video {
             "Selecting video format with preferences"
         );
 
-        let video_formats = self.formats.iter().filter(|f| f.is_video());
+        let video_formats: Vec<&Format> = self.formats.iter().filter(|f| f.is_video()).collect();
+        if video_formats.is_empty() {
+            return None;
+        }
 
-        video_formats.clone().next()?;
-
-        let has_codec_match = codec != VideoCodecPreference::Any
-            && video_formats.clone().any(|f| {
-                f.codec_info
-                    .video_codec
-                    .as_ref()
-                    .is_some_and(|c| matches_video_codec(c, &codec))
-            });
-
-        let formats_iter = video_formats.filter(move |f| {
-            if !has_codec_match {
-                true
-            } else {
-                f.codec_info
-                    .video_codec
-                    .as_ref()
-                    .is_some_and(|c| matches_video_codec(c, &codec))
-            }
-        });
+        // Single-pass codec filter; fall back to all video formats if none match
+        let filtered: Vec<&Format>;
+        let active: &[&Format] = if codec == VideoCodecPreference::Any {
+            &video_formats
+        } else {
+            filtered = video_formats
+                .iter()
+                .copied()
+                .filter(|f| {
+                    f.codec_info
+                        .video_codec
+                        .as_ref()
+                        .is_some_and(|c| matches_video_codec(c, &codec))
+                })
+                .collect();
+            if filtered.is_empty() { &video_formats } else { &filtered }
+        };
 
         // Select based on quality preference
         match quality {
-            VideoQuality::Best => formats_iter.max_by(|a, b| self.compare_video_formats(a, b)),
-            VideoQuality::Worst => formats_iter.min_by(|a, b| self.compare_video_formats(a, b)),
-            VideoQuality::High => select_closest_video_height(formats_iter, 1080, self),
-            VideoQuality::Medium => select_closest_video_height(formats_iter, 720, self),
-            VideoQuality::Low => select_closest_video_height(formats_iter, 480, self),
+            VideoQuality::Best => active.iter().copied().max_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::High => select_closest_video_height(active.iter().copied(), 1080, self),
+            VideoQuality::Medium => select_closest_video_height(active.iter().copied(), 720, self),
+            VideoQuality::Low => select_closest_video_height(active.iter().copied(), 480, self),
             VideoQuality::CustomHeight(height) => {
-                select_closest_video_height(formats_iter, height, self)
+                select_closest_video_height(active.iter().copied(), height, self)
             }
             VideoQuality::CustomWidth(width) => {
-                select_closest_video_width(formats_iter, width, self)
+                select_closest_video_width(active.iter().copied(), width, self)
             }
         }
     }
@@ -234,38 +234,38 @@ impl VideoSelection for Video {
             "Selecting audio format with preferences"
         );
 
-        let audio_formats = self.formats.iter().filter(|f| f.is_audio());
+        let audio_formats: Vec<&Format> = self.formats.iter().filter(|f| f.is_audio()).collect();
+        if audio_formats.is_empty() {
+            return None;
+        }
 
-        audio_formats.clone().next()?;
-
-        let has_codec_match = codec != AudioCodecPreference::Any
-            && audio_formats.clone().any(|f| {
-                f.codec_info
-                    .audio_codec
-                    .as_ref()
-                    .is_some_and(|c| matches_audio_codec(c, &codec))
-            });
-
-        let formats_iter = audio_formats.filter(move |f| {
-            if !has_codec_match {
-                true
-            } else {
-                f.codec_info
-                    .audio_codec
-                    .as_ref()
-                    .is_some_and(|c| matches_audio_codec(c, &codec))
-            }
-        });
+        // Single-pass codec filter; fall back to all audio formats if none match
+        let filtered: Vec<&Format>;
+        let active: &[&Format] = if codec == AudioCodecPreference::Any {
+            &audio_formats
+        } else {
+            filtered = audio_formats
+                .iter()
+                .copied()
+                .filter(|f| {
+                    f.codec_info
+                        .audio_codec
+                        .as_ref()
+                        .is_some_and(|c| matches_audio_codec(c, &codec))
+                })
+                .collect();
+            if filtered.is_empty() { &audio_formats } else { &filtered }
+        };
 
         // Select based on quality preference
         match quality {
-            AudioQuality::Best => formats_iter.max_by(|a, b| self.compare_audio_formats(a, b)),
-            AudioQuality::Worst => formats_iter.min_by(|a, b| self.compare_audio_formats(a, b)),
-            AudioQuality::High => select_closest_audio_bitrate(formats_iter, 192, self),
-            AudioQuality::Medium => select_closest_audio_bitrate(formats_iter, 128, self),
-            AudioQuality::Low => select_closest_audio_bitrate(formats_iter, 96, self),
+            AudioQuality::Best => active.iter().copied().max_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::High => select_closest_audio_bitrate(active.iter().copied(), 192, self),
+            AudioQuality::Medium => select_closest_audio_bitrate(active.iter().copied(), 128, self),
+            AudioQuality::Low => select_closest_audio_bitrate(active.iter().copied(), 96, self),
             AudioQuality::CustomBitrate(bitrate) => {
-                select_closest_audio_bitrate(formats_iter, bitrate, self)
+                select_closest_audio_bitrate(active.iter().copied(), bitrate, self)
             }
         }
     }

@@ -173,11 +173,14 @@ impl HookRegistry {
 
         let timeout = self.timeout;
 
+        // Wrap in Arc once so parallel hooks share the same allocation
+        let event_arc = Arc::new(event.clone());
+
         // Execute parallel hooks concurrently
         let parallel_futures: Vec<_> = parallel_hooks
             .into_iter()
             .map(|hook| {
-                let event = event.clone();
+                let event = Arc::clone(&event_arc);
                 async move {
                     match tokio::time::timeout(timeout, hook.on_event(&event)).await {
                         Ok(Ok(())) => {}
