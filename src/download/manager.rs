@@ -277,6 +277,21 @@ impl Default for DownloadManager {
 }
 
 impl DownloadManager {
+    /// Returns the number of parallel segments configured for downloads.
+    pub fn parallel_segments(&self) -> usize {
+        self.config.parallel_segments
+    }
+
+    /// Returns the segment size (in bytes) configured for downloads.
+    pub fn segment_size(&self) -> usize {
+        self.config.segment_size
+    }
+
+    /// Returns the number of retry attempts configured for downloads.
+    pub fn retry_attempts(&self) -> usize {
+        self.config.retry_attempts
+    }
+
     /// Create a new download manager with default configuration
     pub fn new() -> Self {
         Self::with_config(ManagerConfig::default())

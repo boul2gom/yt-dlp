@@ -174,10 +174,10 @@ Markdown tables ready to paste into the README.
 
 ```bash
 # Default: 3 runs per scenario
-cargo run --example compare --features profiling --release -- <URL>
+cargo run --example compare --features profiling --release -- <URL> --cookies-from-browser safari
 
 # Custom run count for better statistical accuracy
-cargo run --example compare --features profiling --release -- <URL> --runs 5
+cargo run --example compare --features profiling --release -- <URL> --cookies-from-browser safari --runs 5
 ```
 
 ### What it measures
@@ -217,14 +217,14 @@ Run the benchmarks then auto-generate the Markdown tables:
 
 ```bash
 # Option 1: run benchmarks + print tables in one go
-./benches/bench-table.sh --run
+./scripts/bench-table.py --run
 
 # Option 2: run with all feature-gated groups (webhooks, cache)
-./benches/bench-table.sh --run-all
+./scripts/bench-table.py --run-all
 
 # Option 3: run benchmarks manually, then parse existing results
 cargo bench --features "webhooks cache-json" --release
-./benches/bench-table.sh
+./scripts/bench-table.py
 ```
 
 The script reads `target/criterion/*/new/estimates.json` and outputs tables ready to paste below.

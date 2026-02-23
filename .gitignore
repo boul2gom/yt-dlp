@@ -12,6 +12,7 @@ REPORT.md
 # Profiling artefacts
 profiling-libs/
 profiling-output/
+profile.json.gz
 dhat-heap.json
 heaptrack.profiling.*
 flamegraph.svg

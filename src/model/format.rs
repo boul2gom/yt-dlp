@@ -373,21 +373,24 @@ pub enum Extension {
     Unknown,
 }
 
+impl Extension {
+    /// Returns the lowercase file extension string for this variant.
+    /// Unknown/None variants return `"bin"` as a safe fallback.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Extension::M4A => "m4a",
+            Extension::Mp3 => "mp3",
+            Extension::Mp4 => "mp4",
+            Extension::Webm => "webm",
+            Extension::Mhtml => "mhtml",
+            Extension::None | Extension::Unknown => "bin",
+        }
+    }
+}
+
 impl fmt::Display for Extension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Extension({})",
-            match self {
-                Extension::M4A => "m4a",
-                Extension::Mp3 => "mp3",
-                Extension::Mp4 => "mp4",
-                Extension::Webm => "webm",
-                Extension::Mhtml => "mhtml",
-                Extension::None => "none",
-                Extension::Unknown => "unknown",
-            }
-        )
+        write!(f, "Extension({})", self.as_str())
     }
 }
 

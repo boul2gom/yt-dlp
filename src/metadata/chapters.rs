@@ -14,9 +14,89 @@ use std::path::PathBuf;
 use std::time::Duration;
 use uuid::Uuid;
 
-use super::MetadataManager;
+use super::{BaseMetadata, MetadataManager};
 
 impl MetadataManager {
+    /// Creates a temporary FFMETADATA1 file containing both global metadata tags and chapters.
+    ///
+    /// The resulting file can be passed directly to `ffmpeg -i metadata.txt -map_metadata N
+    /// -map_chapters N` in the combine command, enabling a single-pass mux + embed.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The video whose metadata and chapters to embed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the temp file cannot be created or written
+    ///
+    /// # Returns
+    ///
+    /// Path to the created temporary FFMETADATA1 file
+    pub(crate) fn create_combined_metadata_file(video: &Video) -> Result<PathBuf> {
+        let temp_path = std::env::temp_dir().join(format!("metadata_{}.txt", Uuid::new_v4()));
+
+        tracing::debug!(
+            video_id = %video.id,
+            chapter_count = video.chapters.len(),
+            temp_path = ?temp_path,
+            "Creating combined FFMETADATA1 file with metadata and chapters"
+        );
+
+        let mut file = fs::File::create(&temp_path)
+            .map_err(|e| Error::io_with_path("create combined metadata file", &temp_path, e))?;
+
+        writeln!(file, ";FFMETADATA1").map_err(|e| Error::io("write metadata header", e))?;
+
+        // Write global metadata tags
+        let metadata = Self::extract_basic_metadata(video);
+        for (key, value) in &metadata {
+            let escaped = value
+                .replace('\\', "\\\\")
+                .replace('=', "\\=")
+                .replace(';', "\\;")
+                .replace('#', "\\#")
+                .replace('\n', "\\n");
+            writeln!(file, "{}={}", key, escaped)
+                .map_err(|e| Error::io("write metadata entry", e))?;
+        }
+
+        // Write chapters (if any)
+        for (idx, chapter) in video.chapters.iter().enumerate() {
+            let start_us = (chapter.start_time * 1_000_000.0) as i64;
+            let end_us = (chapter.end_time * 1_000_000.0) as i64;
+
+            writeln!(file, "[CHAPTER]").map_err(|e| Error::io("write chapter marker", e))?;
+            writeln!(file, "TIMEBASE=1/1000000")
+                .map_err(|e| Error::io("write timebase", e))?;
+            writeln!(file, "START={}", start_us)
+                .map_err(|e| Error::io("write chapter start", e))?;
+            writeln!(file, "END={}", end_us).map_err(|e| Error::io("write chapter end", e))?;
+
+            if let Some(title) = &chapter.title {
+                let escaped = title
+                    .replace('\\', "\\\\")
+                    .replace('=', "\\=")
+                    .replace(';', "\\;")
+                    .replace('#', "\\#")
+                    .replace('\n', "\\n");
+                writeln!(file, "title={}", escaped)
+                    .map_err(|e| Error::io("write chapter title", e))?;
+            } else {
+                writeln!(file, "title=Chapter {}", idx + 1)
+                    .map_err(|e| Error::io("write default chapter title", e))?;
+            }
+        }
+
+        tracing::debug!(
+            temp_path = ?temp_path,
+            chapter_count = video.chapters.len(),
+            "Combined FFMETADATA1 file created successfully"
+        );
+
+        Ok(temp_path)
+    }
+
     /// Create an FFmpeg metadata file with chapters.
     ///
     /// # Arguments

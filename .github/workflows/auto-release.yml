@@ -180,7 +180,6 @@ jobs:
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 100
-          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain

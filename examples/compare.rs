@@ -15,6 +15,8 @@
 //!
 //! - `<URL>` — YouTube URL (required, positional)
 //! - `--runs <N>` — repetition count per measurement (default: 3)
+//! - `--cookies <file>` — pass a Netscape cookie file to yt-dlp
+//! - `--cookies-from-browser <name>` — extract cookies from browser (chrome, firefox, …)
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -35,18 +37,32 @@ use yt_dlp::model::selector::{
 struct Args {
     url: String,
     runs: usize,
+    cookies: Option<String>,
+    cookies_from_browser: Option<String>,
 }
 
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
     let mut url: Option<String> = None;
     let mut runs = 3usize;
+    let mut cookies: Option<String> = None;
+    let mut cookies_from_browser: Option<String> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--runs" => {
                 if let Some(n) = args.next() {
                     runs = n.parse().unwrap_or(3);
+                }
+            }
+            "--cookies" => {
+                if let Some(v) = args.next() {
+                    cookies = Some(v);
+                }
+            }
+            "--cookies-from-browser" => {
+                if let Some(v) = args.next() {
+                    cookies_from_browser = Some(v);
                 }
             }
             s if s.starts_with("http") => url = Some(s.to_string()),
@@ -56,14 +72,19 @@ fn parse_args() -> Args {
 
     let url = url.unwrap_or_else(|| {
         eprintln!(
-            "{} {} <URL> [--runs N]",
+            "{} {} <URL> [--runs N] [--cookies <file>] [--cookies-from-browser <browser>]",
             style("Usage:").bold(),
             style("compare").cyan()
         );
         std::process::exit(1);
     });
 
-    Args { url, runs }
+    Args {
+        url,
+        runs,
+        cookies,
+        cookies_from_browser,
+    }
 }
 
 fn avg_duration(samples: &[Duration]) -> Duration {
@@ -282,7 +303,7 @@ impl RowResult {
 #[allow(clippy::too_many_arguments)]
 async fn raw_download(
     yt_dlp_bin: &Path,
-    url: &str,
+    info_json_path: &Path,
     format_selector: &str,
     extra_args: &[&str],
     output_dir: &Path,
@@ -307,7 +328,8 @@ async fn raw_download(
             .into_owned();
 
         let mut cmd_args: Vec<String> = vec![
-            url.to_string(),
+            "--load-info-json".to_string(),
+            info_json_path.to_string_lossy().into_owned(),
             "-f".to_string(),
             format_selector.to_string(),
         ];
@@ -446,14 +468,20 @@ async fn build_downloader_with_profile(
     libs_dir: &Path,
     output_dir: &Path,
     profile: SpeedProfile,
+    cookies: Option<&str>,
+    cookies_from_browser: Option<&str>,
 ) -> Downloader {
-    Downloader::with_new_binaries(libs_dir, output_dir)
+    let mut builder = Downloader::with_new_binaries(libs_dir, output_dir)
         .await
         .expect("downloader setup failed")
-        .with_speed_profile(profile)
-        .build()
-        .await
-        .expect("downloader build failed")
+        .with_speed_profile(profile);
+    if let Some(c) = cookies {
+        builder = builder.with_cookies(c);
+    }
+    if let Some(b) = cookies_from_browser {
+        builder = builder.with_cookies_from_browser(b);
+    }
+    builder.build().await.expect("downloader build failed")
 }
 
 fn print_header(url: &str, runs: usize, video_title: &str) {
@@ -680,12 +708,30 @@ async fn main() {
     setup_spinner.enable_steady_tick(Duration::from_millis(80));
     setup_spinner.set_message("🔧 Setting up downloaders...");
 
-    let dl_conservative =
-        build_downloader_with_profile(&libs_dir, &output_dir, SpeedProfile::Conservative).await;
-    let dl_balanced =
-        build_downloader_with_profile(&libs_dir, &output_dir, SpeedProfile::Balanced).await;
-    let dl_aggressive =
-        build_downloader_with_profile(&libs_dir, &output_dir, SpeedProfile::Aggressive).await;
+    let dl_conservative = build_downloader_with_profile(
+        &libs_dir,
+        &output_dir,
+        SpeedProfile::Conservative,
+        args.cookies.as_deref(),
+        args.cookies_from_browser.as_deref(),
+    )
+    .await;
+    let dl_balanced = build_downloader_with_profile(
+        &libs_dir,
+        &output_dir,
+        SpeedProfile::Balanced,
+        args.cookies.as_deref(),
+        args.cookies_from_browser.as_deref(),
+    )
+    .await;
+    let dl_aggressive = build_downloader_with_profile(
+        &libs_dir,
+        &output_dir,
+        SpeedProfile::Aggressive,
+        args.cookies.as_deref(),
+        args.cookies_from_browser.as_deref(),
+    )
+    .await;
 
     setup_spinner.finish_and_clear();
     println!(
@@ -702,6 +748,28 @@ async fn main() {
         .fetch_video_infos(&args.url)
         .await
         .expect("failed to fetch video metadata");
+
+    meta_spinner.set_message("📡 Fetching video metadata with yt-dlp...");
+
+    let info_json_path = output_dir.join("info.json");
+    let mut dump_args = vec![
+        args.url.clone(),
+        "--dump-json".to_string(),
+        "--no-playlist".to_string(),
+    ];
+    if let Some(ref c) = args.cookies {
+        dump_args.push(format!("--cookies={}", c));
+    }
+    if let Some(ref b) = args.cookies_from_browser {
+        dump_args.push(format!("--cookies-from-browser={}", b));
+    }
+    let dump_output = Executor::new(&yt_dlp_bin, dump_args, Duration::from_secs(120))
+        .execute()
+        .await
+        .expect("failed to dump json with yt-dlp");
+    tokio::fs::write(&info_json_path, dump_output.stdout)
+        .await
+        .expect("failed to write info.json");
 
     meta_spinner.finish_and_clear();
     println!(
@@ -756,7 +824,7 @@ async fn main() {
             // 1) Raw yt-dlp
             let raw_samples = raw_download(
                 &yt_dlp_bin,
-                &args.url,
+                &info_json_path,
                 scenario.yt_dlp_format,
                 &scenario.extra_args,
                 &output_dir,
@@ -849,6 +917,8 @@ async fn main() {
     print_summary(&all_rows, global_start.elapsed());
 
     print_markdown_tables(&all_section_results);
+
+    let _ = tokio::fs::remove_file(&info_json_path).await;
 
     println!(
         "  {} Copy the tables above into the README's {} section.",
