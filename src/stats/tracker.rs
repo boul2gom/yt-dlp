@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -427,7 +427,18 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             state.postprocess_failed += 1;
         }
 
-        _ => {}
+        DownloadEvent::SegmentStarted { .. }
+        | DownloadEvent::SegmentCompleted { .. }
+        | DownloadEvent::FormatSelected { .. }
+        | DownloadEvent::MetadataApplied { .. }
+        | DownloadEvent::ChaptersEmbedded { .. }
+        | DownloadEvent::DownloadPaused { .. }
+        | DownloadEvent::DownloadResumed { .. }
+        | DownloadEvent::PlaylistItemStarted { .. }
+        | DownloadEvent::PlaylistItemCompleted { .. }
+        | DownloadEvent::PlaylistItemFailed { .. } => {
+            tracing::debug!(event = ?event, "Statistics: untracked event, ignoring");
+        }
     }
 }
 
@@ -454,7 +465,9 @@ fn build_snapshot(state: &StatsInner) -> GlobalSnapshot {
     };
 
     let postprocess_avg_duration = if state.postprocess_succeeded > 0 {
-        Some(state.total_postprocess_duration / state.postprocess_succeeded as u32)
+        Some(Duration::from_secs_f64(
+            state.total_postprocess_duration.as_secs_f64() / state.postprocess_succeeded as f64,
+        ))
     } else {
         None
     };

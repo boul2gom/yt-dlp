@@ -1818,7 +1818,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let video = downloader.fetch_video_infos(url).await?;
 
     // Download from 1:30 to 5:00 (90 to 300 seconds)
-    let range = PartialRange::time_range(90.0, 300.0);
+    let range = PartialRange::time_range(90.0, 300.0)?;
     downloader.download_video_partial(&video, &range, "partial.mp4").await?;
 
     Ok(())
@@ -1853,7 +1853,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     downloader.download_video_partial(&video, &single_chapter, "chapter2.mp4").await?;
 
     // Download chapters 2 through 5
-    let chapter_range = PartialRange::chapter_range(2, 5);
+    let chapter_range = PartialRange::chapter_range(2, 5)?;
     downloader.download_video_partial(&video, &chapter_range, "chapters2-5.mp4").await?;
 
     Ok(())
@@ -1884,7 +1884,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download with fluent API
     downloader.download(&video, "partial.mp4")
-        .time_range(90.0, 300.0)  // Download from 1:30 to 5:00
+        .time_range(90.0, 300.0)?  // Download from 1:30 to 5:00
         .execute()
         .await?;
 

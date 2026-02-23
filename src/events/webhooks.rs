@@ -207,7 +207,7 @@ pub struct WebhookDelivery {
     /// Registered webhooks
     webhooks: Arc<RwLock<Vec<WebhookConfig>>>,
     /// Channel for queuing webhook deliveries
-    tx: mpsc::UnboundedSender<(WebhookConfig, DownloadEvent)>,
+    tx: mpsc::Sender<(WebhookConfig, DownloadEvent)>,
 }
 
 impl std::fmt::Debug for WebhookDelivery {
@@ -232,7 +232,7 @@ impl WebhookDelivery {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<(WebhookConfig, DownloadEvent)>();
+        let (tx, mut rx) = mpsc::channel::<(WebhookConfig, DownloadEvent)>(1024);
 
         let webhooks = Arc::new(RwLock::new(Vec::new()));
 
@@ -297,7 +297,9 @@ impl WebhookDelivery {
         for webhook in webhooks.iter() {
             if webhook.filter.matches(event) {
                 matched_count += 1;
-                let _ = self.tx.send((webhook.clone(), event.clone()));
+                if let Err(e) = self.tx.try_send((webhook.clone(), event.clone())) {
+                    tracing::warn!(error = %e, "Webhook channel full, dropping event");
+                }
             }
         }
 
@@ -345,9 +347,11 @@ impl WebhookDelivery {
                     let payload = &payload;
                     async move { Self::send_webhook(client, config, payload).await }
                 },
-                |_| {
-                    // Determine if error is retryable (custom string error from send_webhook)
-                    // We'll treat all errors as retryable for now unless we parse the string
+                |e: &String| {
+                    // Don't retry permanent 4xx client errors (except 429 Too Many Requests)
+                    if e.starts_with("HTTP 4") && !e.starts_with("HTTP 429") {
+                        return false;
+                    }
                     true
                 },
             )

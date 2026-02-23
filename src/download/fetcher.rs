@@ -426,8 +426,30 @@ impl Fetcher {
             ranges.push((start, end));
         }
 
+        // RAII guard: removes the .parts tracking file if an error occurs
+        struct PartsGuard {
+            path: PathBuf,
+            keep: bool,
+        }
+        impl PartsGuard {
+            fn new(path: PathBuf) -> Self {
+                Self { path, keep: false }
+            }
+            fn commit(&mut self) {
+                self.keep = true;
+            }
+        }
+        impl Drop for PartsGuard {
+            fn drop(&mut self) {
+                if !self.keep {
+                    let _ = std::fs::remove_file(&self.path);
+                }
+            }
+        }
+
         // Create a temporary file to track downloaded segments
         let temp_file_path = format!("{}.parts", destination.display());
+        let mut parts_guard = PartsGuard::new(PathBuf::from(&temp_file_path));
         let downloaded_segments = if file_exists && Path::new(&temp_file_path).exists() {
             // Read the downloaded segments from the temporary file
             match tokio::fs::read_to_string(&temp_file_path).await {
@@ -572,6 +594,7 @@ impl Fetcher {
         }
 
         // Remove the temporary file
+        parts_guard.commit();
         fs::remove_temp_file(temp_file_path).await;
 
         Ok(())
@@ -676,7 +699,7 @@ impl Fetcher {
         let segment_size = data.len() as u64;
         let new_total = context
             .downloaded_bytes
-            .fetch_add(segment_size, Ordering::SeqCst)
+            .fetch_add(segment_size, Ordering::Relaxed)
             + segment_size;
 
         // Call the progress callback if available (no lock needed)
@@ -760,7 +783,7 @@ impl Fetcher {
 
         // If we got a 200 OK instead of 206 Partial Content, the server doesn't support range requests
         // In this case, we need to start the download from the beginning
-        let append_mode = is_partial_content && file_size.is_some() && file_size.unwrap() > 0;
+        let append_mode = is_partial_content && file_size.is_some_and(|sz| sz > 0);
 
         // Open the file in the appropriate mode
         let mut dest = if append_mode {

@@ -59,6 +59,7 @@ pub enum DownloadEvent {
     /// Download completed successfully
     DownloadCompleted {
         download_id: u64,
+        url: String,
         output_path: PathBuf,
         duration: Duration,
         total_bytes: u64,
@@ -67,6 +68,7 @@ pub enum DownloadEvent {
     /// Download failed with error
     DownloadFailed {
         download_id: u64,
+        url: String,
         error: String,
         retry_count: u32,
     },

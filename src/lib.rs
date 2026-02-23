@@ -699,13 +699,54 @@ impl Downloader {
             output_path
         );
 
+        let operation = crate::events::PostProcessOperation::CombineStreams {
+            audio_path: audio_path.clone(),
+            video_path: video_path.clone(),
+        };
+        let start_time = std::time::Instant::now();
+
+        self.emit_event(crate::events::DownloadEvent::PostProcessStarted {
+            input_path: audio_path.clone(),
+            operation: operation.clone(),
+        })
+        .await;
+
         // Perform the combination with FFmpeg
-        self.execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
-            .await?;
+        if let Err(e) = self
+            .execute_ffmpeg_combine(&audio_path, &video_path, &output_path)
+            .await
+        {
+            self.emit_event(crate::events::DownloadEvent::PostProcessFailed {
+                input_path: audio_path,
+                operation,
+                error: e.to_string(),
+            })
+            .await;
+            return Err(e);
+        }
 
         // Add metadata to the combined file, propagating potential errors
-        self.add_metadata_to_combined_file(&audio_path, &video_path, &output_path)
-            .await?;
+        if let Err(e) = self
+            .add_metadata_to_combined_file(&audio_path, &video_path, &output_path)
+            .await
+        {
+            self.emit_event(crate::events::DownloadEvent::PostProcessFailed {
+                input_path: audio_path,
+                operation,
+                error: e.to_string(),
+            })
+            .await;
+            return Err(e);
+        }
+
+        let duration = start_time.elapsed();
+        self.emit_event(crate::events::DownloadEvent::PostProcessCompleted {
+            input_path: audio_path,
+            output_path: output_path.clone(),
+            operation,
+            duration,
+        })
+        .await;
 
         Ok(output_path)
     }
