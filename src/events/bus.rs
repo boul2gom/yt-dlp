@@ -99,7 +99,16 @@ impl EventBus {
         }
     }
 
-    /// Creates a new subscriber that will receive all future events
+    /// Creates a new subscriber that will receive all future events.
+    ///
+    /// # Lag behaviour
+    ///
+    /// The underlying channel has a fixed capacity (set at construction time, default 1024).
+    /// If this receiver falls behind and the buffer fills up, the *oldest* buffered events
+    /// are silently dropped. The next `recv()` call will return
+    /// [`RecvError::Lagged(n)`](tokio::sync::broadcast::error::RecvError::Lagged) where `n`
+    /// is the number of missed events. Callers that need reliable delivery should either
+    /// consume events promptly or use a dedicated, rate-limited downstream queue.
     ///
     /// # Returns
     ///

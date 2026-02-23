@@ -66,6 +66,7 @@ dyn_clone::clone_trait_object!(EventHook);
 /// Registry for managing event hooks
 pub struct HookRegistry {
     hooks: Arc<RwLock<Vec<Box<dyn EventHook>>>>,
+    timeout: std::time::Duration,
 }
 
 impl std::fmt::Debug for HookRegistry {
@@ -87,7 +88,22 @@ impl HookRegistry {
 
         Self {
             hooks: Arc::new(RwLock::new(Vec::new())),
+            timeout: std::time::Duration::from_secs(30),
         }
+    }
+
+    /// Sets the timeout for hook execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Maximum duration to wait for a single hook to complete
+    ///
+    /// # Returns
+    ///
+    /// `self` with the updated timeout
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// Registers a new hook
@@ -155,18 +171,15 @@ impl HookRegistry {
             "Separated hooks by execution mode"
         );
 
+        let timeout = self.timeout;
+
         // Execute parallel hooks concurrently
         let parallel_futures: Vec<_> = parallel_hooks
             .into_iter()
             .map(|hook| {
                 let event = event.clone();
                 async move {
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(30),
-                        hook.on_event(&event),
-                    )
-                    .await
-                    {
+                    match tokio::time::timeout(timeout, hook.on_event(&event)).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
                             tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
@@ -189,9 +202,7 @@ impl HookRegistry {
 
         // Execute sequential hooks one by one
         for hook in sequential_hooks {
-            match tokio::time::timeout(std::time::Duration::from_secs(30), hook.on_event(event))
-                .await
-            {
+            match tokio::time::timeout(timeout, hook.on_event(event)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
                     tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
@@ -241,6 +252,7 @@ impl Clone for HookRegistry {
     fn clone(&self) -> Self {
         Self {
             hooks: self.hooks.clone(),
+            timeout: self.timeout,
         }
     }
 }

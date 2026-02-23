@@ -500,6 +500,7 @@ fn bench_event_filter(c: &mut Criterion) {
 
     let terminal_event = DownloadEvent::DownloadCompleted {
         download_id: 1,
+        url: "https://www.youtube.com/watch?v=test".to_string(),
         output_path: PathBuf::from("output.mp4"),
         duration: std::time::Duration::from_secs(5),
         total_bytes: 1024 * 1024,

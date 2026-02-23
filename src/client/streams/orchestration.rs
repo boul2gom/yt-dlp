@@ -91,7 +91,7 @@ impl Downloader {
             delivery.process_event(&event).await;
         }
 
-        self.event_bus.emit(event);
+        self.event_bus.emit_if_subscribed(event);
     }
 
     /// Fetch the video information from the given URL.
@@ -1086,8 +1086,11 @@ impl Downloader {
 
         // If there were any errors, return the first one
         // (to maintain backward compatibility with the previous sequential behavior)
-        if !errors.is_empty() && downloaded_files.is_empty() {
-            return Err(errors.into_iter().next().unwrap());
+        if !errors.is_empty()
+            && downloaded_files.is_empty()
+            && let Some(e) = errors.into_iter().next()
+        {
+            return Err(e);
         }
 
         tracing::info!(
@@ -1166,6 +1169,7 @@ impl Downloader {
 
         let output_pattern = output_pattern.as_ref().to_string();
         let progress_callback = progress_callback.map(Arc::new);
+        let playlist_start = std::time::Instant::now();
 
         loop {
             // Spawn tasks up to max_concurrent limit
@@ -1180,6 +1184,15 @@ impl Downloader {
 
                         let entry_clone = entry.clone();
                         completed += 1;
+
+                        self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
+                            playlist_id: playlist.id.clone(),
+                            index: entry.index.unwrap_or(0),
+                            total: total_videos,
+                            video_id: entry.id.clone(),
+                            error: format!("Video {} is not available", entry.id),
+                        })
+                        .await;
 
                         // Call progress callback for unavailable video
                         if let Some(callback) = &progress_callback {
@@ -1202,6 +1215,15 @@ impl Downloader {
                     let output_pattern = output_pattern.clone();
                     let youtube = self.clone();
                     let _callback = progress_callback.clone();
+                    let playlist_id = playlist.id.clone();
+
+                    self.emit_event(crate::events::DownloadEvent::PlaylistItemStarted {
+                        playlist_id: playlist_id.clone(),
+                        index: entry.index.unwrap_or(0),
+                        total: total_videos,
+                        video_id: entry.id.clone(),
+                    })
+                    .await;
 
                     let task = tokio::spawn(async move {
                         tracing::debug!(
@@ -1255,6 +1277,33 @@ impl Downloader {
 
                 match result {
                     Ok((entry, download_result)) => {
+                        match &download_result {
+                            Ok(path) => {
+                                self.emit_event(
+                                    crate::events::DownloadEvent::PlaylistItemCompleted {
+                                        playlist_id: playlist.id.clone(),
+                                        index: entry.index.unwrap_or(0),
+                                        total: total_videos,
+                                        video_id: entry.id.clone(),
+                                        output_path: path.clone(),
+                                    },
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                self.emit_event(
+                                    crate::events::DownloadEvent::PlaylistItemFailed {
+                                        playlist_id: playlist.id.clone(),
+                                        index: entry.index.unwrap_or(0),
+                                        total: total_videos,
+                                        video_id: entry.id.clone(),
+                                        error: e.to_string(),
+                                    },
+                                )
+                                .await;
+                            }
+                        }
+
                         // Call progress callback
                         if let Some(callback) = &progress_callback {
                             let result_for_progress = download_result
@@ -1279,15 +1328,25 @@ impl Downloader {
             }
         }
 
-        {
-            let successful = results.iter().filter(|r| r.is_ok()).count();
-            tracing::info!(
-                "Downloaded {}/{} videos from playlist {} in parallel",
-                successful,
-                playlist.entry_count(),
-                playlist.id
-            );
-        }
+        let successful = results.iter().filter(|r| r.is_ok()).count();
+        let failed = results.len() - successful;
+        let playlist_duration = playlist_start.elapsed();
+
+        self.emit_event(crate::events::DownloadEvent::PlaylistCompleted {
+            playlist_id: playlist.id.clone(),
+            total_items: total_videos,
+            successful,
+            failed,
+            duration: playlist_duration,
+        })
+        .await;
+
+        tracing::info!(
+            "Downloaded {}/{} videos from playlist {} in parallel",
+            successful,
+            playlist.entry_count(),
+            playlist.id
+        );
 
         Ok(results)
     }

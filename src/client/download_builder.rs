@@ -130,10 +130,14 @@ impl<'a> DownloadBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `start` - Start time in seconds
-    /// * `end` - End time in seconds
-    pub fn time_range(self, start: f64, end: f64) -> Self {
-        self.partial(PartialRange::time_range(start, end))
+    /// * `start` - Start time in seconds (must be non-negative)
+    /// * `end` - End time in seconds (must be greater than `start`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the time range is invalid.
+    pub fn time_range(self, start: f64, end: f64) -> Result<Self> {
+        Ok(self.partial(PartialRange::time_range(start, end)?))
     }
 
     /// Helper method to download a single chapter.
@@ -150,9 +154,13 @@ impl<'a> DownloadBuilder<'a> {
     /// # Arguments
     ///
     /// * `start` - First chapter index (0-based)
-    /// * `end` - Last chapter index (0-based, inclusive)
-    pub fn chapters(self, start: usize, end: usize) -> Self {
-        self.partial(PartialRange::chapter_range(start, end))
+    /// * `end` - Last chapter index (0-based, inclusive, must be >= `start`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `start > end`.
+    pub fn chapters(self, start: usize, end: usize) -> Result<Self> {
+        Ok(self.partial(PartialRange::chapter_range(start, end)?))
     }
 
     /// Executes the download with the configured options.
@@ -328,11 +336,17 @@ impl<'a> DownloadBuilder<'a> {
                         .combine_audio_and_video_to_path(&audio_path, &video_path, &self.output)
                         .await
                 } else {
+                    let output_str = self.output.to_str().ok_or_else(|| {
+                        crate::error::Error::PathValidation {
+                            path: self.output.clone(),
+                            reason: "output path contains invalid UTF-8".into(),
+                        }
+                    })?;
                     self.downloader
                         .combine_audio_and_video(
                             &audio_filename,
                             &video_filename,
-                            self.output.to_str().unwrap(),
+                            output_str,
                         )
                         .await
                 }

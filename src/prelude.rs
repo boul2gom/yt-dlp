@@ -43,5 +43,14 @@ pub use crate::stats::{
     GlobalSnapshot, PlaylistStats, PostProcessStats, StatisticsTracker, TrackerConfig,
 };
 
+// Event types
+pub use crate::events::{DownloadEvent, EventBus, EventFilter};
+
+#[cfg(feature = "hooks")]
+pub use crate::events::{EventHook, HookRegistry};
+
+#[cfg(feature = "webhooks")]
+pub use crate::events::{RetryStrategy, WebhookConfig, WebhookDelivery};
+
 // Re-export common traits
 pub use crate::model::utils::{AllTraits, CommonTraits};

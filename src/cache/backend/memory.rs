@@ -26,6 +26,11 @@ const FILE_CAPACITY: usize = 64;
 const THUMBNAIL_CAPACITY: usize = 256;
 const PLAYLIST_CAPACITY: usize = 128;
 
+const _: () = assert!(VIDEO_CAPACITY > 0, "VIDEO_CAPACITY must be non-zero");
+const _: () = assert!(FILE_CAPACITY > 0, "FILE_CAPACITY must be non-zero");
+const _: () = assert!(THUMBNAIL_CAPACITY > 0, "THUMBNAIL_CAPACITY must be non-zero");
+const _: () = assert!(PLAYLIST_CAPACITY > 0, "PLAYLIST_CAPACITY must be non-zero");
+
 /// In-memory LRU video cache.
 #[derive(Debug, Clone)]
 pub struct MemoryVideoCache {

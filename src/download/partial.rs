@@ -3,6 +3,7 @@
 //! This module provides functionality to download only specific parts of a video,
 //! either by time range or by chapter index.
 
+use crate::error::{Error, Result};
 use std::fmt;
 
 /// Represents a range specification for partial downloads.
@@ -55,14 +56,23 @@ impl PartialRange {
     ///
     /// # Arguments
     ///
-    /// * `start` - Start time in seconds
-    /// * `end` - End time in seconds
+    /// * `start` - Start time in seconds (must be non-negative)
+    /// * `end` - End time in seconds (must be greater than `start`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `start` is negative or `start >= end`.
     ///
     /// # Returns
     ///
     /// A PartialRange instance representing the time range
-    pub fn time_range(start: f64, end: f64) -> Self {
-        Self::TimeRange { start, end }
+    pub fn time_range(start: f64, end: f64) -> Result<Self> {
+        if start < 0.0 || start >= end {
+            return Err(Error::Unknown(format!(
+                "Invalid time range: start={start} must be non-negative and less than end={end}"
+            )));
+        }
+        Ok(Self::TimeRange { start, end })
     }
 
     /// Creates a chapter range for partial download.
@@ -70,13 +80,22 @@ impl PartialRange {
     /// # Arguments
     ///
     /// * `start` - First chapter index (0-based)
-    /// * `end` - Last chapter index (0-based, inclusive)
+    /// * `end` - Last chapter index (0-based, inclusive, must be >= `start`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `start > end`.
     ///
     /// # Returns
     ///
     /// A PartialRange instance representing the chapter range
-    pub fn chapter_range(start: usize, end: usize) -> Self {
-        Self::ChapterRange { start, end }
+    pub fn chapter_range(start: usize, end: usize) -> Result<Self> {
+        if start > end {
+            return Err(Error::Unknown(format!(
+                "Invalid chapter range: start={start} must be <= end={end}"
+            )));
+        }
+        Ok(Self::ChapterRange { start, end })
     }
 
     /// Creates a single chapter for partial download.

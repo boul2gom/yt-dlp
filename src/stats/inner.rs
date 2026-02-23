@@ -119,7 +119,9 @@ impl StatsInner {
         if self.completed == 0 {
             None
         } else {
-            Some(self.total_download_duration / self.completed as u32)
+            Some(Duration::from_secs_f64(
+                self.total_download_duration.as_secs_f64() / self.completed as f64,
+            ))
         }
     }
 
@@ -128,7 +130,9 @@ impl StatsInner {
         if self.fetch_succeeded == 0 {
             None
         } else {
-            Some(self.total_fetch_duration / self.fetch_succeeded as u32)
+            Some(Duration::from_secs_f64(
+                self.total_fetch_duration.as_secs_f64() / self.fetch_succeeded as f64,
+            ))
         }
     }
 

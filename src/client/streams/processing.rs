@@ -73,6 +73,12 @@ impl Downloader {
                             video_id = video_id,
                             "Successfully added metadata"
                         );
+
+                        self.emit_event(crate::events::DownloadEvent::MetadataApplied {
+                            path: path.clone(),
+                            metadata_type: crate::events::MetadataType::Ffmpeg,
+                        })
+                        .await;
                     }
                 }
 

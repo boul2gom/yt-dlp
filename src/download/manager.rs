@@ -14,11 +14,16 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 use typed_builder::TypedBuilder;
+
+/// Per-task byte counters used by the progress callback (downloaded, total).
+type ProgressCounters = Arc<std::sync::Mutex<HashMap<u64, (Arc<AtomicU64>, Arc<AtomicU64>)>>>;
 
 // Download manager default configuration constants
 const DEFAULT_RETRY_ATTEMPTS: usize = 3;
@@ -245,6 +250,12 @@ pub struct DownloadManager {
     progress_tx: broadcast::Sender<ProgressUpdate>,
     /// Optional event bus for emitting download events
     event_bus: Option<crate::events::EventBus>,
+    /// Per-task atomic byte counters: (downloaded, total); avoids locking on every chunk
+    progress_counters: ProgressCounters,
+    /// Signals the single worker task that new items were enqueued
+    worker_notify: Arc<tokio::sync::Notify>,
+    /// Guards against spawning more than one worker task at a time
+    worker_started: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for DownloadManager {
@@ -300,6 +311,9 @@ impl DownloadManager {
             completion_tx,
             progress_tx,
             event_bus,
+            progress_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            worker_notify: Arc::new(tokio::sync::Notify::new()),
+            worker_started: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -383,8 +397,9 @@ impl DownloadManager {
             output_path: destination_path,
         });
 
-        // Start the queue processor
-        self.process_queue();
+        // Wake the single worker (M1 fix: no new spawn per enqueue)
+        self.worker_notify.notify_one();
+        self.ensure_worker();
 
         // Auto-cleanup if needed
         if id % 100 == 0 {
@@ -449,8 +464,9 @@ impl DownloadManager {
             statuses.insert(id, DownloadStatus::Queued);
         }
 
-        // Start the queue processor
-        self.process_queue();
+        // Wake the single worker (M1 fix: no new spawn per enqueue)
+        self.worker_notify.notify_one();
+        self.ensure_worker();
 
         id
     }
@@ -466,7 +482,20 @@ impl DownloadManager {
     /// The download status, or None if the ID doesn't exist
     pub async fn get_status(&self, id: u64) -> Option<DownloadStatus> {
         let statuses = self.statuses.lock().await;
-        statuses.get(&id).cloned()
+        let status = statuses.get(&id)?;
+
+        // For active downloads, read live byte counts from the atomic counters (M2 fix)
+        if matches!(status, DownloadStatus::Downloading { .. }) {
+            let counters = self.progress_counters.lock().unwrap();
+            if let Some((dl, total)) = counters.get(&id) {
+                return Some(DownloadStatus::Downloading {
+                    downloaded_bytes: dl.load(AtomicOrdering::Relaxed),
+                    total_bytes: total.load(AtomicOrdering::Relaxed),
+                });
+            }
+        }
+
+        Some(status.clone())
     }
 
     /// Clean up completed, failed, and cancelled downloads from internal maps
@@ -689,7 +718,7 @@ impl DownloadManager {
     /// #[tokio::main]
     /// async fn main() {
     ///     let manager = DownloadManager::with_config_and_event_bus(ManagerConfig::default(), None);
-    ///     
+    ///
     ///     let download_id = manager.enqueue("https://example.com/file", "output", None).await;
     ///     let mut progress_stream = manager.progress_stream(download_id);
     ///
@@ -725,312 +754,298 @@ impl DownloadManager {
         BroadcastStream::new(rx).filter_map(|result| result.ok())
     }
 
-    /// Process the download queue
-    fn process_queue(&self) {
+    /// Ensures the single background worker task is running.
+    ///
+    /// Uses a compare-exchange on `worker_started` so that at most one worker
+    /// is ever live. The worker loops forever: it drains the queue until empty,
+    /// then sleeps on `worker_notify` waiting for the next `enqueue` signal.
+    fn ensure_worker(&self) {
+        // Only one worker at a time — if already running, the notify_one() above is enough
+        if self
+            .worker_started
+            .compare_exchange(false, true, AtomicOrdering::AcqRel, AtomicOrdering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+
         tracing::debug!(
             max_concurrent = self.config.max_concurrent_downloads,
-            "Starting download queue processor"
+            "Starting download queue worker"
         );
-        let queue_clone = self.queue.clone();
-        let semaphore_clone = self.semaphore.clone();
-        let statuses_clone = self.statuses.clone();
-        let tasks_clone = self.tasks.clone();
-        let config_clone = self.config.clone();
-        let cancelled_clone = self.cancelled.clone();
-        let completion_tx_clone = self.completion_tx.clone();
-        let progress_tx_clone = self.progress_tx.clone();
-        let event_bus_clone = self.event_bus.clone();
+
+        let queue = self.queue.clone();
+        let semaphore = self.semaphore.clone();
+        let statuses = self.statuses.clone();
+        let tasks = self.tasks.clone();
+        let config = self.config.clone();
+        let cancelled = self.cancelled.clone();
+        let completion_tx = self.completion_tx.clone();
+        let progress_tx = self.progress_tx.clone();
+        let event_bus = self.event_bus.clone();
+        let notify = self.worker_notify.clone();
+        let progress_counters = self.progress_counters.clone();
 
         tokio::spawn(async move {
             loop {
-                tracing::debug!(
-                    max_concurrent = config_clone.max_concurrent_downloads,
-                    "Waiting for available download slot"
-                );
-                // Acquire a permit from the semaphore (blocks if the maximum number of downloads is reached)
-                let permit = match semaphore_clone.clone().acquire_owned().await {
-                    Ok(permit) => permit,
-                    Err(_) => break, // The semaphore has been closed, stop processing
-                };
-
-                // Get the next task from the queue
-                let task = {
-                    let mut queue = queue_clone.lock().await;
-                    queue.pop()
-                };
-
-                if let Some(ref t) = task {
-                    tracing::debug!(
-                        task_id = t.id,
-                        url = %t.url,
-                        destination = ?t.destination,
-                        priority = ?t.priority,
-                        "Popped task from download queue"
-                    );
-                }
-
-                // If the queue is empty, release the permit and stop
-                let task = match task {
-                    Some(task) => task,
-                    None => {
-                        drop(permit); // Release the permit
-                        break;
-                    }
-                };
-
-                // Check if the task was cancelled before starting
-                {
-                    let cancelled = cancelled_clone.lock().await;
-                    if cancelled.contains(&task.id) {
-                        drop(permit); // Release the permit
-                        continue; // Skip this task
-                    }
-                }
-
-                // Update status
-                {
-                    let mut statuses = statuses_clone.lock().await;
-                    statuses.insert(
-                        task.id,
-                        DownloadStatus::Downloading {
-                            downloaded_bytes: 0,
-                            total_bytes: 0,
-                        },
-                    );
-                }
-
-                // Emit DownloadStarted event
-                if let Some(ref bus) = event_bus_clone {
-                    bus.emit(crate::events::DownloadEvent::DownloadStarted {
-                        download_id: task.id,
-                        url: task.url.clone(),
-                        total_bytes: 0,
-                        format_id: None,
-                    });
-                }
-
-                // Create a fetcher for this task
-                // Create a fetcher for this task
-                let fetcher_result = Fetcher::new(
-                    &task.url,
-                    config_clone.proxy.as_ref(),
-                    config_clone.user_agent.clone(),
-                );
-
-                let mut fetcher = match fetcher_result {
-                    Ok(f) => f,
-                    Err(e) => {
-                        let reason = e.to_string();
-                        // Update status
-                        {
-                            let mut statuses = statuses_clone.lock().await;
-                            statuses.insert(
-                                task.id,
-                                DownloadStatus::Failed {
-                                    reason: reason.clone(),
-                                },
-                            );
-                        }
-                        // Emit event
-                        if let Some(ref bus) = event_bus_clone {
-                            bus.emit(crate::events::DownloadEvent::DownloadFailed {
-                                download_id: task.id,
-                                error: reason.clone(),
-                                retry_count: 0,
-                            });
-                        }
-                        // Notify completion
-                        let _ =
-                            completion_tx_clone.send((task.id, DownloadStatus::Failed { reason }));
-
-                        continue;
-                    }
-                };
-
-                fetcher = fetcher
-                    .with_segment_size(config_clone.segment_size)
-                    .with_parallel_segments(config_clone.parallel_segments)
-                    .with_retry_attempts(config_clone.retry_attempts)
-                    .with_speed_profile(config_clone.speed_profile);
-
-                // Add progress callback if available
-                let task_id = task.id;
-                let statuses_for_callback = statuses_clone.clone();
-                let progress_tx_for_callback = progress_tx_clone.clone();
-                let event_bus_for_callback = event_bus_clone.clone();
-
-                if let Some(callback) = task.progress_callback {
-                    fetcher = fetcher.with_progress_callback(move |downloaded, total| {
-                        let statuses_for_callback = statuses_for_callback.clone();
-                        let progress_tx = progress_tx_for_callback.clone();
-                        let event_bus = event_bus_for_callback.clone();
-
-                        tokio::task::spawn_blocking(move || {
-                            // Update status with progress
-                            let mut statuses = statuses_for_callback.blocking_lock();
-                            statuses.insert(
-                                task_id,
-                                DownloadStatus::Downloading {
-                                    downloaded_bytes: downloaded,
-                                    total_bytes: total,
-                                },
-                            );
-                        });
-
-                        // Emit progress event for stream-based API
-                        let _ = progress_tx.send(ProgressUpdate {
-                            download_id: task_id,
-                            downloaded_bytes: downloaded,
-                            total_bytes: total,
-                        });
-
-                        // Emit DownloadProgress event
-                        if let Some(ref bus) = event_bus {
-                            bus.emit(crate::events::DownloadEvent::DownloadProgress {
-                                download_id: task_id,
-                                downloaded_bytes: downloaded,
-                                total_bytes: total,
-                                speed_bytes_per_sec: 0.0, // TODO: Calculate actual speed
-                                eta_seconds: None,
-                            });
-                        }
-
-                        // Call the original callback
-                        callback(downloaded, total);
-                    });
-                } else {
-                    // Default callback that just updates the status
-                    let statuses_for_callback = statuses_clone.clone();
-                    let progress_tx_for_callback = progress_tx_clone.clone();
-                    let event_bus_for_callback = event_bus_clone.clone();
-
-                    fetcher = fetcher.with_progress_callback(move |downloaded, total| {
-                        let statuses_for_callback = statuses_for_callback.clone();
-                        let progress_tx = progress_tx_for_callback.clone();
-                        let event_bus = event_bus_for_callback.clone();
-
-                        tokio::task::spawn_blocking(move || {
-                            let mut statuses = statuses_for_callback.blocking_lock();
-                            statuses.insert(
-                                task_id,
-                                DownloadStatus::Downloading {
-                                    downloaded_bytes: downloaded,
-                                    total_bytes: total,
-                                },
-                            );
-                        });
-
-                        // Emit progress event for stream-based API
-                        let _ = progress_tx.send(ProgressUpdate {
-                            download_id: task_id,
-                            downloaded_bytes: downloaded,
-                            total_bytes: total,
-                        });
-
-                        // Emit DownloadProgress event
-                        if let Some(ref bus) = event_bus {
-                            bus.emit(crate::events::DownloadEvent::DownloadProgress {
-                                download_id: task_id,
-                                downloaded_bytes: downloaded,
-                                total_bytes: total,
-                                speed_bytes_per_sec: 0.0, // TODO: Calculate actual speed
-                                eta_seconds: None,
-                            });
-                        }
-                    });
-                }
-
-                // Launch the download in a separate task
-                let destination = task.destination.clone();
-                let task_url = task.url.clone();
-                let statuses_for_task = statuses_clone.clone();
-                let tasks_for_task = tasks_clone.clone();
-                let completion_tx_for_task = completion_tx_clone.clone();
-                let event_bus_for_task = event_bus_clone.clone();
-
-                let handle = tokio::spawn(async move {
-                    // The permit will be released automatically when it is drop at the end of this closure
-                    let _permit = permit;
-
-                    let start_time = std::time::Instant::now();
-
-                    // Download the file
-                    tracing::debug!(
-                        task_id = task_id,
-                        url = %task_url,
-                        destination = ?destination,
-                        "Starting download attempt"
-                    );
-                    let result = fetcher.fetch_asset(&destination).await;
-
-                    let duration = start_time.elapsed();
-
-                    // Update status based on result and notify completion
-                    let final_status = match &result {
-                        Ok(_) => DownloadStatus::Completed,
-                        Err(e) => DownloadStatus::Failed {
-                            reason: e.to_string(),
-                        },
+                // --- Drain phase: process tasks until the queue is empty ---
+                loop {
+                    // Block until a download slot is free
+                    let permit = match semaphore.clone().acquire_owned().await {
+                        Ok(p) => p,
+                        Err(_) => return, // Semaphore closed; shut down
                     };
 
+                    let task = { queue.lock().await.pop() };
+
+                    let task = match task {
+                        Some(t) => t,
+                        None => {
+                            drop(permit);
+                            break; // Queue empty — exit drain loop
+                        }
+                    };
+
+                    tracing::debug!(
+                        task_id = task.id,
+                        url = %task.url,
+                        destination = ?task.destination,
+                        priority = ?task.priority,
+                        "Popped task from download queue"
+                    );
+
+                    // Skip tasks that were cancelled before they started
                     {
-                        let mut statuses = statuses_for_task.lock().await;
-                        statuses.insert(task_id, final_status.clone());
-                    }
-
-                    // Emit DownloadCompleted or DownloadFailed event
-                    if let Some(ref bus) = event_bus_for_task {
-                        match &final_status {
-                            DownloadStatus::Completed => {
-                                // Get file size if possible
-                                let total_bytes = tokio::fs::metadata(&destination)
-                                    .await
-                                    .map(|m| m.len())
-                                    .unwrap_or(0);
-
-                                bus.emit(crate::events::DownloadEvent::DownloadCompleted {
-                                    download_id: task_id,
-                                    output_path: destination.clone(),
-                                    duration,
-                                    total_bytes,
-                                });
-                            }
-                            DownloadStatus::Failed { reason } => {
-                                bus.emit(crate::events::DownloadEvent::DownloadFailed {
-                                    download_id: task_id,
-                                    error: reason.clone(),
-                                    retry_count: 0, // TODO: Track actual retry count
-                                });
-                            }
-                            _ => {}
+                        let cancelled = cancelled.lock().await;
+                        if cancelled.contains(&task.id) {
+                            drop(permit);
+                            continue;
                         }
                     }
 
-                    // Notify completion via broadcast channel (event-driven, no polling needed)
-                    let _ = completion_tx_for_task.send((task_id, final_status));
+                    // Transition to Downloading state
+                    {
+                        let mut statuses = statuses.lock().await;
+                        statuses.insert(
+                            task.id,
+                            DownloadStatus::Downloading {
+                                downloaded_bytes: 0,
+                                total_bytes: 0,
+                            },
+                        );
+                    }
 
-                    // Remove the task from the list of tasks in progress
-                    let mut tasks = tasks_for_task.lock().await;
-                    tasks.remove(&task_id);
+                    // Emit DownloadStarted event
+                    if let Some(ref bus) = event_bus {
+                        bus.emit(crate::events::DownloadEvent::DownloadStarted {
+                            download_id: task.id,
+                            url: task.url.clone(),
+                            total_bytes: 0,
+                            format_id: None,
+                        });
+                    }
 
-                    result
-                });
+                    // Build the fetcher
+                    let fetcher_result = Fetcher::new(
+                        &task.url,
+                        config.proxy.as_ref(),
+                        config.user_agent.clone(),
+                    );
 
-                // Store the task handle
-                {
-                    let mut tasks = tasks_clone.lock().await;
-                    tasks.insert(task_id, handle);
+                    let mut fetcher = match fetcher_result {
+                        Ok(f) => f,
+                        Err(e) => {
+                            let reason = e.to_string();
+                            {
+                                let mut statuses = statuses.lock().await;
+                                statuses.insert(
+                                    task.id,
+                                    DownloadStatus::Failed {
+                                        reason: reason.clone(),
+                                    },
+                                );
+                            }
+                            if let Some(ref bus) = event_bus {
+                                bus.emit(crate::events::DownloadEvent::DownloadFailed {
+                                    download_id: task.id,
+                                    url: task.url.clone(),
+                                    error: reason.clone(),
+                                    retry_count: 0,
+                                });
+                            }
+                            let _ = completion_tx
+                                .send((task.id, DownloadStatus::Failed { reason }));
+                            continue;
+                        }
+                    };
+
+                    fetcher = fetcher
+                        .with_segment_size(config.segment_size)
+                        .with_parallel_segments(config.parallel_segments)
+                        .with_retry_attempts(config.retry_attempts)
+                        .with_speed_profile(config.speed_profile);
+
+                    // --- M2 fix: per-task AtomicU64 counters replace spawn_blocking ---
+                    let task_id = task.id;
+                    let dl_counter = Arc::new(AtomicU64::new(0));
+                    let total_counter = Arc::new(AtomicU64::new(0));
+
+                    {
+                        let mut counters = progress_counters.lock().unwrap();
+                        counters.insert(task_id, (dl_counter.clone(), total_counter.clone()));
+                    }
+
+                    let dl_for_cb = dl_counter.clone();
+                    let total_for_cb = total_counter.clone();
+                    let progress_tx_for_cb = progress_tx.clone();
+                    let event_bus_for_cb = event_bus.clone();
+                    let user_callback = task.progress_callback.clone();
+                    let speed_start_nanos = Arc::new(AtomicU64::new(0));
+
+                    fetcher = fetcher.with_progress_callback(move |downloaded, total| {
+                        // Lock-free update — no spawn_blocking needed
+                        dl_for_cb.store(downloaded, AtomicOrdering::Relaxed);
+                        total_for_cb.store(total, AtomicOrdering::Relaxed);
+
+                        // Compute speed using a start-time recorded on the first callback
+                        let now_nanos = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos() as u64;
+                        let start_nanos = speed_start_nanos.compare_exchange(
+                            0,
+                            now_nanos,
+                            AtomicOrdering::Relaxed,
+                            AtomicOrdering::Relaxed,
+                        ).unwrap_or_else(|current| current);
+                        let elapsed_nanos = now_nanos.saturating_sub(start_nanos);
+                        let speed = if elapsed_nanos > 0 {
+                            downloaded as f64 / (elapsed_nanos as f64 / 1_000_000_000.0)
+                        } else {
+                            0.0
+                        };
+
+                        let _ = progress_tx_for_cb.send(ProgressUpdate {
+                            download_id: task_id,
+                            downloaded_bytes: downloaded,
+                            total_bytes: total,
+                        });
+
+                        if let Some(ref bus) = event_bus_for_cb {
+                            bus.emit(crate::events::DownloadEvent::DownloadProgress {
+                                download_id: task_id,
+                                downloaded_bytes: downloaded,
+                                total_bytes: total,
+                                speed_bytes_per_sec: speed,
+                                eta_seconds: None,
+                            });
+                        }
+
+                        if let Some(ref callback) = user_callback {
+                            callback(downloaded, total);
+                        }
+                    });
+
+                    // Spawn the actual download task
+                    let destination = task.destination.clone();
+                    let task_url = task.url.clone();
+                    let statuses_for_task = statuses.clone();
+                    let tasks_for_task = tasks.clone();
+                    let cancelled_for_task = cancelled.clone();
+                    let completion_tx_for_task = completion_tx.clone();
+                    let event_bus_for_task = event_bus.clone();
+                    let progress_counters_for_task = progress_counters.clone();
+
+                    let handle = tokio::spawn(async move {
+                        // Permit is released automatically when this task ends
+                        let _permit = permit;
+
+                        let start_time = std::time::Instant::now();
+
+                        tracing::debug!(
+                            task_id = task_id,
+                            url = %task_url,
+                            destination = ?destination,
+                            "Starting download attempt"
+                        );
+
+                        let result = fetcher.fetch_asset(&destination).await;
+                        let duration = start_time.elapsed();
+
+                        let final_status = match &result {
+                            Ok(_) => DownloadStatus::Completed,
+                            Err(e) => DownloadStatus::Failed {
+                                reason: e.to_string(),
+                            },
+                        };
+
+                        {
+                            let mut statuses = statuses_for_task.lock().await;
+                            statuses.insert(task_id, final_status.clone());
+                        }
+
+                        // Remove per-task counters once the download is finished
+                        {
+                            let mut counters = progress_counters_for_task.lock().unwrap();
+                            counters.remove(&task_id);
+                        }
+
+                        if let Some(ref bus) = event_bus_for_task {
+                            match &final_status {
+                                DownloadStatus::Completed => {
+                                    let total_bytes = tokio::fs::metadata(&destination)
+                                        .await
+                                        .map(|m| m.len())
+                                        .unwrap_or(0);
+
+                                    bus.emit(crate::events::DownloadEvent::DownloadCompleted {
+                                        download_id: task_id,
+                                        url: task_url.clone(),
+                                        output_path: destination.clone(),
+                                        duration,
+                                        total_bytes,
+                                    });
+                                }
+                                DownloadStatus::Failed { reason } => {
+                                    bus.emit(crate::events::DownloadEvent::DownloadFailed {
+                                        download_id: task_id,
+                                        url: task_url.clone(),
+                                        error: reason.clone(),
+                                        retry_count: 0,
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        let _ = completion_tx_for_task.send((task_id, final_status));
+
+                        {
+                            let mut tasks = tasks_for_task.lock().await;
+                            tasks.remove(&task_id);
+                        }
+
+                        // Remove from statuses and cancelled now that all waiters have been notified
+                        {
+                            let mut statuses = statuses_for_task.lock().await;
+                            statuses.remove(&task_id);
+                        }
+                        {
+                            let mut cancelled = cancelled_for_task.lock().await;
+                            cancelled.remove(&task_id);
+                        }
+
+                        result
+                    });
+
+                    {
+                        let mut tasks = tasks.lock().await;
+                        tasks.insert(task_id, handle);
+                    }
                 }
 
-                // Continue processing the queue if there are remaining tasks
-                let queue_empty = {
-                    let queue = queue_clone.lock().await;
-                    queue.is_empty()
-                };
-
-                if queue_empty {
-                    break;
-                }
+                // Queue drained — wait for the next enqueue signal before looping
+                notify.notified().await;
             }
         });
     }

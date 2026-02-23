@@ -7,7 +7,22 @@ use crate::error::{Error, Result};
 use crate::model::caption::Extension;
 use regex::Regex;
 use std::path::Path;
+use std::sync::LazyLock;
 use tokio::fs;
+
+static VTT_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})")
+        .expect("valid VTT timestamp regex")
+});
+
+static SRT_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2}),(\d{3})")
+        .expect("valid SRT timestamp regex")
+});
+
+static SRT_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\d+$").expect("valid SRT index regex")
+});
 
 /// Validation result containing detailed information about subtitle file validity.
 #[derive(Debug, Clone, PartialEq)]
@@ -177,27 +192,24 @@ fn validate_vtt(content: &str) -> Result<ValidationResult> {
     }
 
     // Validate timestamps and count entries
-    let timestamp_re =
-        Regex::new(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})")
-            .unwrap();
     let mut last_end_time: Option<f64> = None;
 
     for line in content.lines() {
-        if let Some(caps) = timestamp_re.captures(line) {
+        if let Some(caps) = VTT_TIMESTAMP_RE.captures(line) {
             entry_count += 1;
 
             // Parse start time
-            let start_h: f64 = caps[1].parse().unwrap();
-            let start_m: f64 = caps[2].parse().unwrap();
-            let start_s: f64 = caps[3].parse().unwrap();
-            let start_ms: f64 = caps[4].parse().unwrap();
+            let start_h: f64 = caps[1].parse().unwrap_or(0.0);
+            let start_m: f64 = caps[2].parse().unwrap_or(0.0);
+            let start_s: f64 = caps[3].parse().unwrap_or(0.0);
+            let start_ms: f64 = caps[4].parse().unwrap_or(0.0);
             let start_time = start_h * 3600.0 + start_m * 60.0 + start_s + start_ms / 1000.0;
 
             // Parse end time
-            let end_h: f64 = caps[5].parse().unwrap();
-            let end_m: f64 = caps[6].parse().unwrap();
-            let end_s: f64 = caps[7].parse().unwrap();
-            let end_ms: f64 = caps[8].parse().unwrap();
+            let end_h: f64 = caps[5].parse().unwrap_or(0.0);
+            let end_m: f64 = caps[6].parse().unwrap_or(0.0);
+            let end_s: f64 = caps[7].parse().unwrap_or(0.0);
+            let end_ms: f64 = caps[8].parse().unwrap_or(0.0);
             let end_time = end_h * 3600.0 + end_m * 60.0 + end_s + end_ms / 1000.0;
 
             // Validate time range
@@ -242,10 +254,6 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
     let mut entry_count = 0;
 
     // Validate timestamps and count entries
-    let timestamp_re =
-        Regex::new(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2}),(\d{3})")
-            .unwrap();
-    let index_re = Regex::new(r"^\d+$").unwrap();
 
     let mut last_end_time: Option<f64> = None;
     let mut last_index = 0;
@@ -261,9 +269,9 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
         }
 
         // Check for subtitle index
-        if expect_index && index_re.is_match(trimmed) {
+        if expect_index && SRT_INDEX_RE.is_match(trimmed) {
             has_index = true;
-            let index: usize = trimmed.parse().unwrap();
+            let index: usize = trimmed.parse().unwrap_or(0);
 
             if index != last_index + 1 && last_index != 0 {
                 warnings.push(format!(
@@ -279,22 +287,22 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
         }
 
         // Check for timestamp line
-        if let Some(caps) = timestamp_re.captures(trimmed) {
+        if let Some(caps) = SRT_TIMESTAMP_RE.captures(trimmed) {
             entry_count += 1;
             expect_index = false;
 
             // Parse start time
-            let start_h: f64 = caps[1].parse().unwrap();
-            let start_m: f64 = caps[2].parse().unwrap();
-            let start_s: f64 = caps[3].parse().unwrap();
-            let start_ms: f64 = caps[4].parse().unwrap();
+            let start_h: f64 = caps[1].parse().unwrap_or(0.0);
+            let start_m: f64 = caps[2].parse().unwrap_or(0.0);
+            let start_s: f64 = caps[3].parse().unwrap_or(0.0);
+            let start_ms: f64 = caps[4].parse().unwrap_or(0.0);
             let start_time = start_h * 3600.0 + start_m * 60.0 + start_s + start_ms / 1000.0;
 
             // Parse end time
-            let end_h: f64 = caps[5].parse().unwrap();
-            let end_m: f64 = caps[6].parse().unwrap();
-            let end_s: f64 = caps[7].parse().unwrap();
-            let end_ms: f64 = caps[8].parse().unwrap();
+            let end_h: f64 = caps[5].parse().unwrap_or(0.0);
+            let end_m: f64 = caps[6].parse().unwrap_or(0.0);
+            let end_s: f64 = caps[7].parse().unwrap_or(0.0);
+            let end_ms: f64 = caps[8].parse().unwrap_or(0.0);
             let end_time = end_h * 3600.0 + end_m * 60.0 + end_s + end_ms / 1000.0;
 
             // Validate time range
