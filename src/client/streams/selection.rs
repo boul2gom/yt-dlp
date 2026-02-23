@@ -201,13 +201,23 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_video_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() { &video_formats } else { &filtered }
+            if filtered.is_empty() {
+                &video_formats
+            } else {
+                &filtered
+            }
         };
 
         // Select based on quality preference
         match quality {
-            VideoQuality::Best => active.iter().copied().max_by(|a, b| self.compare_video_formats(a, b)),
-            VideoQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Best => active
+                .iter()
+                .copied()
+                .max_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Worst => active
+                .iter()
+                .copied()
+                .min_by(|a, b| self.compare_video_formats(a, b)),
             VideoQuality::High => select_closest_video_height(active.iter().copied(), 1080, self),
             VideoQuality::Medium => select_closest_video_height(active.iter().copied(), 720, self),
             VideoQuality::Low => select_closest_video_height(active.iter().copied(), 480, self),
@@ -254,13 +264,23 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_audio_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() { &audio_formats } else { &filtered }
+            if filtered.is_empty() {
+                &audio_formats
+            } else {
+                &filtered
+            }
         };
 
         // Select based on quality preference
         match quality {
-            AudioQuality::Best => active.iter().copied().max_by(|a, b| self.compare_audio_formats(a, b)),
-            AudioQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Best => active
+                .iter()
+                .copied()
+                .max_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Worst => active
+                .iter()
+                .copied()
+                .min_by(|a, b| self.compare_audio_formats(a, b)),
             AudioQuality::High => select_closest_audio_bitrate(active.iter().copied(), 192, self),
             AudioQuality::Medium => select_closest_audio_bitrate(active.iter().copied(), 128, self),
             AudioQuality::Low => select_closest_audio_bitrate(active.iter().copied(), 96, self),
