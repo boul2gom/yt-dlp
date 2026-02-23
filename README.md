@@ -75,7 +75,7 @@ Using an external program is not ideal, but it is the most reliable and maintain
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = "2.0.0"
+yt-dlp = "2.0.1"
 ```
 
 A new release is automatically published every two weeks, to keep up to date with dependencies and features.
@@ -115,19 +115,19 @@ Exactly one backend is ever compiled, regardless of how many feature flags are a
 **Default (in-memory LRU)** — no persistence, bounded by capacity, useful for short-lived processes:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["cache"] }
+yt-dlp = { version = "2.0.1", features = ["cache"] }
 ```
 
 **JSON** — persistent, file-system backed, no extra dependencies:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["cache-json"] }
+yt-dlp = { version = "2.0.1", features = ["cache-json"] }
 ```
 
 **SQLite** — better for large caches or concurrent access:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["cache-sqlite"] }
+yt-dlp = { version = "2.0.1", features = ["cache-sqlite"] }
 ```
 
 ### 🔍 Observability & Tracing
@@ -1443,7 +1443,7 @@ Register async functions to be called when events occur:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["hooks"] }
+yt-dlp = { version = "2.0.1", features = ["hooks"] }
 ```
 
 - 🎣 Registering a hook for download events:
@@ -1541,7 +1541,7 @@ Send events to external HTTP endpoints with automatic retry:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["webhooks"] }
+yt-dlp = { version = "2.0.1", features = ["webhooks"] }
 ```
 
 - 📡 Registering a webhook:
@@ -1702,7 +1702,7 @@ Enable real-time, aggregate metrics with zero manual bookkeeping:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.0", features = ["statistics"] }
+yt-dlp = { version = "2.0.1", features = ["statistics"] }
 ```
 
 The [`StatisticsTracker`](https://docs.rs/yt-dlp/latest/yt_dlp/stats/struct.StatisticsTracker.html) subscribes to the internal event bus in a background task and continuously updates running counters. Call `snapshot()` at any time to obtain an atomic view of all metrics:
