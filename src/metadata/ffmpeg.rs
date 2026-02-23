@@ -14,6 +14,72 @@ use std::time::Duration;
 use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 
 impl MetadataManager {
+    /// Prepare and collect metadata for a video.
+    ///
+    /// This function collects all metadata from the video and formats it for FFmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the video file
+    /// * `video` - Video metadata to apply
+    /// * `file_format` - Format of the video file
+    /// * `video_format` - Optional video format for technical metadata
+    /// * `audio_format` - Optional audio format for technical metadata
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples containing metadata key-value pairs
+    fn prepare_and_collect_metadata(
+        &self,
+        path: &Path,
+        video: &Video,
+        file_format: &str,
+        video_format: Option<&Format>,
+        audio_format: Option<&Format>,
+    ) -> Vec<(String, String)> {
+        let video_resolution = video_format.and_then(|f| {
+            match (f.video_resolution.width, f.video_resolution.height) {
+                (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
+                _ => None,
+            }
+        });
+        let video_codec = video_format.and_then(|f| f.codec_info.video_codec.as_deref());
+        let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
+        let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
+
+        tracing::debug!(
+            file_path = ?path,
+            video_id = %video.id,
+            title = %video.title,
+            file_format = file_format,
+            has_video_format = video_format.is_some(),
+            video_resolution = ?video_resolution,
+            video_codec = ?video_codec,
+            has_audio_format = audio_format.is_some(),
+            audio_bitrate = ?audio_bitrate,
+            audio_codec = ?audio_codec,
+            "Adding metadata using FFmpeg"
+        );
+
+        let mut all_metadata = Self::extract_basic_metadata(video);
+
+        if let Some(format) = video_format {
+            let video_metadata = Self::extract_video_format_metadata(format);
+            tracing::trace!(video_metadata_count = video_metadata.len(), "Extracted video format metadata");
+            all_metadata.extend(video_metadata);
+        }
+
+        if let Some(format) = audio_format {
+            let audio_metadata = Self::extract_audio_format_metadata(format);
+            tracing::trace!(audio_metadata_count = audio_metadata.len(), "Extracted audio format metadata");
+            all_metadata.extend(audio_metadata);
+        }
+
+        tracing::trace!(total_metadata_count = all_metadata.len(), "Total metadata entries collected");
+
+        all_metadata
+    }
+
     /// Add metadata to a WebM/MKV file using FFmpeg.
     ///
     /// WebM/MKV metadata includes: All basic metadata (via Matroska format),
@@ -38,31 +104,6 @@ impl MetadataManager {
         _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let path: PathBuf = file_path.into();
-        {
-            let video_resolution = video_format.and_then(|f| {
-                match (f.video_resolution.width, f.video_resolution.height) {
-                    (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
-                    _ => None,
-                }
-            });
-            let video_codec = video_format.and_then(|f| f.codec_info.video_codec.as_deref());
-            let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
-            let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
-
-            tracing::debug!(
-                file_path = ?path,
-                video_id = %video.id,
-                title = %video.title,
-                has_video_format = video_format.is_some(),
-                video_resolution = ?video_resolution,
-                video_codec = ?video_codec,
-                has_audio_format = audio_format.is_some(),
-                audio_bitrate = ?audio_bitrate,
-                audio_codec = ?audio_codec,
-                "Adding metadata to WebM/MKV file"
-            );
-        }
-
         Self::log_metadata_debug(format!("Adding metadata to WebM/MKV file: {:?}", path));
 
         let file_format = "webm";
@@ -77,32 +118,7 @@ impl MetadataManager {
             .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
-        let mut all_metadata = Self::extract_basic_metadata(video);
-
-        // Add video format metadata if available
-        if let Some(format) = video_format {
-            let video_metadata = Self::extract_video_format_metadata(format);
-            tracing::trace!(
-                video_metadata_count = video_metadata.len(),
-                "Extracted video format metadata"
-            );
-            all_metadata.extend(video_metadata);
-        }
-
-        // Add audio format metadata if available
-        if let Some(format) = audio_format {
-            let audio_metadata = Self::extract_audio_format_metadata(format);
-            tracing::trace!(
-                audio_metadata_count = audio_metadata.len(),
-                "Extracted audio format metadata"
-            );
-            all_metadata.extend(audio_metadata);
-        }
-
-        tracing::trace!(
-            total_metadata_count = all_metadata.len(),
-            "Total metadata entries collected for WebM/MKV"
-        );
+        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
 
         // Build FFmpeg metadata arguments for WebM format
         // WebM is based on Matroska format and uses specific metadata tags
@@ -252,32 +268,6 @@ impl MetadataManager {
         _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let path: std::path::PathBuf = file_path.into();
-        {
-            let video_resolution = video_format.and_then(|f| {
-                match (f.video_resolution.width, f.video_resolution.height) {
-                    (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
-                    _ => None,
-                }
-            });
-            let video_codec = video_format.and_then(|f| f.codec_info.video_codec.as_deref());
-            let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
-            let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
-
-            tracing::debug!(
-                file_path = ?path,
-                video_id = %video.id,
-                title = %video.title,
-                file_format = file_format,
-                has_video_format = video_format.is_some(),
-                video_resolution = ?video_resolution,
-                video_codec = ?video_codec,
-                has_audio_format = audio_format.is_some(),
-                audio_bitrate = ?audio_bitrate,
-                audio_codec = ?audio_codec,
-                "Adding metadata using FFmpeg"
-            );
-        }
-
         let temp_output_path = Self::create_temp_output_path(&path, file_format)?;
 
         let input_str = path
@@ -288,30 +278,7 @@ impl MetadataManager {
             .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
 
         // Collect all metadata
-        let mut all_metadata = Self::extract_basic_metadata(video);
-
-        if let Some(format) = video_format {
-            let video_metadata = Self::extract_video_format_metadata(format);
-            tracing::trace!(
-                video_metadata_count = video_metadata.len(),
-                "Extracted video format metadata"
-            );
-            all_metadata.extend(video_metadata);
-        }
-
-        if let Some(format) = audio_format {
-            let audio_metadata = Self::extract_audio_format_metadata(format);
-            tracing::trace!(
-                audio_metadata_count = audio_metadata.len(),
-                "Extracted audio format metadata"
-            );
-            all_metadata.extend(audio_metadata);
-        }
-
-        tracing::trace!(
-            total_metadata_count = all_metadata.len(),
-            "Total metadata entries collected"
-        );
+        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
 
         // Build FFmpeg metadata arguments
         let metadata_args: Vec<String> = all_metadata

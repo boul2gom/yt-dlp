@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import subprocess
+import argparse
 from pathlib import Path
 
 CRITERION_DIR = Path("target/criterion")
@@ -51,16 +52,31 @@ def get_result(group, bench_name, param=""):
     return fmt_ns(ns)
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Parse Criterion JSON results and print Markdown tables matching the PROFILING.md format."
+    )
+    parser.add_argument(
+        '--run',
+        action='store_true',
+        help="Run cargo bench first, then parse"
+    )
+    parser.add_argument(
+        '--run-all',
+        action='store_true',
+        help="Run with all feature-gated groups"
+    )
+    
+    args = parser.parse_args()
+
     # Run benchmarks if flags are provided
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--run":
-            print("Running cargo bench...")
-            subprocess.run(["cargo", "bench"], check=True)
-            print()
-        elif sys.argv[1] == "--run-all":
-            print("Running cargo bench with all features...")
-            subprocess.run(["cargo", "bench", "--features", "webhooks cache-json"], check=True)
-            print()
+    if args.run_all:
+        print("Running cargo bench with all features...")
+        subprocess.run(["cargo", "bench", "--features", "webhooks cache-json"], check=True)
+        print()
+    elif args.run:
+        print("Running cargo bench...")
+        subprocess.run(["cargo", "bench"], check=True)
+        print()
 
     if not CRITERION_DIR.is_dir():
         print(f"No Criterion results found in {CRITERION_DIR}")

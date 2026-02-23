@@ -10,6 +10,7 @@ use crate::client::proxy::ProxyConfig;
 use crate::download::fetcher::Fetcher;
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
+use crate::model::format::HttpHeaders;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -68,6 +69,8 @@ struct DownloadTask {
     /// Progress callback
     #[allow(clippy::type_complexity)]
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    /// Optional HTTP headers from yt-dlp to use for the download
+    http_headers: Option<crate::model::format::HttpHeaders>,
 }
 
 impl std::fmt::Debug for DownloadTask {
@@ -367,69 +370,43 @@ impl DownloadManager {
         destination: impl Into<PathBuf>,
         priority: Option<DownloadPriority>,
     ) -> u64 {
-        let mut id_guard = self.next_id.lock().await;
-        let id = *id_guard;
-        *id_guard += 1;
-        drop(id_guard);
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            priority.unwrap_or(DownloadPriority::Normal),
+            None,
+            None,
+        )
+        .await
+    }
 
-        let url_str = url.as_ref().to_string();
-        let destination_path = destination.into();
-        let task_priority = priority.unwrap_or(DownloadPriority::Normal);
-
-        let task = DownloadTask {
-            url: url_str.clone(),
-            destination: destination_path.clone(),
-            priority: task_priority,
-            id,
-            progress_callback: None,
-        };
-
-        tracing::debug!(
-            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
-            id,
-            url_str,
-            destination_path,
-            task_priority
-        );
-
-        // Add the task to the queue
-        {
-            let mut queue = self.queue.lock().await;
-            queue.push(task);
-        }
-
-        // Update status
-        {
-            let mut statuses = self.statuses.lock().await;
-            statuses.insert(id, DownloadStatus::Queued);
-        }
-
-        // Emit DownloadQueued event
-        self.emit_event(crate::events::DownloadEvent::DownloadQueued {
-            download_id: id,
-            url: url_str,
-            priority: task_priority,
-            output_path: destination_path,
-        });
-
-        // Wake the single worker (M1 fix: no new spawn per enqueue)
-        self.worker_notify.notify_one();
-        self.ensure_worker();
-
-        // Auto-cleanup if needed
-        if id % 100 == 0 {
-            // Check every 100 downloads to avoid locking too often
-            let status_count = {
-                let statuses = self.statuses.lock().await;
-                statuses.len()
-            };
-
-            if status_count > self.config.cleanup_threshold {
-                self.cleanup_finished().await;
-            }
-        }
-
-        id
+    /// Add a download to the queue with specific HTTP headers from yt-dlp
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to download
+    /// * `destination` - The destination path
+    /// * `priority` - The download priority (optional, default Normal)
+    /// * `http_headers` - The headers to use
+    ///
+    /// # Returns
+    ///
+    /// The ID of the download
+    pub async fn enqueue_with_headers(
+        &self,
+        url: impl AsRef<str>,
+        destination: impl Into<PathBuf>,
+        priority: Option<DownloadPriority>,
+        http_headers: Option<crate::model::format::HttpHeaders>,
+    ) -> u64 {
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            priority.unwrap_or(DownloadPriority::Normal),
+            None,
+            http_headers,
+        )
+        .await
     }
 
     /// Add a download to the queue with a progress callback
@@ -454,18 +431,67 @@ impl DownloadManager {
     where
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            priority.unwrap_or(DownloadPriority::Normal),
+            Some(Arc::new(progress_callback)),
+            None,
+        )
+        .await
+    }
+
+    /// Add a download to the queue with a progress callback and specific HTTP headers
+    pub async fn enqueue_with_progress_and_headers<F>(
+        &self,
+        url: impl AsRef<str>,
+        destination: impl Into<PathBuf>,
+        priority: Option<DownloadPriority>,
+        progress_callback: F,
+        http_headers: Option<HttpHeaders>,
+    ) -> u64
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            priority.unwrap_or(DownloadPriority::Normal),
+            Some(Arc::new(progress_callback)),
+            http_headers,
+        )
+        .await
+    }
+
+    async fn enqueue_internal(
+        &self,
+        url: String,
+        destination: PathBuf,
+        priority: DownloadPriority,
+        progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+        http_headers: Option<crate::model::format::HttpHeaders>,
+    ) -> u64 {
         let mut id_guard = self.next_id.lock().await;
         let id = *id_guard;
         *id_guard += 1;
         drop(id_guard);
 
         let task = DownloadTask {
-            url: url.as_ref().to_string(),
-            destination: destination.into(),
-            priority: priority.unwrap_or(DownloadPriority::Normal),
+            url: url.clone(),
+            destination: destination.clone(),
+            priority,
             id,
-            progress_callback: Some(Arc::new(progress_callback)),
+            progress_callback,
+            http_headers,
         };
+
+        tracing::debug!(
+            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
+            id,
+            url,
+            destination,
+            priority
+        );
 
         // Add the task to the queue
         {
@@ -479,9 +505,30 @@ impl DownloadManager {
             statuses.insert(id, DownloadStatus::Queued);
         }
 
-        // Wake the single worker (M1 fix: no new spawn per enqueue)
+        // Emit DownloadQueued event
+        self.emit_event(crate::events::DownloadEvent::DownloadQueued {
+            download_id: id,
+            url,
+            priority,
+            output_path: destination,
+        });
+
+        // Wake the single worker
         self.worker_notify.notify_one();
         self.ensure_worker();
+
+        // Auto-cleanup if needed
+        if id % 100 == 0 {
+            // Check every 100 downloads to avoid locking too often
+            let status_count = {
+                let statuses = self.statuses.lock().await;
+                statuses.len()
+            };
+
+            if status_count > self.config.cleanup_threshold {
+                self.cleanup_finished().await;
+            }
+        }
 
         id
     }
@@ -860,9 +907,19 @@ impl DownloadManager {
                         });
                     }
 
+                    // Generate an HttpHeaders from default user agent if task doesn't have one
+                    let headers = task.http_headers.or_else(|| {
+                        config.user_agent.clone().map(|ua| crate::model::format::HttpHeaders {
+                            user_agent: ua,
+                            accept: "*/*".to_string(),
+                            accept_language: "en-US,en".to_string(),
+                            sec_fetch_mode: "navigate".to_string(),
+                        })
+                    });
+
                     // Build the fetcher
                     let fetcher_result =
-                        Fetcher::new(&task.url, config.proxy.as_ref(), config.user_agent.clone());
+                        Fetcher::new(&task.url, config.proxy.as_ref(), headers);
 
                     let mut fetcher = match fetcher_result {
                         Ok(f) => f,

@@ -179,6 +179,15 @@ fn detect_subtitle_format(content: &str) -> Result<Extension> {
     ))
 }
 
+/// Helper to parse timestamp captures
+fn parse_timestamp(caps: &regex::Captures, offset: usize) -> f64 {
+    let h: f64 = caps[offset + 1].parse().unwrap_or(0.0);
+    let m: f64 = caps[offset + 2].parse().unwrap_or(0.0);
+    let s: f64 = caps[offset + 3].parse().unwrap_or(0.0);
+    let ms: f64 = caps[offset + 4].parse().unwrap_or(0.0);
+    h * 3600.0 + m * 60.0 + s + ms / 1000.0
+}
+
 /// Validate VTT subtitle content.
 fn validate_vtt(content: &str) -> Result<ValidationResult> {
     let mut errors = Vec::new();
@@ -197,19 +206,9 @@ fn validate_vtt(content: &str) -> Result<ValidationResult> {
         if let Some(caps) = VTT_TIMESTAMP_RE.captures(line) {
             entry_count += 1;
 
-            // Parse start time
-            let start_h: f64 = caps[1].parse().unwrap_or(0.0);
-            let start_m: f64 = caps[2].parse().unwrap_or(0.0);
-            let start_s: f64 = caps[3].parse().unwrap_or(0.0);
-            let start_ms: f64 = caps[4].parse().unwrap_or(0.0);
-            let start_time = start_h * 3600.0 + start_m * 60.0 + start_s + start_ms / 1000.0;
-
-            // Parse end time
-            let end_h: f64 = caps[5].parse().unwrap_or(0.0);
-            let end_m: f64 = caps[6].parse().unwrap_or(0.0);
-            let end_s: f64 = caps[7].parse().unwrap_or(0.0);
-            let end_ms: f64 = caps[8].parse().unwrap_or(0.0);
-            let end_time = end_h * 3600.0 + end_m * 60.0 + end_s + end_ms / 1000.0;
+            // Parse start and end times
+            let start_time = parse_timestamp(&caps, 0);
+            let end_time = parse_timestamp(&caps, 4);
 
             // Validate time range
             if start_time >= end_time {
@@ -290,19 +289,9 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
             entry_count += 1;
             expect_index = false;
 
-            // Parse start time
-            let start_h: f64 = caps[1].parse().unwrap_or(0.0);
-            let start_m: f64 = caps[2].parse().unwrap_or(0.0);
-            let start_s: f64 = caps[3].parse().unwrap_or(0.0);
-            let start_ms: f64 = caps[4].parse().unwrap_or(0.0);
-            let start_time = start_h * 3600.0 + start_m * 60.0 + start_s + start_ms / 1000.0;
-
-            // Parse end time
-            let end_h: f64 = caps[5].parse().unwrap_or(0.0);
-            let end_m: f64 = caps[6].parse().unwrap_or(0.0);
-            let end_s: f64 = caps[7].parse().unwrap_or(0.0);
-            let end_ms: f64 = caps[8].parse().unwrap_or(0.0);
-            let end_time = end_h * 3600.0 + end_m * 60.0 + end_s + end_ms / 1000.0;
+            // Parse start and end times
+            let start_time = parse_timestamp(&caps, 0);
+            let end_time = parse_timestamp(&caps, 4);
 
             // Validate time range
             if start_time >= end_time {

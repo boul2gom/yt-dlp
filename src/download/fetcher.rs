@@ -9,10 +9,11 @@
 use crate::client::proxy::ProxyConfig;
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::{Error, Result};
+use crate::model::format::HttpHeaders;
 use crate::utils::fs;
 use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
 use futures_util::{StreamExt, stream};
-use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
+use reqwest::header::{self, HeaderMap, HeaderValue, RANGE};
 use std::cmp::min;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -86,22 +87,35 @@ impl Fetcher {
     ///
     /// * `url` - The URL from which to download the data.
     /// * `proxy` - Optional proxy configuration
-    /// * `user_agent` - Optional User-Agent string
+    /// * `http_headers` - Optional HTTP headers
     pub fn new(
         url: impl AsRef<str>,
         proxy: Option<&ProxyConfig>,
-        user_agent: Option<String>,
+        http_headers: Option<HttpHeaders>,
     ) -> Result<Self> {
         // Create a shared HTTP client with optimized connection pooling and HTTP/2 support
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
             .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+            .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
             .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
             .http2_adaptive_window(true);
 
-        if let Some(ua) = &user_agent {
-            builder = builder.user_agent(ua);
+        if let Some(headers) = &http_headers {
+            builder = builder.user_agent(&headers.user_agent);
+            let mut default_headers = reqwest::header::HeaderMap::new();
+
+            if let Ok(hv) = HeaderValue::from_str(&headers.accept) {
+                default_headers.insert(header::ACCEPT, hv);
+            }
+            if let Ok(hv) = HeaderValue::from_str(&headers.accept_language) {
+                default_headers.insert(header::ACCEPT_LANGUAGE, hv);
+            }
+            if let Ok(hv) = HeaderValue::from_bytes(headers.sec_fetch_mode.as_bytes()) {
+                default_headers.insert("Sec-Fetch-Mode", hv);
+            }
+            
+            builder = builder.default_headers(default_headers);
         } else {
             builder = builder.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
         }
@@ -200,6 +214,33 @@ impl Fetcher {
         self
     }
 
+    /// Fetch the data from the URL and return it as a reqwest response.
+    async fn fetch_internal(&self, auth_token: Option<String>) -> Result<reqwest::Response> {
+        tracing::debug!(
+            url = %self.url,
+            has_token = auth_token.is_some(),
+            "Fetching data"
+        );
+
+        let mut headers = HeaderMap::new();
+
+        if let Some(auth_token) = auth_token {
+            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
+                .map_err(|e| Error::Unknown(e.to_string()))?;
+
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+
+        let response = self.client
+            .get(&self.url)
+            .headers(headers)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response)
+    }
+
     /// Fetch the data from the URL and return it as Serde value.
     ///
     /// # Arguments
@@ -210,30 +251,7 @@ impl Fetcher {
     ///
     /// This function will return an error if the data could not be fetched or parsed.
     pub async fn fetch_json(&self, auth_token: Option<String>) -> Result<serde_json::Value> {
-        tracing::debug!(
-            url = %self.url,
-            has_token = auth_token.is_some(),
-            "Fetching JSON data"
-        );
-
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("rust-reqwest"));
-
-        if let Some(auth_token) = auth_token {
-            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .map_err(|e| Error::Unknown(e.to_string()))?;
-
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
-
-        let client = reqwest::Client::new();
-        let response = client
-            .get(&self.url)
-            .headers(headers)
-            .send()
-            .await?
-            .error_for_status()?;
-
+        let response = self.fetch_internal(auth_token).await?;
         let json = response.json().await?;
         Ok(json)
     }
@@ -248,29 +266,7 @@ impl Fetcher {
     ///
     /// This function will return an error if the data could not be fetched.
     pub async fn fetch_text(&self, auth_token: Option<String>) -> Result<String> {
-        tracing::debug!(
-            url = %self.url,
-            "Fetching text data"
-        );
-
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("rust-reqwest"));
-
-        if let Some(auth_token) = auth_token {
-            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .map_err(|e| Error::Unknown(e.to_string()))?;
-
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
-
-        let client = reqwest::Client::new();
-        let response = client
-            .get(&self.url)
-            .headers(headers)
-            .send()
-            .await?
-            .error_for_status()?;
-
+        let response = self.fetch_internal(auth_token).await?;
         let text = response.text().await?;
         Ok(text)
     }

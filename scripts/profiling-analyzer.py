@@ -10,18 +10,19 @@
 import json
 import gzip
 import os
+import argparse
 
-def analyze_dhat():
+def analyze_dhat(dhat_path="dhat-heap.json"):
     print("╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ DHAT MEMORY ANALYSIS                                                       │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
     
-    if not os.path.exists('dhat-heap.json'):
-        print("dhat-heap.json not found!\n")
+    if not os.path.exists(dhat_path):
+        print(f"{dhat_path} not found!\n")
         return
 
     try:
-        with open('dhat-heap.json') as f:
+        with open(dhat_path) as f:
             d = json.load(f)
         
         frames = d.get('ftbl', [])
@@ -62,17 +63,17 @@ def analyze_dhat():
     except Exception as e:
         print(f"Error analyzing DHAT: {e}")
 
-def analyze_samply():
+def analyze_samply(samply_path="profile.json.gz"):
     print("\n╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ SAMPLY CPU ANALYSIS                                                        │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
     
-    if not os.path.exists('profile.json.gz'):
-        print("profile.json.gz not found!\n")
+    if not os.path.exists(samply_path):
+        print(f"{samply_path} not found!\n")
         return
 
     try:
-        with gzip.open('profile.json.gz', 'rt') as f:
+        with gzip.open(samply_path, 'rt') as f:
             prof = json.load(f)
             
         threads = prof.get('threads', [])
@@ -154,6 +155,40 @@ def analyze_samply():
     except Exception as e:
         print(f"Error analyzing profile.json.gz: {e}")
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Parse and analyze DHAT and Samply profiles to identify memory and CPU bottlenecks."
+    )
+    parser.add_argument(
+        '--dhat-file',
+        type=str,
+        default='dhat-heap.json',
+        help="Path to DHAT heap profile (default: dhat-heap.json)"
+    )
+    parser.add_argument(
+        '--samply-file',
+        type=str,
+        default='profile.json.gz',
+        help="Path to Samply profile (default: profile.json.gz)"
+    )
+    parser.add_argument(
+        '--no-dhat',
+        action='store_true',
+        help="Skip DHAT memory analysis"
+    )
+    parser.add_argument(
+        '--no-samply',
+        action='store_true',
+        help="Skip Samply CPU analysis"
+    )
+
+    args = parser.parse_args()
+
+    if not args.no_dhat:
+        analyze_dhat(args.dhat_file)
+    
+    if not args.no_samply:
+        analyze_samply(args.samply_file)
+
 if __name__ == '__main__':
-    analyze_dhat()
-    analyze_samply()
+    main()

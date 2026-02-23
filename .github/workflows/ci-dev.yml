@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@v6.0.2
         with:
           token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.head_ref || github.ref }}
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2
@@ -94,7 +95,7 @@ jobs:
       - name: 🤖 Commit formatted code
         uses: stefanzweifel/git-auto-commit-action@v7.1.0
         with:
-          commit_message: "💄 Format code with Cargo formatter"
+          commit_message: "💄 Format code with Cargo formatter [skip ci]"
           commit_user_name: "boul2gom-bot"
           commit_user_email: "actions-bot@boul2gom.com"
           commit_author: "boul2gom-bot <actions-bot@boul2gom.com>"
