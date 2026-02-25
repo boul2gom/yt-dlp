@@ -367,7 +367,7 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        tracing::info!(title = video.title, "⬇️ Downloading video");
+        tracing::info!(title = video.title, "📥 Downloading video");
 
         let path = output.into();
 
@@ -437,7 +437,7 @@ impl Downloader {
         video: &Video,
         output: impl AsRef<str>,
     ) -> crate::error::Result<PathBuf> {
-        tracing::debug!(title = video.title, "⬇️ Downloading video stream");
+        tracing::debug!(title = video.title, "📥 Downloading video stream");
 
         let best_video = video
             .best_video_format()
@@ -465,7 +465,7 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        tracing::debug!(title = video.title, "⬇️ Downloading video stream to path");
+        tracing::debug!(title = video.title, "📥 Downloading video stream to path");
 
         let best_video = video
             .best_video_format()
@@ -580,7 +580,7 @@ impl Downloader {
         video: &Video,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        tracing::debug!(title = video.title, "⬇️ Downloading audio stream");
+        tracing::debug!(title = video.title, "📥 Downloading audio stream");
 
         let best_audio = video
             .best_audio_format()
@@ -627,7 +627,7 @@ impl Downloader {
         format: &Format,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
-        tracing::debug!(format_id = format.format_id, "⬇️ Downloading format");
+        tracing::debug!(format_id = format.format_id, "📥 Downloading format");
 
         let output_path = output.into();
 
@@ -1452,7 +1452,7 @@ impl Downloader {
                         tracing::debug!(
                             video_id = entry.id,
                             index = entry.index.unwrap_or(0),
-                            "⬇️ Downloading video from playlist"
+                            "📥 Downloading video from playlist"
                         );
 
                         // Fetch full video info

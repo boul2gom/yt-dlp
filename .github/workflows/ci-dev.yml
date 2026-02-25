@@ -28,10 +28,8 @@ jobs:
           prefix-key: rust-toolchain-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.6
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           components: clippy
 
       - name: 📦 Install cargo-hack
@@ -59,23 +57,15 @@ jobs:
           prefix-key: rust-toolchain-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.6
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           components: rustfmt
 
       - name: 💄 Check code format
-        uses: actions-rs/cargo@v1.0.1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: 📚 Run doc tests
-        uses: actions-rs/cargo@v1.0.1
-        with:
-          command: test
-          args: --doc
+        run: cargo test --doc
 
   check-spell:
     name: 📝 Check spelling
@@ -107,10 +97,7 @@ jobs:
           prefix-key: rust-analysis-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.6
-        with:
-          profile: minimal
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: 🛠️ Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
@@ -119,10 +106,29 @@ jobs:
         run: cargo deny check
 
       - name: 📦 Install analysis tools
-        run: cargo install cargo-machete cargo-semver-checks --locked
+        run: cargo install cargo-machete --locked
 
       - name: 🧹 Unused dependencies
         run: cargo machete
 
+  semver-checks:
+    name: 🔖 Semver compatibility
+    runs-on: ubuntu-latest
+    # Informational only — never blocks CI. Breaking changes are expected for minor/major releases.
+    # The auto-release workflow enforces this check for patch releases.
+    continue-on-error: true
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-semver-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: 🚀 Check Semver compatibility
-        run: cargo semver-checks
+        uses: obi1kenobi/cargo-semver-checks-action@v2.8

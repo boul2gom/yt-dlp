@@ -247,7 +247,7 @@ impl Fetcher {
         tracing::debug!(
             url = %self.url,
             has_token = auth_token.is_some(),
-            "⬇️ Fetching data"
+            "📥 Fetching data"
         );
 
         let mut headers = HeaderMap::new();
@@ -288,7 +288,7 @@ impl Fetcher {
             destination = ?destination,
             parallel_segments = self.parallel_segments,
             segment_size = self.segment_size,
-            "⬇️ Fetching asset to file"
+            "📥 Fetching asset to file"
         );
 
         // Ensure the destination directory exists
@@ -390,7 +390,7 @@ impl Fetcher {
             tracing::debug!(
                 destination = ?destination,
                 total_size = content_length,
-                "⬇️ Creating new file for download"
+                "📥 Creating new file for download"
             );
 
             fs::create_parent_dir(&destination).await?;
@@ -721,7 +721,7 @@ impl Fetcher {
         tracing::debug!(
             url = %self.url,
             destination = ?destination,
-            "⬇️ Using simple download (no parallel segments)"
+            "📥 Using simple download (no parallel segments)"
         );
 
         // Ensure the destination directory exists

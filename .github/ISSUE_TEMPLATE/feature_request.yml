@@ -1,0 +1,84 @@
+name: ✨ Feature Request
+description: Suggest a new feature or improvement for the yt-dlp crate
+title: "✨ "
+labels: ["enhancement"]
+assignees:
+  - boul2gom
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ✨ Feature Request
+
+        Thanks for suggesting an improvement! Please describe your idea in detail so we can evaluate it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📝 Feature description
+      description: A clear and concise description of the feature you'd like.
+      placeholder: "I'd like a method on `Downloader` that allows batch downloading of an entire playlist..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 💡 Motivation / Use case
+      description: Why do you need this feature? What problem does it solve?
+      placeholder: "Currently, downloading playlists requires iterating over each video manually, which is verbose and error-prone."
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: 🔧 Proposed implementation
+      description: If you have ideas on how to implement this, share them here.
+      placeholder: |
+        Add a `download_playlist()` method on `Downloader` that:
+        1. Fetches the playlist metadata
+        2. Iterates over each video
+        3. Downloads them concurrently using the existing `DownloadManager`
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: modules
+    attributes:
+      label: 🗂️ Related modules
+      description: Which parts of the crate would be affected?
+      options:
+        - label: 🔧 Client (builder, download builder, proxy)
+        - label: 📥 Download (manager, fetcher, segments)
+        - label: 🔔 Events (hooks, webhooks, event bus)
+        - label: 📡 Extractor (YouTube, generic, detector)
+        - label: 🏷️ Metadata (MP3, MP4, chapters, FFmpeg)
+        - label: 🔍 Cache (memory, JSON, SQLite)
+        - label: 📊 Statistics (tracker, snapshots)
+        - label: 📦 Model (Video, Format, Playlist, etc.)
+
+  - type: textarea
+    id: code
+    attributes:
+      label: 🧩 Example API usage
+      description: If applicable, show what the ideal API would look like from a user's perspective.
+      render: rust
+      placeholder: |
+        use yt_dlp::prelude::*;
+
+        #[tokio::main]
+        async fn main() -> Result<(), Box<dyn std::error::Error>> {
+            let downloader = Downloader::new("yt-dlp", "ffmpeg").await?;
+            // Your proposed API usage here
+            Ok(())
+        }
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 📸 Additional context
+      description: Add any other context, references, or screenshots about the feature request here.
+    validations:
+      required: false

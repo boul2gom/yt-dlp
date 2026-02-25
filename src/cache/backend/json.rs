@@ -456,8 +456,8 @@ impl FileBackend for JsonFileCache {
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
                     && cached.video_id.as_deref() == Some(video_id)
                     && cached.matches_preferences(
-                        video_quality.clone(),
-                        audio_quality.clone(),
+                        video_quality,
+                        audio_quality,
                         video_codec.clone(),
                         audio_codec.clone(),
                     )

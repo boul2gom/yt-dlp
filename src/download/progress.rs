@@ -92,7 +92,7 @@ impl ProgressTracker {
             downloaded = downloaded,
             total = total,
             percentage = percentage,
-            "⬇️ Progress updated"
+            "📥 Progress updated"
         );
 
         let _ = self.tx.send(ProgressInfo::new(downloaded, total));
@@ -104,7 +104,7 @@ impl ProgressTracker {
     ///
     /// A BroadcastStream that receives progress updates
     pub fn stream(&self) -> BroadcastStream<ProgressInfo> {
-        tracing::debug!("⬇️ Creating progress stream");
+        tracing::debug!("📥 Creating progress stream");
 
         BroadcastStream::new(self.tx.subscribe())
     }

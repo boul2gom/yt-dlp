@@ -11,14 +11,15 @@ on:
         type: boolean
         default: false
       release_type:
-        description: 'Version bump level'
-        required: true
+        description: 'Version bump level (auto will detect via semver-checks)'
+        required: false
         type: choice
         options:
+          - auto
           - patch
           - minor
           - major
-        default: 'patch'
+        default: 'auto'
 
 permissions:
   contents: read
@@ -166,9 +167,50 @@ jobs:
             
             core.setOutput("ci_success", runs.data.workflow_runs.length > 0 ? "true" : "false");
 
+  semver_gate:
+    name: 🔖 Semver compatibility gate
+    needs: [check_updates, check_status]
+    if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || github.event.inputs.force_release == 'true') }}
+    runs-on: ubuntu-latest
+    outputs:
+      resolved_type: ${{ steps.resolve.outputs.resolved_type }}
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-semver-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🚀 Check Semver compatibility
+        id: semver
+        continue-on-error: true
+        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+
+      - name: 🔍 Resolve release type
+        id: resolve
+        run: |
+          EXPLICIT_TYPE="${{ github.event.inputs.release_type }}"
+          SEMVER_OUTCOME="${{ steps.semver.outcome }}"
+
+          if [[ "$EXPLICIT_TYPE" != "" && "$EXPLICIT_TYPE" != "auto" ]]; then
+            echo "📌 Explicit release type: $EXPLICIT_TYPE"
+            echo "resolved_type=$EXPLICIT_TYPE" >> $GITHUB_OUTPUT
+          elif [[ "$SEMVER_OUTCOME" == "success" ]]; then
+            echo "✅ No breaking changes detected — releasing as patch"
+            echo "resolved_type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Breaking changes detected — releasing as minor"
+            echo "resolved_type=minor" >> $GITHUB_OUTPUT
+          fi
+
   create_release:
     name: 🔖 Create a new release
-    needs: [check_updates, check_status]
+    needs: [check_updates, check_status, semver_gate]
     if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || github.event.inputs.force_release == 'true') }}
 
     runs-on: ubuntu-latest
@@ -192,15 +234,12 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.8.2
         with:
           prefix-key: rust-toolchain-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: 📌 Install cargo-release
         run: cargo install cargo-release
@@ -218,17 +257,16 @@ jobs:
           git_committer_name: "boul2gom-bot"
           git_committer_email: "actions-bot@boul2gom.com"
 
-      - name: 🚀 Create a new ${{ github.event.inputs.release_type || 'patch' }} release
+      - name: 🚀 Create a new ${{ needs.semver_gate.outputs.resolved_type }} release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo release ${{ github.event.inputs.release_type || 'patch' }} --execute --no-confirm
+        run: cargo release ${{ needs.semver_gate.outputs.resolved_type }} --execute --no-confirm
 
       - name: 🔍 Get new version
         id: get_version
         run: |
           VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          echo "version=$VERSION" >> $GITHUB_ENV
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: 📝 Generate releases notes
@@ -282,7 +320,7 @@ jobs:
               since: reference_date.toISOString()
             });
 
-            let release_notes = `## 🚀 Release v${{ env.version }}\n\n`;
+            let release_notes = `## 🚀 Release v${{ steps.get_version.outputs.version }}\n\n`;
 
             // Categorize commits
             const categories = {
@@ -331,7 +369,7 @@ jobs:
 
             // Add features section if there are any
             if (categories.features.length > 0) {
-              release_notes += `🚀 Features\n`;
+              release_notes += `✨ Features\n`;
               categories.features.forEach(entry => {
                 release_notes += `- ${entry}\n`;
               });
@@ -367,12 +405,11 @@ jobs:
             core.setOutput('release_notes', release_notes);
 
       - name: 📝 Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.version }}
-          release_name: 🔖 v${{ env.version }}
+          token: ${{ steps.app-token.outputs.token }}
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: 🔖 v${{ steps.get_version.outputs.version }}
           draft: false
           prerelease: false
           body: ${{ steps.generate_release_notes.outputs.release_notes }}

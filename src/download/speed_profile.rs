@@ -151,7 +151,7 @@ impl SpeedProfile {
             file_size_mb = file_size_mb,
             segment_size = segment_size,
             total_segments = total_segments,
-            "⬇️ Calculating optimal segments"
+            "📥 Calculating optimal segments"
         );
 
         let max_parallel_segments = match self {
@@ -191,7 +191,7 @@ impl SpeedProfile {
             file_size_mb = file_size_mb,
             max_parallel = max_parallel_segments,
             optimal = result,
-            "⬇️ Optimal segments calculated"
+            "📥 Optimal segments calculated"
         );
 
         result

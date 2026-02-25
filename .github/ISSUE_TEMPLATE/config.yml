@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: ❓ Ask a Question
+    url: https://github.com/boul2gom/yt-dlp/discussions/new?category=q-a
+    about: Use GitHub Discussions for questions about using the yt-dlp crate. The community and maintainers will help you there.
+
+  - name: 💡 Feature Discussion
+    url: https://github.com/boul2gom/yt-dlp/discussions/new?category=ideas
+    about: Want to discuss an idea before opening a formal feature request? Start a discussion first!

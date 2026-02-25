@@ -1,0 +1,3 @@
+[default.extend-words]
+# "Clonable" is used intentionally when referring to DynClone trait objects
+clonable = "clonable"

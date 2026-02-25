@@ -11,11 +11,11 @@
 <br>
 
 <div align="center">
-  <a href="https://github.com/boul2gom/yt-dlp/issues/new?assignees=&labels=bug&template=BUG_REPORT.md&title=bug%3A+">Report a Bug</a>
+  <a href="https://github.com/boul2gom/yt-dlp/issues/new/choose">Report a Bug</a>
   ·
-  <a href="https://github.com/boul2gom/yt-dlp/discussions/new?assignees=&labels=enhancement&title=feat%3A+">Request a Feature</a>
+  <a href="https://github.com/boul2gom/yt-dlp/discussions/new?category=ideas">Request a Feature</a>
   ·
-  <a href="https://github.com/boul2gom/yt-dlp/discussions/new?assignees=&labels=help%20wanted&title=ask%3A+">Ask a Question</a>
+  <a href="https://github.com/boul2gom/yt-dlp/discussions/new?category=q-a">Ask a Question</a>
 </div>
 
 ---

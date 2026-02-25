@@ -33,17 +33,12 @@ jobs:
           prefix-key: rust-toolchain-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.6
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           components: rustfmt
 
       - name: 💄 Format code with Cargo formatter
-        uses: actions-rs/cargo@v1.0.1
-        with:
-          command: fmt
-          args: --all
+        run: cargo fmt --all
 
       - name: 🔐 Import GPG Key and setup Git
         uses: crazy-max/ghaction-import-gpg@v6.3.0

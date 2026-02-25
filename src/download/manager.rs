@@ -613,7 +613,7 @@ impl DownloadManager {
     /// # }
     /// ```
     pub async fn cancel(&self, id: u64) -> bool {
-        tracing::debug!(download_id = id, "⬇️ Cancelling download");
+        tracing::debug!(download_id = id, "📥 Cancelling download");
 
         // Mark as cancelled first to prevent race conditions
         {
@@ -715,7 +715,7 @@ impl DownloadManager {
     /// # }
     /// ```
     pub async fn wait_for_completion(&self, id: u64) -> Option<DownloadStatus> {
-        tracing::debug!(download_id = id, "⬇️ Waiting for download completion");
+        tracing::debug!(download_id = id, "📥 Waiting for download completion");
         // First check if the download already completed
         if let Some(status) = self.get_status(id).await {
             match status {
@@ -799,7 +799,7 @@ impl DownloadManager {
     /// }
     /// ```
     pub fn progress_stream(&self, id: u64) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
-        tracing::debug!(download_id = id, "⬇️ Subscribing to progress stream");
+        tracing::debug!(download_id = id, "📥 Subscribing to progress stream");
         let rx = self.progress_tx.subscribe();
 
         // Create a stream that filters events for the specific download ID
@@ -817,7 +817,7 @@ impl DownloadManager {
     ///
     /// A stream of `ProgressUpdate` events for all downloads
     pub fn progress_stream_all(&self) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
-        tracing::debug!("⬇️ Subscribing to all progress streams");
+        tracing::debug!("📥 Subscribing to all progress streams");
         let rx = self.progress_tx.subscribe();
 
         BroadcastStream::new(rx).filter_map(|result| result.ok())
@@ -853,7 +853,7 @@ impl DownloadManager {
             http_headers,
         };
 
-        tracing::debug!(id = id, url = url, destination = ?destination, priority = ?priority, "⬇️ Enqueuing download");
+        tracing::debug!(id = id, url = url, destination = ?destination, priority = ?priority, "📥 Enqueuing download");
 
         // Add the task to the queue
         {
@@ -1119,7 +1119,7 @@ impl DownloadManager {
                             task_id = task_id,
                             url = %task_url,
                             destination = ?destination,
-                            "⬇️ Starting download attempt"
+                            "📥 Starting download attempt"
                         );
 
                         let result = fetcher.fetch_asset(&destination).await;
@@ -1130,7 +1130,7 @@ impl DownloadManager {
                                 tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully")
                             }
                             Err(e) => {
-                                tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "⬇️ Download failed")
+                                tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "📥 Download failed")
                             }
                         }
 

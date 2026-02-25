@@ -50,7 +50,7 @@ impl<'a> DownloadBuilder<'a> {
         tracing::debug!(
             video_id = %video.id,
             output = ?output,
-            "⬇️ Creating new DownloadBuilder"
+            "📥 Creating new DownloadBuilder"
         );
 
         Self {
@@ -205,7 +205,7 @@ impl<'a> DownloadBuilder<'a> {
     ///
     /// # Returns
     ///
-    /// The modifed `DownloadBuilder` instance.
+    /// The modified `DownloadBuilder` instance.
     pub fn time_range(self, start: f64, end: f64) -> Result<Self> {
         Ok(self.partial(PartialRange::time_range(start, end)?))
     }
@@ -270,7 +270,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "⬇️ Executing download"
+            "📥 Executing download"
         );
 
         // Select video format based on quality and codec preferences
@@ -290,7 +290,7 @@ impl<'a> DownloadBuilder<'a> {
             audio_format_id = %audio_format.format_id,
             video_ext = ?video_format.download_info.ext,
             audio_ext = ?audio_format.download_info.ext,
-            "⬇️ Selected video and audio formats"
+            "📥 Selected video and audio formats"
         );
 
         // Generate temporary filenames for video and audio
@@ -408,7 +408,7 @@ impl<'a> DownloadBuilder<'a> {
         tracing::debug!(
             video_download_id = video_download_id,
             audio_download_id = audio_download_id,
-            "⬇️ Waiting for downloads to complete"
+            "📥 Waiting for downloads to complete"
         );
 
         let video_status = self.downloader.wait_for_download(video_download_id).await;
@@ -486,7 +486,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "⬇️ Executing video stream download"
+            "📥 Executing video stream download"
         );
 
         let video_format = self
@@ -533,7 +533,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "⬇️ Executing audio stream download"
+            "📥 Executing audio stream download"
         );
 
         let audio_format = self
@@ -577,7 +577,7 @@ impl<'a> DownloadBuilder<'a> {
             quality = ?quality,
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
-            "⬇️ Executing storyboard download"
+            "📥 Executing storyboard download"
         );
 
         let format = self
@@ -687,7 +687,7 @@ impl<'a> DownloadBuilder<'a> {
             quality = ?quality,
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
-            "⬇️ Executing thumbnail download"
+            "📥 Executing thumbnail download"
         );
 
         let thumbnail = self.video.select_thumbnail(quality).ok_or_else(|| {
@@ -732,7 +732,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?priority,
             has_headers = http_headers.is_some(),
             has_progress = progress_callback.is_some(),
-            "⬇️ Enqueueing download"
+            "📥 Enqueueing download"
         );
 
         if let Some(cb) = progress_callback {
@@ -767,7 +767,7 @@ impl<'a> DownloadBuilder<'a> {
             output = ?output,
             priority = ?priority,
             format_type = format_type_name,
-            "⬇️ Executing stream download"
+            "📥 Executing stream download"
         );
 
         let path = if output.is_absolute() {

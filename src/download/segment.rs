@@ -91,7 +91,7 @@ impl SegmentContext {
             total_downloaded = new_total,
             total_bytes = self.total_bytes,
             percentage = percentage,
-            "⬇️ Segment progress updated"
+            "📥 Segment progress updated"
         );
 
         if let Some(callback) = &self.progress_callback {

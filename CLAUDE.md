@@ -11,6 +11,213 @@ Key Principles
 - Avoid code duplication; use functions and modules to encapsulate reusable logic.
 - All `use` imports must be at the top of the file (module-level), never inside function bodies. Use `#[cfg(...)]` on the import when it is platform-specific. The only exception is inside `macro_rules!` definitions where `$crate::` paths require local imports.
 - Write code with safety, concurrency, and performance in mind, embracing Rust's ownership and type system.
+- Use `impl Into<String>`, `impl Into<PathBuf>`, `impl AsRef<str>` for public API parameters — not concrete `String` or `&str`.
+- Use optimized types in function parameters according to the operations applied (borrowing vs owned, `&str` vs `String`, `&Path` vs `PathBuf`).
+- No `#[cfg(test)]` modules in `src/`. Tests are done via doctests (`cargo test --doc`), benchmarks (`benches/benchmarks.rs` with criterion), and integration examples (`examples/`).
+
+Project Architecture
+
+The codebase follows a strict module hierarchy:
+
+```
+src/
+├── lib.rs              # Crate root: `Downloader` struct lives here (not in a submodule)
+├── prelude.rs          # Convenience re-exports for `use yt_dlp::prelude::*`
+├── macros.rs           # Convenience macros: youtube!, ytdlp_args!, install_libraries!, ternary!, simple_hook!
+├── error.rs            # Single unified Error enum + type Result<T> alias
+├── client/             # Builder, download builder, proxy, dependency installation, stream orchestration
+│   ├── builder.rs      # DownloaderBuilder (fluent builder for Downloader)
+│   ├── download_builder.rs  # DownloadBuilder<'a> (fluent API for downloads)
+│   ├── proxy.rs        # ProxyConfig, ProxyType
+│   ├── deps/           # Dependency auto-installation (yt-dlp, ffmpeg via GitHub releases)
+│   └── streams/        # Format selection (VideoSelection trait), orchestration, processing
+├── download/           # DownloadManager, Fetcher, segment-based parallel downloads
+├── events/             # EventBus, DownloadEvent, EventFilter, hooks, webhooks
+├── executor/           # Executor (process runner), FfmpegArgs builder, temp-file+rename pattern
+├── extractor/          # VideoExtractor trait, Youtube extractor, Generic extractor, URL detection
+├── metadata/           # MetadataManager, MP3/MP4/FFmpeg metadata writing, chapter injection
+├── model/              # Data types: Video, Format, Chapter, Playlist, Caption, Thumbnail, Heatmap
+│   ├── utils/          # CommonTraits, AllTraits blanket traits, serde helpers (json_none)
+│   └── selector.rs     # VideoQuality, AudioQuality, StoryboardQuality, ThumbnailQuality enums
+├── cache/              # VideoCache, DownloadCache, PlaylistCache (feature-gated)
+│   └── backend/        # Backend trait abstractions + implementations (memory, json, sqlite)
+├── stats/              # StatisticsTracker, GlobalSnapshot (feature: statistics)
+└── utils/              # fs, http, platform, retry, validation, url_expiry, subtitle
+```
+
+Module Conventions:
+- Each directory has a `mod.rs` that declares submodules and re-exports all public types via `pub use`.
+- `lib.rs` re-exports the most-used types to the crate root: `pub use client::{DownloadBuilder, DownloaderBuilder};`.
+- `prelude.rs` re-exports everything users need for basic usage, feature-gated with `#[cfg(feature = "...")]`.
+- Module-level `//!` doc comments describe the module's purpose and architecture.
+- Feature-gated modules declared with `#[cfg(feature = "...")] pub mod cache;` in `lib.rs`.
+
+Visibility Conventions:
+- `pub` — For types and methods exposed to library users.
+- `pub(crate)` — For internal fields of `Downloader` (extractors, cancellation_token, hook_registry, webhook_delivery, statistics) and internal helpers.
+- Private — Default for implementation details that don't need crate-wide access.
+- Builder struct fields are private; `TypedBuilder` config struct fields are `pub`.
+
+Error Handling
+
+Single unified error type in `src/error.rs`:
+
+```rust
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    // ==================== Runtime & System Errors ====================
+    #[error("IO error during {operation}")]
+    IO { operation: String, path: Option<PathBuf>, #[source] source: std::io::Error },
+    // ... more variants grouped by category with comment banners
+}
+```
+
+Rules:
+- **One `Error` enum** for the whole crate. Variants grouped by category with `// ===  ===` comment banners.
+- **Type alias** `pub type Result<T>` in `error.rs`, imported as `use crate::error::Result;`.
+- **Structured named fields** on every variant — never just a string. Use fields like `operation`, `context`, `url`, `reason`, `path`, `source`.
+- **`#[source]`** on the inner error field for proper error chaining.
+- **Helper constructors** with embedded tracing: `Error::io(operation, source)`, `Error::http(url, context, source)`, etc. Each logs `tracing::warn!` or `tracing::error!` with structured fields before constructing.
+- **`From` impls** for common error types (`std::io::Error`, `reqwest::Error`, `serde_json::Error`, `JoinError`, `ZipError`, conditionally `sqlx::Error`). Each `From` impl also logs a tracing message with `"(automatic conversion)"` suffix.
+- **Constructor parameter style**: `impl Into<String>` — not generics with trait bounds.
+- **Feature-gated variants**: `#[cfg(feature = "cache-sqlite")] Database { ... }`.
+- **Only other error type**: `HookError` in `src/events/hooks.rs` (for hook execution failures).
+- Never use `anyhow` — always the crate's own `Error` / `Result`.
+
+Builder Patterns
+
+Two builder styles coexist in the codebase:
+
+**A) Manual builder (consuming `mut self`)** — For `DownloaderBuilder`, `DownloadBuilder`, `WebhookConfig`, `FfmpegArgs`:
+```rust
+pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    self.timeout = timeout;
+    self
+}
+// Terminal method:
+pub async fn build(self) -> Result<Downloader> { ... }
+```
+- Builder methods prefixed with `with_` (e.g. `with_args`, `with_timeout`, `with_proxy`, `with_cache`, `with_cookies`).
+- Always `mut self` (consuming), **never `&mut self`**.
+- Terminal method: `.build()` (async for `DownloaderBuilder`, sync for `FfmpegArgs`) or `.execute()` for `DownloadBuilder`.
+- `DownloadBuilder<'a>` holds a reference `&'a Downloader`.
+- Builder struct fields are private.
+
+**B) `TypedBuilder` derive** — For config structs (`ManagerConfig`, `RetryPolicy`, `ExpiryConfig`):
+```rust
+#[derive(Debug, Clone, TypedBuilder)]
+pub struct ManagerConfig {
+    #[builder(default = SpeedProfile::default().max_concurrent_downloads())]
+    pub max_concurrent_downloads: usize,
+    // ...
+}
+```
+- All fields are `pub`.
+- Uses `#[builder(default = ...)]` for defaults.
+
+Model & Data Types
+
+Standard derive sets:
+- **Simple enums**: `#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]` + `Default` with `#[default]` on a variant.
+- **Complex structs** (with `f64` fields): `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]` — `Eq`/`Hash` implemented manually.
+- **Simple structs** (no floats): `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]`.
+
+Serde patterns:
+- `#[serde(flatten)]` for struct composition: `Format` flattens `CodecInfo`, `VideoResolution`, `DownloadInfo`, `QualityInfo`, `FileInfo`, `StoryboardInfo`, `RatesInfo`.
+- `#[serde(rename = "...")]` on fields: `#[serde(rename = "timestamp")]`, `#[serde(rename = "acodec")]`.
+- `#[serde(rename_all = "snake_case")]` or `#[serde(rename_all = "PascalCase")]` on enums.
+- `#[serde(default)]` on optional collections and fields.
+- `#[serde(other)]` on `Unknown` variant for forward compatibility.
+- `#[serde(skip)]` for derived/internal fields (e.g. `video_id` on `Format`).
+- Custom deserializer `json_none` in `model/utils/serde.rs` — turns `"none"` strings to `Option::None`.
+- `#[serde_as(deserialize_as = "DefaultOnNull")]` from `serde_with` (e.g. on `Video.chapters`).
+- Custom `Deserialize` impl with visitor for polymorphic types (e.g. `DrmStatus` accepts both bool and string).
+- `ordered_float::OrderedFloat<f64>` is used only when floating-point values need `Hash`/`Eq`.
+
+Display format — **always** `TypeName(key=value, key=value)`:
+```rust
+impl fmt::Display for Video {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Video(id={}, title={:?}, channel={:?}, formats={})",
+            self.id, self.title, self.channel.as_deref().unwrap_or("Unknown"), self.formats.len())
+    }
+}
+```
+- Only include essential identifying fields — never full serialization.
+- Use `as_deref().unwrap_or("none")` or `unwrap_or("unknown")` for `Option` fields.
+- Enum variants in Display: `f.write_str("VariantName")` for constant strings, `write!(f, "Variant(key={})", val)` with fields.
+
+Custom `Hash` impls — hash only identity fields:
+```rust
+impl Hash for Video {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.title.hash(state);
+        self.channel.hash(state);
+        self.channel_id.hash(state);
+    }
+}
+```
+
+Blanket traits in `model/utils/mod.rs`:
+- `CommonTraits: Debug + Clone + PartialEq + Display` — with auto-impl for all qualifying types.
+- `AllTraits: CommonTraits + Eq + Hash` — with auto-impl for all qualifying types.
+
+Trait Design Patterns
+
+**`#[async_trait]`** — For traits used as `dyn Trait` (trait objects):
+```rust
+#[async_trait]
+pub trait VideoExtractor: Downcast + Send + Sync + fmt::Debug {
+    async fn fetch_video(&self, url: &str) -> Result<Video>;
+    fn name(&self) -> ExtractorName;
+    fn supports_url(&self, url: &str) -> bool;
+}
+impl_downcast!(VideoExtractor);
+```
+- `downcast_rs::Downcast` + `impl_downcast!` for runtime downcasting.
+- Always `Send + Sync + fmt::Debug` bounds.
+
+**RPITIT (Return Position Impl Trait In Trait)** — For traits dispatched via concrete enum (not `dyn`):
+```rust
+pub trait VideoBackend: Send + Sync + std::fmt::Debug {
+    fn get(&self, url: &str) -> impl Future<Output = Result<Option<Video>>> + Send;
+    fn put(&self, url: String, video: Video) -> impl Future<Output = Result<()>> + Send;
+}
+```
+- Used for cache backend traits because dispatch is via enum (`VideoBackendEnum`), not `Box<dyn>`.
+
+**Clonable trait objects** — `dyn_clone::DynClone` + `clone_trait_object!`:
+```rust
+pub trait EventHook: DynClone + Send + Sync { ... }
+dyn_clone::clone_trait_object!(EventHook);
+```
+
+**When to use each pattern**:
+- `async_trait` → trait will be used behind `Box<dyn Trait>` or `Arc<dyn Trait>`.
+- RPITIT → trait dispatched via concrete enum or generic, never `dyn`.
+- Trait method declarations carry full rustdoc; impls may add only a brief clarifying comment.
+
+Shared State & Concurrency
+
+Primitives used:
+- `Arc<reqwest::Client>` — Shared HTTP client with connection pooling.
+- `Arc<Mutex<...>>` — Mutable shared state: download queues, task maps, next_id counter.
+- `Arc<Semaphore>` — Concurrency limit for parallel downloads.
+- `Arc<AtomicU64>` / `Arc<AtomicBool>` — Lock-free counters and flags.
+- `Arc<RwLock<...>>` — Read-heavy shared state: hook registry, stats, webhooks.
+- `Arc<DownloadEvent>` — Events in broadcast channel (efficient cloning).
+- `Arc<dyn Fn(...) + Send + Sync>` — Callbacks and filter predicates.
+- `tokio_util::sync::CancellationToken` — Graceful shutdown.
+
+Rules:
+- `tokio::sync::Mutex` and `tokio::sync::RwLock` for async contexts.
+- `std::sync::Mutex` only for `ProgressCounters` and other non-async contexts (progress callbacks from sync closures).
+- Never hold a `tokio` lock across `.await` points.
+- Prefer `Arc<AtomicU64>` over `Arc<Mutex<u64>>` for simple counters.
+- Caches stored as `Option<Arc<VideoCache>>` on `Downloader`.
 
 Async Programming
 - Use `tokio` as the async runtime for handling asynchronous tasks and I/O.
@@ -19,40 +226,71 @@ Async Programming
 - Use `tokio::select!` for managing multiple async tasks and cancellations.
 - Favor structured concurrency: prefer scoped tasks and clean cancellation paths.
 - Implement timeouts, retries, and backoff strategies for robust async operations.
+- Avoid blocking inside async functions; offload to `tokio::task::spawn_blocking` (used for `serde_json::from_reader` and CPU-intensive parsing).
+- Use `tokio::time::sleep` and `tokio::time::interval` for time-based operations.
 
 Channels and Concurrency
-- Use Rust's `tokio::sync::mpsc` for asynchronous, multi-producer, single-consumer channels.
-- Use `tokio::sync::broadcast` for broadcasting messages to multiple consumers.
-- Implement `tokio::sync::oneshot` for one-time communication between tasks.
+- `tokio::sync::mpsc` for async multi-producer, single-consumer channels (webhook delivery queue).
+- `tokio::sync::broadcast` for event broadcasting to multiple subscribers.
+- `tokio::sync::oneshot` for one-time communication between tasks.
 - Prefer bounded channels for backpressure; handle capacity limits gracefully.
-- Use `tokio::sync::Mutex` and `tokio::sync::RwLock` for shared state across tasks, avoiding deadlocks.
 
-Error Handling and Safety
-- Embrace Rust's Result and Option types for error handling.
-- Use `?` operator to propagate errors in async functions.
-- Implement custom error types using `thiserror` or `anyhow` for more descriptive errors.
-- Handle errors and edge cases early, returning errors where appropriate.
-- Use `.await` responsibly, ensuring safe points for context switching.
+Event System
 
-Testing
-- Write unit tests with `tokio::test` for async tests only if asked.
-- Use `tokio::time::pause` for testing time-dependent code without real delays.
-- Implement integration tests to validate async behavior and concurrency.
-- Use mocks and fakes for external dependencies in tests.
+Architecture in `src/events/`:
+- `EventBus` wraps `broadcast::Sender<Arc<DownloadEvent>>`. Events wrapped in `Arc` for efficient cloning.
+- `DownloadEvent`: Large enum with `#[allow(clippy::large_enum_variant)]`. **All variants use named fields** (no tuple variants).
+- `EventFilter`: Predicate-based with `Vec<Arc<dyn Fn(&DownloadEvent) -> bool + Send + Sync>>`. Builder-style with `and_then()`. Factory methods: `all()`, `only_terminal()`, `only_completed()`, `download_id(id)`.
+- `HookRegistry`: `Arc<RwLock<Vec<Box<dyn EventHook>>>>` — supports parallel and sequential execution.
+- `simple_hook!` macro for creating hooks from closures.
 
-Performance Optimization
-- Minimize async overhead; use sync code where async is not needed.
-- Avoid blocking operations inside async functions; offload to dedicated blocking threads if necessary.
-- Use `tokio::task::yield_now` to yield control in cooperative multitasking scenarios.
-- Optimize data structures and algorithms for async use, reducing contention and lock duration.
-- Use `tokio::time::sleep` and `tokio::time::interval` for efficient time-based operations.
-- Use Cow when possible, and optimized types in functions parameters, according to the operations applied in the function (borrowing vs owned required, String vs str, Path vs Pathbuf for example). The most optimized types should be used everytime.
+Event emission pattern — three-phase delivery in `Downloader::emit_event()`:
+1. Hooks (with timeout, `#[cfg(feature = "hooks")]`)
+2. Webhooks (non-blocking, `#[cfg(feature = "webhooks")]`)
+3. Broadcast bus (always)
+
+Feature Flags & Conditional Compilation
+
+Features in `Cargo.toml`:
+- `default = ["reqwest/default", "cache"]`
+- **Cache hierarchy**: `cache-backend` (internal umbrella — never enable directly), `cache` (LRU memory), `cache-json` (JSON files), `cache-sqlite` (SQLite).
+- `hooks`, `webhooks`, `statistics` — zero-dependency feature flags.
+- `profiling` — optional `dhat` heap profiler.
+- `rustls` — optional TLS backend.
+
+Cache backend selection via `build.rs`:
+- Emits custom `cfg(cache_backend = "sqlite"|"json"|"memory")` with priority: sqlite > json > memory.
+- `compile_error!` safety net in `cache/mod.rs` prevents enabling `cache-backend` directly.
+- Only one backend is active at a time, regardless of how many features are enabled.
+
+Usage patterns:
+- `#[cfg(feature = "cache-backend")]` — single guard for all cache code.
+- `#[cfg(cache_backend = "json")]` — backend-specific module declarations and imports.
+- `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
+- `#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]` — conditional derives on cached types.
+
+Process Execution
+
+- `Executor` in `src/executor/mod.rs`: Wraps `tokio::process::Command` with piped stdout/stderr and timeout.
+- `ProcessOutput`: Struct with `stdout: String`, `stderr: String`, `code: i32`.
+- Timeout pattern: `tokio::time::timeout` + `process.kill()` on timeout.
+- Windows-specific: `#[cfg(target_os = "windows")]` with `command.creation_flags(0x08000000)` (CREATE_NO_WINDOW).
+- `FfmpegArgs` builder: Fluent API — `.input()`, `.codec_copy()`, `.args()`, `.overwrite()`, `.output()`, `.build()`.
+- **Temp file + rename pattern**: FFmpeg operations write to a temp file then rename atomically via `run_ffmpeg_with_tempfile()`.
+- **CPU-intensive JSON parsing** via `tokio::task::spawn_blocking` to avoid blocking the async runtime.
+
+Constants & Configuration
+
+- Module-private constants at file top: `const DEFAULT_RETRY_ATTEMPTS: usize = 3;`, `const BALANCED_SEGMENT_SIZE: usize = 8 * 1024 * 1024;`.
+- Naming: `SCREAMING_SNAKE_CASE`, often prefixed with context: `DEFAULT_`, `CONSERVATIVE_`, `BALANCED_`, `AGGRESSIVE_`.
+- Public constants: `pub const FORMAT_URL_LIFETIME: i64 = 6 * 3600;`.
+- Configuration structs via `TypedBuilder` with `#[builder(default = ...)]`.
 
 Tracing & Logging Guidelines
 - Tracing is an unconditional dependency (no feature flag). Every important function must have tracing.
 - Always use fully-qualified macros: `tracing::debug!(...)`, `tracing::info!(...)`, etc. Never import the macros. Never use `#[instrument]`.
 - Always use structured fields, never format!()-style interpolation in messages:
-  - GOOD: `tracing::debug!(url = %url, timeout = ?timeout, "⬇️ Starting download")`
+  - GOOD: `tracing::debug!(url = %url, timeout = ?timeout, "📥 Starting download")`
   - BAD: `tracing::debug!("Starting download for {}", url)`
 - Field syntax: `key = value` for Display, `key = ?value` for Debug, `key = %value` for explicit Display.
 
@@ -69,7 +307,7 @@ Every tracing message string must start with one domain emoji followed by a spac
 |-------|-------------------------------|
 | 📦    | Install / dependencies        |
 | 📡    | Fetch / extract               |
-| ⬇️    | Download                      |
+| 📥    | Download                      |
 | 🎬    | Combine / mux                 |
 | ✂️    | Postprocess / ffmpeg          |
 | 🏷️    | Metadata                      |
@@ -134,16 +372,22 @@ Section rules:
 - Simple getters/setters still need at minimum a one-liner description + `# Returns` (for getters) or `# Arguments` (for setters with params).
 - Builder methods need at minimum a one-liner + `# Arguments` for their parameter.
 
-Key Conventions
-1. Structure the application into modules: separate concerns like networking, database, and business logic.
-2. Use environment variables for configuration management (e.g., `dotenv` crate).
-3. Ensure code is well-documented with inline comments and Rustdoc following the Rustdoc Guidelines above.
+Macros
 
-Async Ecosystem
-- Use `tokio` for async runtime and task management.
-- Leverage `reqwest` for async HTTP requests.
-- Use `serde` for serialization/deserialization.
+Defined in `src/macros.rs` and `src/events/hooks.rs`:
+- `youtube!($yt_dlp, $ffmpeg, $output)` — Convenience constructor for `Downloader`.
+- `ytdlp_args![...]` — Args builder (string list or key-value pairs).
+- `install_libraries!($dir)` — Async binary installation.
+- `ternary!($cond, $true, $false)` — Ternary operator.
+- `simple_hook!` — Create an `EventHook` from a closure.
 
-Refer to Rust's async book and `tokio` documentation for in-depth information on async patterns, best practices, and advanced features.
+All macros use `$crate::` fully-qualified paths for robustness. Local `use` inside `macro_rules!` is the only exception to the top-level import rule.
 
-All edits in the codebase should be checked with `cargo clippy --all-features --all-targets -- -D warnings`, `cargo clippy --no-default-features -- -D warnings`, and `cargo test --doc`.
+Verification
+
+All edits must pass these checks:
+```bash
+cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings
+cargo test --doc
+cargo deny check
+```

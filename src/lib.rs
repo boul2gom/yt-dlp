@@ -1281,7 +1281,7 @@ impl Downloader {
             video_title = video.title,
             output_path = ?output_path,
             priority = ?priority,
-            "⬇️ Downloading video with priority"
+            "📥 Downloading video with priority"
         );
 
         // Get the best format with video and audio
@@ -1306,7 +1306,7 @@ impl Downloader {
         tracing::debug!(
             video_id = video.id,
             download_id = download_id,
-            "⬇️ Video added to download queue"
+            "📥 Video added to download queue"
         );
 
         Ok(download_id)
@@ -1372,7 +1372,7 @@ impl Downloader {
             video_id = video.id,
             video_title = video.title,
             output_path = ?output_path,
-            "⬇️ Downloading video with progress tracking"
+            "📥 Downloading video with progress tracking"
         );
 
         // Get the best format with video and audio
@@ -1402,7 +1402,7 @@ impl Downloader {
         tracing::debug!(
             video_id = video.id,
             download_id = download_id,
-            "⬇️ Video added to download queue with progress tracking"
+            "📥 Video added to download queue with progress tracking"
         );
 
         Ok(download_id)
@@ -1709,7 +1709,7 @@ impl Downloader {
             output = ?output,
             quality = ?quality,
             codec = ?codec,
-            "⬇️ Downloading {} stream with quality preferences",
+            "📥 Downloading {} stream with quality preferences",
             stream_type_name
         );
 
@@ -1994,7 +1994,7 @@ impl Downloader {
             video_id = video.id,
             video_title = video.title,
             output = output.as_ref(),
-            "⬇️ Downloading video (fluent API)"
+            "📥 Downloading video (fluent API)"
         );
 
         self.download_video(video, output).await?;
@@ -2024,7 +2024,7 @@ impl Downloader {
             video_id = video.id,
             video_title = video.title,
             output = ?output_path,
-            "⬇️ Downloading video to path (fluent API)"
+            "📥 Downloading video to path (fluent API)"
         );
 
         self.download_video_to_path(video, output_path).await?;
@@ -2068,7 +2068,7 @@ impl Downloader {
     {
         let url_str = url.as_ref();
 
-        tracing::info!(url = url_str, "⬇️ Starting download pipeline");
+        tracing::info!(url = url_str, "📥 Starting download pipeline");
 
         let video = self.fetch_video_infos(url_str).await?;
 

@@ -6,7 +6,7 @@ version = "2.0.1"
 authors = ["boul2gom <contact@boul2gom.fr>"]
 description = "🎬️ A Rust library (with auto dependencies installation) for Youtube downloading"
 
-license = "GPL-3.0"
+license = "GPL-3.0-only"
 readme = "README.md"
 documentation = "https://docs.rs/yt-dlp"
 homepage = "https://github.com/boul2gom/yt-dlp"
