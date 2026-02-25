@@ -10,7 +10,7 @@ use crate::cache::backend::PersistentFileBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaFileCache;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedType};
-use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use crate::cache::FormatPreferences;
 use crate::error::Result;
 use crate::model::format::Format;
 use crate::model::utils;
@@ -199,10 +199,7 @@ impl DownloadCache {
     /// # Arguments
     ///
     /// * `video_id` - The video identifier.
-    /// * `video_quality` - Preferred video quality.
-    /// * `audio_quality` - Preferred audio quality.
-    /// * `video_codec` - Preferred video codec.
-    /// * `audio_codec` - Preferred audio codec.
+    /// * `preferences` - The format preferences to match against.
     ///
     /// # Returns
     ///
@@ -210,10 +207,7 @@ impl DownloadCache {
     pub async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(video_id = video_id, "🔍 Looking up file by preferences");
 
@@ -221,13 +215,7 @@ impl DownloadCache {
         #[cfg(feature = "cache-memory")]
         if let Some(result) = self
             .memory
-            .get_by_video_and_preferences(
-                video_id,
-                video_quality,
-                audio_quality,
-                video_codec.clone(),
-                audio_codec.clone(),
-            )
+            .get_by_video_and_preferences(video_id, preferences)
             .await
         {
             tracing::debug!(
@@ -241,13 +229,7 @@ impl DownloadCache {
         #[cfg(has_persistent_cache)]
         if let Some(result) = self
             .persistent
-            .get_by_video_and_preferences(
-                video_id,
-                video_quality,
-                audio_quality,
-                video_codec,
-                audio_codec,
-            )
+            .get_by_video_and_preferences(video_id, preferences)
             .await
         {
             tracing::debug!(
@@ -401,33 +383,26 @@ impl DownloadCache {
     /// * `filename` - Display name for the cached file.
     /// * `video_id` - Optional video ID association.
     /// * `format` - Optional format metadata.
-    /// * `video_quality` - Video quality preference used for selection.
-    /// * `audio_quality` - Audio quality preference used for selection.
-    /// * `video_codec` - Video codec preference used for selection.
-    /// * `audio_codec` - Audio codec preference used for selection.
+    /// * `preferences` - The format preferences used for selection.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be hashed or stored.
-    #[allow(clippy::too_many_arguments)]
     pub async fn put_file_with_preferences(
         &self,
         source_path: &Path,
         filename: impl Into<String>,
         video_id: Option<String>,
         format: Option<&Format>,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Result<PathBuf> {
         let mut file_info =
             Self::collect_file_info(source_path, filename.into(), video_id, format)?;
 
-        file_info.video_quality = utils::serde::serialize_json_opt(video_quality);
-        file_info.audio_quality = utils::serde::serialize_json_opt(audio_quality);
-        file_info.video_codec = utils::serde::serialize_json_opt(video_codec);
-        file_info.audio_codec = utils::serde::serialize_json_opt(audio_codec);
+        file_info.video_quality = utils::serde::serialize_json_opt(preferences.video_quality);
+        file_info.audio_quality = utils::serde::serialize_json_opt(preferences.audio_quality);
+        file_info.video_codec = utils::serde::serialize_json_opt(preferences.video_codec.clone());
+        file_info.audio_codec = utils::serde::serialize_json_opt(preferences.audio_codec.clone());
 
         self.put_cached_file(file_info, source_path).await
     }

@@ -10,9 +10,7 @@ use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use crate::model::selector::FormatPreferences;
 use moka::future::Cache;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -237,26 +235,18 @@ impl FileBackend for MokaFileCache {
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
-            video_quality = ?video_quality,
-            audio_quality = ?audio_quality,
+            video_quality = ?preferences.video_quality,
+            audio_quality = ?preferences.audio_quality,
             "🔍 Looking for file by preferences in memory cache"
         );
 
         for (_, cached) in &self.files {
             if cached.video_id.as_deref() == Some(video_id)
-                && cached.matches_preferences(
-                    video_quality,
-                    audio_quality,
-                    video_codec.clone(),
-                    audio_codec.clone(),
-                )
+                && cached.matches_preferences(preferences)
             {
                 return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
             }

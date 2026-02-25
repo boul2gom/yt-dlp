@@ -9,7 +9,7 @@ use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 use crate::model::selector::{StoryboardQuality, ThumbnailQuality};
 #[cfg(cache)]
-use crate::model::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use crate::model::selector::FormatPreferences;
 use crate::utils;
 use crate::{DownloadStatus, Downloader};
 
@@ -635,7 +635,7 @@ impl Downloader {
         // Use the internal function to download the format without preferences
         cfg_if::cfg_if! {
             if #[cfg(cache)] {
-                self.download_format_internal(format, &output_path, None, None, None, None).await
+                self.download_format_internal(format, &output_path, FormatPreferences::default()).await
             } else {
                 self.download_format_internal(format, &output_path).await
             }
@@ -647,16 +647,10 @@ impl Downloader {
         &self,
         format: &Format,
         path: &PathBuf,
-        #[cfg(cache)] video_quality: Option<VideoQuality>,
-        #[cfg(cache)] audio_quality: Option<AudioQuality>,
-        #[cfg(cache)] video_codec: Option<VideoCodecPreference>,
-        #[cfg(cache)] audio_codec: Option<AudioCodecPreference>,
+        #[cfg(cache)] preferences: FormatPreferences,
     ) -> crate::error::Result<PathBuf> {
-        // Check if we have specific preferences
         #[cfg(cache)]
-        let has_preferences = [video_quality, audio_quality, video_codec, audio_codec]
-            .iter()
-            .any(|opt| opt.is_some());
+        let has_preferences = preferences.has_any();
 
         // Check if the format is in the cache
         #[cfg(cache)]
@@ -680,13 +674,7 @@ impl Downloader {
             if has_preferences
                 && let Some((_, cached_path)) = cache
                     .downloads
-                    .get_by_video_and_preferences(
-                        video_id,
-                        video_quality,
-                        audio_quality,
-                        video_codec.clone(),
-                        audio_codec.clone(),
-                    )
+                    .get_by_video_and_preferences(video_id, &preferences)
                     .await
             {
                 tracing::debug!("🔍 Using cached format by preferences");
@@ -740,10 +728,7 @@ impl Downloader {
                             output_str,
                             Some(video_id.clone()),
                             Some(format),
-                            video_quality,
-                            audio_quality,
-                            video_codec,
-                            audio_codec,
+                            &preferences,
                         )
                         .await
                 {

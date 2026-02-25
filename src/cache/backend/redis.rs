@@ -10,9 +10,7 @@ use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use crate::model::selector::FormatPreferences;
 use redis::AsyncCommands;
 use std::path::{Path, PathBuf};
 
@@ -430,10 +428,7 @@ impl FileBackend for RedisFileCache {
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
@@ -453,12 +448,7 @@ impl FileBackend for RedisFileCache {
             let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
             if let Some(bytes) = data
                 && let Ok(cached) = serde_json::from_slice::<CachedFile>(&bytes)
-                && cached.matches_preferences(
-                    video_quality,
-                    audio_quality,
-                    video_codec.clone(),
-                    audio_codec.clone(),
-                )
+                && cached.matches_preferences(preferences)
             {
                 let path = self.cache_dir.join(&cached.relative_path);
                 return Some((cached, path));

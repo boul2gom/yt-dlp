@@ -19,20 +19,26 @@ ignore = []
 
 [licenses]
 allow = [
+    # Public domain / dedication (no restrictions)
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    # Permissive (minimal restrictions)
+    "BSL-1.0",
+    "ISC",
     "MIT",
+    "MIT-0",
+    "Zlib",
+    # Permissive with attribution / notice
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "ISC",
-    "Unlicense",
-    "Zlib",
-    "0BSD",
-    "CC0-1.0",
-    "MIT-0",
-    "Unicode-3.0",
-    "OpenSSL",
     "CDLA-Permissive-2.0",
+    "OpenSSL",
+    "Unicode-3.0",
+    # Weak copyleft
     "LGPL-2.1-or-later",
+    # Strong copyleft
     "GPL-3.0-only",
 ]
 confidence-threshold = 0.8

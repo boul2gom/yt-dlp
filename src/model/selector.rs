@@ -236,3 +236,50 @@ pub fn matches_audio_codec(codec: &str, preference: &AudioCodecPreference) -> bo
         AudioCodecPreference::Any => true,
     }
 }
+
+/// Bundles video/audio quality and codec preferences for format cache lookups.
+///
+/// Used to pass download preferences through cache layers without repeating
+/// four separate `Option` parameters everywhere.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FormatPreferences {
+    /// Preferred video quality.
+    pub video_quality: Option<VideoQuality>,
+    /// Preferred audio quality.
+    pub audio_quality: Option<AudioQuality>,
+    /// Preferred video codec.
+    pub video_codec: Option<VideoCodecPreference>,
+    /// Preferred audio codec.
+    pub audio_codec: Option<AudioCodecPreference>,
+}
+
+impl FormatPreferences {
+    /// Returns `true` if at least one preference is set.
+    pub fn has_any(&self) -> bool {
+        self.video_quality.is_some()
+            || self.audio_quality.is_some()
+            || self.video_codec.is_some()
+            || self.audio_codec.is_some()
+    }
+}
+
+impl fmt::Display for FormatPreferences {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "FormatPreferences(video_quality={}, audio_quality={}, video_codec={}, audio_codec={})",
+            self.video_quality
+                .as_ref()
+                .map_or("none".to_string(), |q| q.to_string()),
+            self.audio_quality
+                .as_ref()
+                .map_or("none".to_string(), |q| q.to_string()),
+            self.video_codec
+                .as_ref()
+                .map_or("none".to_string(), |c| c.to_string()),
+            self.audio_codec
+                .as_ref()
+                .map_or("none".to_string(), |c| c.to_string()),
+        )
+    }
+}

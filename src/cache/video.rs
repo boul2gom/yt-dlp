@@ -8,7 +8,7 @@ use crate::cache::backend::PersistentVideoBackend;
 use crate::cache::backend::VideoBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaVideoCache;
-use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use crate::cache::FormatPreferences;
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::utils;
@@ -103,33 +103,27 @@ pub struct CachedFile {
 
 impl CachedFile {
     /// Checks if this cached file matches the given preferences.
-    pub fn matches_preferences(
-        &self,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
-    ) -> bool {
-        if video_quality.is_some()
-            && self.video_quality != utils::serde::serialize_json_opt(video_quality)
+    pub fn matches_preferences(&self, preferences: &FormatPreferences) -> bool {
+        if preferences.video_quality.is_some()
+            && self.video_quality != utils::serde::serialize_json_opt(preferences.video_quality)
         {
             return false;
         }
 
-        if audio_quality.is_some()
-            && self.audio_quality != utils::serde::serialize_json_opt(audio_quality)
+        if preferences.audio_quality.is_some()
+            && self.audio_quality != utils::serde::serialize_json_opt(preferences.audio_quality)
         {
             return false;
         }
 
-        if video_codec.is_some()
-            && self.video_codec != utils::serde::serialize_json_opt(video_codec)
+        if preferences.video_codec.is_some()
+            && self.video_codec != utils::serde::serialize_json_opt(preferences.video_codec.clone())
         {
             return false;
         }
 
-        if audio_codec.is_some()
-            && self.audio_codec != utils::serde::serialize_json_opt(audio_codec)
+        if preferences.audio_codec.is_some()
+            && self.audio_codec != utils::serde::serialize_json_opt(preferences.audio_codec.clone())
         {
             return false;
         }

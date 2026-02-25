@@ -23,7 +23,8 @@ pub use chapter::{ChapterList, ChapterValidation};
 
 // Re-export selector types
 pub use selector::{
-    AudioCodecPreference, AudioQuality, StoryboardQuality, VideoCodecPreference, VideoQuality,
+    AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality,
+    VideoCodecPreference, VideoQuality,
 };
 pub use video::FORMAT_URL_LIFETIME;
 

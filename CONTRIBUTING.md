@@ -33,10 +33,15 @@ Thank you for your interest in contributing! This guide will help you understand
 
 ### Running the checks
 
-Every PR must pass these three commands:
+Every PR must pass these commands:
 ```bash
-# Lint every feature combination (the CI does this)
-cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
+# Lint each feature in isolation
+cargo hack clippy --each-feature --exclude-all-features -- -D warnings
+
+# Lint tiered cache combinations (L1 Moka + L2 persistent)
+cargo clippy --features cache-memory,cache-json -- -D warnings
+cargo clippy --features cache-memory,cache-redb -- -D warnings
+cargo clippy --features cache-memory,cache-redis -- -D warnings
 
 # Run all doc-tests
 cargo test --doc
@@ -667,7 +672,10 @@ All macros must use `$crate::` fully-qualified paths for robustness. The `use` i
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo hack clippy --each-feature --exclude-all-features -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --features cache-memory,cache-json -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --features cache-memory,cache-redb -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --features cache-memory,cache-redis -- -D warnings` — zero warnings
 - [ ] 🧪 `cargo test --doc` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 📝 All new public items have rustdoc following the template

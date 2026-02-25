@@ -12,11 +12,9 @@ use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -663,10 +661,7 @@ impl FileBackend for RedbFileCache {
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
@@ -677,6 +672,7 @@ impl FileBackend for RedbFileCache {
         let vid = video_id.to_string();
         let cache_dir = self.cache_dir.clone();
         let ttl = self.ttl;
+        let prefs = preferences.clone();
 
         tokio::task::spawn_blocking(move || {
             let txn = db.begin_read().ok()?;
@@ -687,12 +683,7 @@ impl FileBackend for RedbFileCache {
                 let bytes = val.value();
                 if let Ok(cached) = serde_json::from_slice::<CachedFile>(bytes)
                     && cached.video_id.as_deref() == Some(&vid)
-                    && cached.matches_preferences(
-                        video_quality,
-                        audio_quality,
-                        video_codec.clone(),
-                        audio_codec.clone(),
-                    )
+                    && cached.matches_preferences(&prefs)
                     && !is_expired(cached.cached_at, ttl)
                 {
                     let path = cache_dir.join(&cached.relative_path);

@@ -8,9 +8,7 @@ use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
 use std::path::Path;
 use std::path::PathBuf;
@@ -441,10 +439,7 @@ impl FileBackend for JsonFileCache {
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         // Scan and filter
         let meta_dir = self.cache_dir.join("files_meta");
@@ -455,12 +450,7 @@ impl FileBackend for JsonFileCache {
                 let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
                     && cached.video_id.as_deref() == Some(video_id)
-                    && cached.matches_preferences(
-                        video_quality,
-                        audio_quality,
-                        video_codec.clone(),
-                        audio_codec.clone(),
-                    )
+                    && cached.matches_preferences(preferences)
                 {
                     if is_expired(cached.cached_at, self.ttl) {
                         continue;

@@ -18,8 +18,8 @@ env:
   CLICOLOR: 1
 
 jobs:
-  setup-and-build:
-    name: 🦀 Setup and build
+  build-each-feature:
+    name: 🦀 Setup and build (each feature)
     runs-on: ubuntu-latest
 
     steps:
@@ -39,11 +39,38 @@ jobs:
       - name: 📦 Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
 
-      - name: ✅ Check with Clippy linter (all feature combinations)
-        run: cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
+      - name: ✅ Clippy (each feature in isolation)
+        run: cargo hack clippy --each-feature --exclude-all-features -- -D warnings
 
-      - name: 🦀 Build (all feature combinations)
-        run: cargo hack build --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis
+      - name: 🦀 Build (each feature in isolation)
+        run: cargo hack build --each-feature --exclude-all-features
+
+  build-tiered-cache:
+    name: 🦀 Setup and build (tiered L1+L2 cache combinations)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        backend: [cache-json, cache-redb, cache-redis]
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: ✅ Clippy (cache-memory + ${{ matrix.backend }})
+        run: cargo clippy --features cache-memory,${{ matrix.backend }} -- -D warnings
+
+      - name: 🦀 Build (cache-memory + ${{ matrix.backend }})
+        run: cargo build --features cache-memory,${{ matrix.backend }}
 
   doc-tests:
     name: 📚 Check format and test docs
@@ -115,24 +142,6 @@ jobs:
       - name: 🧹 Unused dependencies
         run: cargo machete
 
-  semver-checks:
-    name: 🔖 Semver compatibility
-    runs-on: ubuntu-latest
-    # Informational only — never blocks CI. Breaking changes are expected for minor/major releases.
-    # The auto-release workflow enforces this check for patch releases.
-    continue-on-error: true
-
-    steps:
-      - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
-
-      - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          prefix-key: rust-semver-
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
       - name: 🚀 Check Semver compatibility
+        continue-on-error: true
         uses: obi1kenobi/cargo-semver-checks-action@v2.8

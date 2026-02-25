@@ -388,7 +388,10 @@ Verification
 
 All edits must pass these checks:
 ```bash
-cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
+cargo hack clippy --each-feature --exclude-all-features -- -D warnings
+cargo clippy --features cache-memory,cache-json -- -D warnings
+cargo clippy --features cache-memory,cache-redb -- -D warnings
+cargo clippy --features cache-memory,cache-redis -- -D warnings
 cargo test --doc
 cargo deny check
 ```

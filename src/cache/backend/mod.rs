@@ -9,9 +9,7 @@ use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use crate::model::selector::FormatPreferences;
 use std::future::Future;
 use std::path::PathBuf;
 
@@ -199,10 +197,7 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Arguments
     ///
     /// * `video_id` - The video identifier
-    /// * `video_quality` - Preferred video quality
-    /// * `audio_quality` - Preferred audio quality
-    /// * `video_codec` - Preferred video codec
-    /// * `audio_codec` - Preferred audio codec
+    /// * `preferences` - The format preferences to match against
     ///
     /// # Returns
     ///
@@ -210,10 +205,7 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 
     /// Store a file in the cache.
@@ -614,45 +606,15 @@ impl FileBackend for PersistentFileBackend {
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
-        video_quality: Option<VideoQuality>,
-        audio_quality: Option<AudioQuality>,
-        video_codec: Option<VideoCodecPreference>,
-        audio_codec: Option<AudioCodecPreference>,
+        preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
         match self {
             #[cfg(feature = "cache-json")]
-            Self::Json(b) => {
-                b.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec,
-                    audio_codec,
-                )
-                .await
-            }
+            Self::Json(b) => b.get_by_video_and_preferences(video_id, preferences).await,
             #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => {
-                b.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec,
-                    audio_codec,
-                )
-                .await
-            }
+            Self::Redb(b) => b.get_by_video_and_preferences(video_id, preferences).await,
             #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => {
-                b.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec,
-                    audio_codec,
-                )
-                .await
-            }
+            Self::Redis(b) => b.get_by_video_and_preferences(video_id, preferences).await,
         }
     }
 

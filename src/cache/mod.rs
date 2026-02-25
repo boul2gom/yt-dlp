@@ -37,5 +37,5 @@ pub use video::{CachedFile, CachedThumbnail, CachedVideo};
 
 // Common types and traits
 pub use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
+    AudioCodecPreference, AudioQuality, FormatPreferences, VideoCodecPreference, VideoQuality,
 };
