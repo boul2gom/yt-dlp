@@ -37,11 +37,19 @@ pub struct Playlist {
 
 impl Playlist {
     /// Returns the number of videos currently in the entries list.
+    ///
+    /// # Returns
+    ///
+    /// The number of entries currently loaded
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }
 
     /// Checks if all videos in the playlist have been fetched.
+    ///
+    /// # Returns
+    ///
+    /// `true` if all entries have been fetched, `false` otherwise
     pub fn is_complete(&self) -> bool {
         if let Some(total) = self.video_count {
             self.entries.len() >= total
@@ -51,11 +59,28 @@ impl Playlist {
     }
 
     /// Gets a playlist entry by its index (0-based).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The 0-based index of the entry
+    ///
+    /// # Returns
+    ///
+    /// A reference to the entry at the given index, or `None` if out of bounds
     pub fn get_entry_by_index(&self, index: usize) -> Option<&PlaylistEntry> {
         self.entries.get(index)
     }
 
     /// Gets all entries within a range (inclusive).
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - The start index (0-based)
+    /// * `end` - The end index (0-based, inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A slice of entries within the specified range
     pub fn get_entries_in_range(&self, start: usize, end: usize) -> &[PlaylistEntry] {
         let end = end.min(self.entries.len().saturating_sub(1));
         if start >= self.entries.len() {
@@ -66,6 +91,10 @@ impl Playlist {
     }
 
     /// Filters entries by their availability.
+    ///
+    /// # Returns
+    ///
+    /// A vector of references to available entries
     pub fn available_entries(&self) -> Vec<&PlaylistEntry> {
         self.entries
             .iter()
@@ -224,6 +253,10 @@ pub struct PlaylistEntry {
 
 impl PlaylistEntry {
     /// Checks if the video is available for viewing/download.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the video is public or unlisted (or has no availability info), `false` otherwise
     pub fn is_available(&self) -> bool {
         self.availability
             .as_ref()
@@ -232,6 +265,10 @@ impl PlaylistEntry {
     }
 
     /// Returns the duration in minutes.
+    ///
+    /// # Returns
+    ///
+    /// The duration in minutes, or `None` if the duration is unknown
     pub fn duration_minutes(&self) -> Option<f64> {
         self.duration.map(|d| d / 60.0)
     }
@@ -349,5 +386,15 @@ impl PlaylistDownloadProgress {
     /// Checks if the download failed.
     pub fn is_failure(&self) -> bool {
         self.result.is_err()
+    }
+}
+
+impl fmt::Display for PlaylistDownloadProgress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "PlaylistDownloadProgress(completed={}/{}, entry={})",
+            self.completed, self.total, self.entry
+        )
     }
 }

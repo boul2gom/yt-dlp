@@ -26,13 +26,11 @@ pub struct Generic {
 
 impl super::ExtractorConfig for Generic {
     fn with_arg(&mut self, arg: String) -> &mut Self {
-        tracing::debug!(arg = %arg, "Adding custom argument");
         self.args.push(arg);
         self
     }
 
     fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        tracing::debug!(timeout_secs = timeout.as_secs(), "Setting timeout for extractor");
         self.timeout = timeout;
         self
     }
@@ -51,7 +49,7 @@ impl Generic {
     pub fn new(executable_path: PathBuf) -> Self {
         tracing::debug!(
             executable = ?executable_path,
-            "Creating new Generic extractor"
+            "⚙️ Creating new Generic extractor"
         );
 
         Self {
@@ -75,8 +73,8 @@ impl Generic {
     pub fn for_extractor(executable_path: PathBuf, name: String) -> Self {
         tracing::debug!(
             executable = ?executable_path,
-            extractor_name = %name,
-            "Creating Generic extractor for specific extractor"
+            extractor_name = name,
+            "⚙️ Creating Generic extractor for specific extractor"
         );
 
         Self {
@@ -109,7 +107,7 @@ impl Generic {
         tracing::debug!(
             extractor = extractor,
             args = args,
-            "Adding extractor-specific arguments"
+            "⚙️ Adding extractor-specific arguments"
         );
 
         self.args
@@ -139,7 +137,7 @@ impl Generic {
         tracing::debug!(
             username = username,
             has_password = !password.is_empty(),
-            "Adding credentials for authentication"
+            "⚙️ Adding credentials for authentication"
         );
 
         self.args.push(format!("--username={}", username));
@@ -169,23 +167,23 @@ impl ExtractorBase for Generic {
 impl VideoExtractor for Generic {
     async fn fetch_video(&self, url: &str) -> Result<Video> {
         tracing::debug!(
-            url = %url,
+            url = url,
             extractor_name = ?self.extractor_name,
             arg_count = self.args.len(),
-            "Fetching video with Generic extractor"
+            "📡 Fetching video with Generic extractor"
         );
 
         let result = self.fetch_video_metadata(url).await;
 
         match &result {
             Ok(video) => tracing::debug!(
-                url = %url,
-                video_id = %video.id,
-                title = %video.title,
-                "Video fetched successfully with Generic extractor"
+                url = url,
+                video_id = video.id,
+                title = video.title,
+                "✅ Video fetched successfully with Generic extractor"
             ),
             Err(e) => tracing::warn!(
-                url = %url,
+                url = url,
                 error = %e,
                 "Failed to fetch video with Generic extractor"
             ),
@@ -196,24 +194,24 @@ impl VideoExtractor for Generic {
 
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
         tracing::debug!(
-            url = %url,
+            url = url,
             extractor_name = ?self.extractor_name,
             arg_count = self.args.len(),
-            "Fetching playlist with Generic extractor"
+            "📡 Fetching playlist with Generic extractor"
         );
 
         let result = self.fetch_playlist_metadata(url).await;
 
         match &result {
             Ok(playlist) => tracing::debug!(
-                url = %url,
-                playlist_id = %playlist.id,
-                title = %playlist.title,
+                url = url,
+                playlist_id = playlist.id,
+                title = playlist.title,
                 entry_count = playlist.entries.len(),
-                "Playlist fetched successfully with Generic extractor"
+                "✅ Playlist fetched successfully with Generic extractor"
             ),
             Err(e) => tracing::warn!(
-                url = %url,
+                url = url,
                 error = %e,
                 "Failed to fetch playlist with Generic extractor"
             ),

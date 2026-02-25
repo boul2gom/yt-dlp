@@ -67,6 +67,12 @@ impl PartialRange {
     ///
     /// A PartialRange instance representing the time range
     pub fn time_range(start: f64, end: f64) -> Result<Self> {
+        tracing::debug!(
+            start = start,
+            end = end,
+            "⚙️ Creating time range for partial download"
+        );
+
         if start < 0.0 || start >= end {
             return Err(Error::Unknown(format!(
                 "Invalid time range: start={start} must be non-negative and less than end={end}"
@@ -90,6 +96,12 @@ impl PartialRange {
     ///
     /// A PartialRange instance representing the chapter range
     pub fn chapter_range(start: usize, end: usize) -> Result<Self> {
+        tracing::debug!(
+            start = start,
+            end = end,
+            "⚙️ Creating chapter range for partial download"
+        );
+
         if start > end {
             return Err(Error::Unknown(format!(
                 "Invalid chapter range: start={start} must be <= end={end}"
@@ -117,10 +129,7 @@ impl PartialRange {
     ///
     /// A string in yt-dlp format (e.g., "*00:01:30-00:05:00")
     pub fn to_ytdlp_arg(&self) -> String {
-        tracing::debug!(
-            range = %self,
-            "Converting partial range to yt-dlp argument"
-        );
+        tracing::debug!(range = %self, "⚙️ Converting partial range to yt-dlp argument");
 
         let result = match self {
             Self::TimeRange { start, end } => {
@@ -136,11 +145,7 @@ impl PartialRange {
             }
         };
 
-        tracing::debug!(
-            range = %self,
-            ytdlp_arg = %result,
-            "Converted partial range to yt-dlp argument"
-        );
+        tracing::debug!(range = %self, ytdlp_arg = %result, "✅ Converted partial range to yt-dlp argument");
 
         result
     }
@@ -168,11 +173,7 @@ impl PartialRange {
     ///
     /// Returns None if chapter indices are out of bounds
     pub fn to_time_range(&self, chapters: &[crate::model::chapter::Chapter]) -> Option<Self> {
-        tracing::debug!(
-            range = %self,
-            chapter_count = chapters.len(),
-            "Converting partial range to time range using chapter metadata"
-        );
+        tracing::debug!(range = %self, chapter_count = chapters.len(), "⚙️ Converting partial range to time range using chapter metadata");
 
         match self {
             Self::TimeRange { .. } => Some(self.clone()),
@@ -182,7 +183,7 @@ impl PartialRange {
                         start = start,
                         end = end,
                         chapter_count = chapters.len(),
-                        "Chapter range end index out of bounds"
+                        "⚙️ Chapter range end index out of bounds"
                     );
                     return None;
                 }
@@ -194,7 +195,7 @@ impl PartialRange {
                     end_chapter = end,
                     start_time = start_time,
                     end_time = end_time,
-                    "Converted chapter range to time range"
+                    "✅ Converted chapter range to time range"
                 );
 
                 Some(Self::TimeRange {
@@ -207,7 +208,7 @@ impl PartialRange {
                     tracing::warn!(
                         index = index,
                         chapter_count = chapters.len(),
-                        "Single chapter index out of bounds"
+                        "⚙️ Single chapter index out of bounds"
                     );
                     return None;
                 }
@@ -218,7 +219,7 @@ impl PartialRange {
                     chapter_index = index,
                     start_time = start_time,
                     end_time = end_time,
-                    "Converted single chapter to time range"
+                    "✅ Converted single chapter to time range"
                 );
 
                 Some(Self::TimeRange {

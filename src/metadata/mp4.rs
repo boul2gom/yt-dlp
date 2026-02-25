@@ -60,11 +60,9 @@ impl MetadataManager {
                 video_resolution = ?video_resolution,
                 has_playlist = _playlist.is_some(),
                 playlist_title = ?playlist_title,
-                "Adding metadata to M4A/MP4 file"
+                "🏷️ Adding metadata to M4A/MP4 file"
             );
         }
-
-        tracing::debug!(file_path = ?file_path, "Adding metadata to M4A/MP4 file");
 
         // Prepare data for blocking thread
         let metadata = Self::extract_basic_metadata(video)
@@ -92,21 +90,13 @@ impl MetadataManager {
                             tag.set_year(year.to_string());
                         }
                     }
-                    _ => {
-                        tracing::debug!(
-                            key = key.as_str(),
-                            value = value.as_str(),
-                            "Skipping MP4 metadata"
-                        );
-                    }
+                    _ => {}
                 }
             }
 
             // MP4 format has limited metadata support compared to ID3
             if has_format_info {
-                tracing::debug!(
-                    "Format info available but MP4 tag has limited support for technical metadata"
-                );
+                tracing::debug!("⚙️ MP4 tag has limited support for technical metadata");
             }
 
             // Save the changes
@@ -121,7 +111,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?file_path_for_tracing,
             video_id = %video.id,
-            "Metadata added successfully to M4A/MP4 file"
+            "✅ Metadata added successfully to M4A/MP4 file"
         );
 
         Ok(())
@@ -146,7 +136,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
-            "Adding thumbnail to M4A/MP4 file"
+            "🏷️ Adding thumbnail to M4A/MP4 file"
         );
 
         // Read the image file content
@@ -166,7 +156,7 @@ impl MetadataManager {
             thumbnail_path = ?thumbnail_path,
             image_format = ?fmt,
             image_size_bytes = image_data.len(),
-            "Thumbnail loaded with image format"
+            "⚙️ Thumbnail loaded"
         );
 
         let file_path_clone = file_path.clone();
@@ -190,7 +180,7 @@ impl MetadataManager {
 
         tracing::debug!(
             file_path = ?file_path,
-            "Thumbnail added successfully to M4A/MP4 file"
+            "✅ Thumbnail added successfully to M4A/MP4 file"
         );
 
         Ok(())

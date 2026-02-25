@@ -30,6 +30,9 @@
   <a href="https://crates.io/crates/yt-dlp">
     <img src="https://img.shields.io/crates/d/yt-dlp?label=Downloads&logo=Rust" alt="Downloads"/>
   </a>
+  <a href="https://deepwiki.com/boul2gom/yt-dlp">
+    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+  </a>
 </p>
 <p align="center">
   <a href="https://github.com/boul2gom/yt-dlp/discussions">
@@ -2499,19 +2502,19 @@ cargo run --example compare --features profiling --release -- https://www.youtub
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Audio 96 kbps (Low) | 8.80s | 1.21s | 939ms | 1.06s |
-| Audio 128 kbps (Medium) | 8.60s | 1.18s | 1.05s | 1.41s |
-| Audio 192 kbps (High) | 8.65s | 1.39s | 1.05s | 1.12s |
-| Audio best quality | 8.80s | 1.22s | 1.07s | 1.45s |
+| Audio 96 kbps (Low) | 8.26s | 1.27s | 1.47s | 1.27s |
+| Audio 128 kbps (Medium) | 7.83s | 1.11s | 1.12s | 1.18s |
+| Audio 192 kbps (High) | 8.53s | 1.38s | 1.26s | 1.19s |
+| Audio best quality | 8.51s | 1.22s | 1.15s | 1.15s |
 
 ### 🎬 Video streams (no audio)
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Video 480p | 8.98s | 2.17s | 2.28s | 2.18s |
-| Video 720p | 9.99s | 4.48s | 4.09s | 3.80s |
-| Video 1080p | 17.5s | 8.67s | 8.60s | 8.86s |
-| Video best quality | 17.3s | 13.1s | 12.8s | 13.2s |
+| Video 480p | 8.59s | 2.39s | 2.11s | 2.58s |
+| Video 720p | 9.84s | 3.67s | 3.86s | 3.89s |
+| Video 1080p | 17.6s | 8.65s | 8.60s | 8.81s |
+| Video best quality | 16.6s | 11.7s | 11.8s | 12.0s |
 
 ### 📦 Muxed streams — native (YouTube pre-muxed, no ffmpeg)
 
@@ -2520,8 +2523,8 @@ is needed — the file is downloaded as-is.
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Native 360p (mp4) | 12.2s | 2.47s | 2.26s | 2.61s |
-| Native 720p (mp4) | 26.4s | 2.43s | 2.06s | 2.00s |
+| Native 360p (mp4) | 9.69s | 2.11s | 2.00s | 2.16s |
+| Native 720p (mp4) | 20.7s | 2.08s | 2.10s | 2.06s |
 
 ### 📦 Muxed streams — combined by ffmpeg
 
@@ -2531,10 +2534,10 @@ the audio container is compatible with the output format (e.g. AAC/m4a → mp4).
 
 | Scenario | `yt-dlp` | Conservative | Balanced *(default)* | Aggressive |
 |---|---|---|---|---|
-| Muxed 480p | 10.4s | 4.68s | 4.24s | 3.47s |
-| Muxed 720p | 11.0s | 5.73s | 7.75s | 6.03s |
-| Muxed 1080p | 22.4s | 11.2s | 10.2s | 10.8s |
-| Muxed best quality | 21.4s | 14.8s | 14.9s | 21.7s |
+| Muxed 480p | 9.41s | 3.51s | 3.48s | 3.34s |
+| Muxed 720p | 10.4s | 4.95s | 4.92s | 4.97s |
+| Muxed 1080p | 18.3s | 10.4s | 10.5s | 10.3s |
+| Muxed best quality | 18.2s | 13.7s | 13.7s | 13.3s |
 
 ### 🚀 Speed profiles
 

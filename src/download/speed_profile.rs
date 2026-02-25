@@ -38,7 +38,9 @@ const AGGRESSIVE_BUFFER: usize = 30 * 1024 * 1024;
 /// Different profiles optimize download parameters for various network conditions
 /// and use cases. Each profile adjusts concurrent downloads, parallel segments,
 /// segment size, and buffer size to match the expected bandwidth.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum SpeedProfile {
     /// Conservative profile for slower connections (< 50 Mbps)
     ///
@@ -73,19 +75,11 @@ impl SpeedProfile {
     ///
     /// Maximum number of concurrent downloads
     pub fn max_concurrent_downloads(&self) -> usize {
-        let result = match self {
+        match self {
             Self::Conservative => CONSERVATIVE_CONCURRENT,
             Self::Balanced => BALANCED_CONCURRENT,
             Self::Aggressive => AGGRESSIVE_CONCURRENT,
-        };
-
-        tracing::debug!(
-            profile = %self,
-            max_concurrent = result,
-            "Retrieved max concurrent downloads for profile"
-        );
-
-        result
+        }
     }
 
     /// Get the segment size in bytes for this profile
@@ -94,20 +88,11 @@ impl SpeedProfile {
     ///
     /// Segment size in bytes
     pub fn segment_size(&self) -> usize {
-        let result = match self {
+        match self {
             Self::Conservative => CONSERVATIVE_SEGMENT_SIZE,
             Self::Balanced => BALANCED_SEGMENT_SIZE,
             Self::Aggressive => AGGRESSIVE_SEGMENT_SIZE,
-        };
-
-        tracing::debug!(
-            profile = %self,
-            segment_size = result,
-            segment_size_mb = result / (1024 * 1024),
-            "Retrieved segment size for profile"
-        );
-
-        result
+        }
     }
 
     /// Get the number of parallel segments per download for this profile
@@ -116,19 +101,11 @@ impl SpeedProfile {
     ///
     /// Number of parallel segments
     pub fn parallel_segments(&self) -> usize {
-        let result = match self {
+        match self {
             Self::Conservative => CONSERVATIVE_PARALLEL,
             Self::Balanced => BALANCED_PARALLEL,
             Self::Aggressive => AGGRESSIVE_PARALLEL,
-        };
-
-        tracing::debug!(
-            profile = %self,
-            parallel_segments = result,
-            "Retrieved parallel segments for profile"
-        );
-
-        result
+        }
     }
 
     /// Get the maximum buffer size in bytes for this profile
@@ -137,20 +114,11 @@ impl SpeedProfile {
     ///
     /// Maximum buffer size in bytes
     pub fn max_buffer_size(&self) -> usize {
-        let result = match self {
+        match self {
             Self::Conservative => CONSERVATIVE_BUFFER,
             Self::Balanced => BALANCED_BUFFER,
             Self::Aggressive => AGGRESSIVE_BUFFER,
-        };
-
-        tracing::debug!(
-            profile = %self,
-            buffer_size = result,
-            buffer_size_mb = result / (1024 * 1024),
-            "Retrieved max buffer size for profile"
-        );
-
-        result
+        }
     }
 
     /// Get the maximum parallel segments for large files (> 2 GB)
@@ -180,11 +148,10 @@ impl SpeedProfile {
 
         tracing::debug!(
             profile = %self,
-            file_size = file_size,
             file_size_mb = file_size_mb,
             segment_size = segment_size,
             total_segments = total_segments,
-            "Calculating optimal segments for file"
+            "⬇️ Calculating optimal segments"
         );
 
         let max_parallel_segments = match self {
@@ -222,9 +189,9 @@ impl SpeedProfile {
         tracing::debug!(
             profile = %self,
             file_size_mb = file_size_mb,
-            max_parallel_segments = max_parallel_segments,
-            optimal_segments = result,
-            "Calculated optimal segments for file"
+            max_parallel = max_parallel_segments,
+            optimal = result,
+            "⬇️ Optimal segments calculated"
         );
 
         result

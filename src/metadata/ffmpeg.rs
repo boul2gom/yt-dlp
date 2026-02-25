@@ -36,7 +36,7 @@ impl MetadataManager {
         _playlist: Option<&PlaylistMetadata>,
     ) -> Result<()> {
         let path: PathBuf = file_path.into();
-        tracing::debug!(file_path = ?path, "Adding metadata to WebM/MKV file");
+        tracing::debug!(file_path = ?path, "🏷️ Adding metadata to WebM/MKV file");
 
         let file_format = "webm";
 
@@ -78,7 +78,14 @@ impl MetadataManager {
             })
             .collect();
 
-        self.run_metadata_task(&path, &video.id, file_format, metadata_args, Duration::from_secs(120)).await
+        self.run_metadata_task(
+            &path,
+            &video.id,
+            file_format,
+            metadata_args,
+            Duration::from_secs(120),
+        )
+        .await
     }
 
     /// Add metadata to a video file using FFmpeg (for formats not directly supported).
@@ -107,6 +114,13 @@ impl MetadataManager {
     ) -> Result<()> {
         let path: PathBuf = file_path.into();
 
+        tracing::debug!(
+            file_path = ?path,
+            video_id = %video.id,
+            file_format = file_format,
+            "🏷️ Adding metadata using FFmpeg fallback"
+        );
+
         // Collect all metadata
         let all_metadata = self.prepare_and_collect_metadata(
             &path,
@@ -122,13 +136,19 @@ impl MetadataManager {
             .flat_map(|(key, value)| vec!["-metadata".to_string(), format!("{}={}", key, value)])
             .collect();
 
-        self.run_metadata_task(&path, &video.id, file_format, metadata_args, Duration::from_secs(120))
-            .await?;
+        self.run_metadata_task(
+            &path,
+            &video.id,
+            file_format,
+            metadata_args,
+            Duration::from_secs(120),
+        )
+        .await?;
 
         tracing::debug!(
             file_path = ?path,
             video_id = %video.id,
-            "Metadata added successfully using FFmpeg"
+            "✅ Metadata added successfully using FFmpeg"
         );
 
         Ok(())
@@ -157,7 +177,7 @@ impl MetadataManager {
             thumbnail_path = ?thumbnail_path,
             file_exists = file_path.exists(),
             thumbnail_exists = thumbnail_path.exists(),
-            "Adding thumbnail to WebM/MKV file"
+            "🏷️ Adding thumbnail to WebM/MKV file"
         );
 
         let file_path_str = file_path
@@ -175,19 +195,12 @@ impl MetadataManager {
             .codec_copy()
             .args(["-disposition:v:1", "attached_pic"]);
 
-        tracing::trace!(
-            file_path = ?file_path,
-            thumbnail_path = ?thumbnail_path,
-            ffmpeg_path = ?self.ffmpeg_path,
-            "Executing FFmpeg to add thumbnail"
-        );
-
         self.run_ffmpeg_task(&file_path, "mkv", args, Duration::from_secs(60))
             .await?;
 
         tracing::debug!(
             file_path = ?file_path,
-            "Thumbnail added successfully to WebM/MKV file"
+            "✅ Thumbnail added successfully to WebM/MKV file"
         );
 
         Ok(())
@@ -237,33 +250,20 @@ impl MetadataManager {
             has_audio_format = audio_format.is_some(),
             audio_bitrate = ?audio_bitrate,
             audio_codec = ?audio_codec,
-            "Adding metadata using FFmpeg"
+            "⚙️ Preparing metadata for FFmpeg"
         );
 
         let mut all_metadata = Self::extract_basic_metadata(video);
 
         if let Some(format) = video_format {
             let video_metadata = Self::extract_video_format_metadata(format);
-            tracing::trace!(
-                video_metadata_count = video_metadata.len(),
-                "Extracted video format metadata"
-            );
             all_metadata.extend(video_metadata);
         }
 
         if let Some(format) = audio_format {
             let audio_metadata = Self::extract_audio_format_metadata(format);
-            tracing::trace!(
-                audio_metadata_count = audio_metadata.len(),
-                "Extracted audio format metadata"
-            );
             all_metadata.extend(audio_metadata);
         }
-
-        tracing::trace!(
-            total_metadata_count = all_metadata.len(),
-            "Total metadata entries collected"
-        );
 
         all_metadata
     }
@@ -293,7 +293,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?path,
             video_id = %video_id,
-            "Metadata added successfully using FFmpeg"
+            "✅ FFmpeg metadata task completed"
         );
 
         Ok(())

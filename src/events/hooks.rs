@@ -76,7 +76,7 @@ impl HookRegistry {
     ///
     /// A new empty HookRegistry
     pub fn new() -> Self {
-        tracing::debug!("Creating new HookRegistry");
+        tracing::debug!("⚙️ Creating new HookRegistry");
 
         Self {
             hooks: Arc::new(RwLock::new(Vec::new())),
@@ -109,7 +109,7 @@ impl HookRegistry {
         tracing::debug!(
             hook_name = hook_name,
             parallel_execution = hook.parallel_execution(),
-            "Registering new hook"
+            "🔔 Registering new hook"
         );
 
         let mut hooks = self.hooks.write().await;
@@ -118,7 +118,7 @@ impl HookRegistry {
         tracing::debug!(
             hook_name = hook_name,
             total_hooks = hooks.len(),
-            "Hook registered"
+            "✅ Hook registered"
         );
     }
 
@@ -133,7 +133,7 @@ impl HookRegistry {
         tracing::debug!(
             event_type = event.event_type(),
             download_id = event.download_id(),
-            "Executing hooks for event"
+            "🔔 Executing hooks for event"
         );
 
         let hooks = self.hooks.read().await;
@@ -160,7 +160,7 @@ impl HookRegistry {
             total_hooks = hooks.len(),
             parallel_hooks = parallel_count,
             sequential_hooks = sequential_count,
-            "Separated hooks by execution mode"
+            "⚙️ Hooks separated by execution mode"
         );
 
         let timeout = self.timeout;
@@ -177,10 +177,10 @@ impl HookRegistry {
                     match tokio::time::timeout(timeout, hook.on_event(&event)).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
+                            tracing::warn!(hook = hook.name(), error = %e, "🔔 Hook execution failed");
                         }
                         Err(_) => {
-                            tracing::warn!("Hook '{}' timed out", hook.name());
+                            tracing::warn!(hook = hook.name(), "🔔 Hook execution timed out");
                         }
                     }
                 }
@@ -192,7 +192,7 @@ impl HookRegistry {
         tracing::debug!(
             event_type = event.event_type(),
             parallel_hooks_completed = parallel_count,
-            "Parallel hooks execution completed"
+            "✅ Parallel hooks completed"
         );
 
         // Execute sequential hooks one by one
@@ -200,10 +200,10 @@ impl HookRegistry {
             match tokio::time::timeout(timeout, hook.on_event(event)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
-                    tracing::warn!("Hook '{}' failed: {}", hook.name(), e);
+                    tracing::warn!(hook = hook.name(), error = %e, "🔔 Hook execution failed");
                 }
                 Err(_) => {
-                    tracing::warn!("Hook '{}' timed out", hook.name());
+                    tracing::warn!(hook = hook.name(), "🔔 Hook execution timed out");
                 }
             }
         }
@@ -211,7 +211,7 @@ impl HookRegistry {
         tracing::debug!(
             event_type = event.event_type(),
             sequential_hooks_completed = sequential_count,
-            "Sequential hooks execution completed"
+            "✅ Sequential hooks completed"
         );
     }
 
@@ -227,13 +227,13 @@ impl HookRegistry {
 
     /// Clears all registered hooks
     pub async fn clear(&self) {
-        tracing::debug!("Clearing all registered hooks");
+        tracing::debug!("⚙️ Clearing all hooks");
 
         let mut hooks = self.hooks.write().await;
         let count = hooks.len();
         hooks.clear();
 
-        tracing::debug!(hooks_cleared = count, "All hooks cleared");
+        tracing::debug!(hooks_cleared = count, "✅ All hooks cleared");
     }
 }
 
@@ -257,6 +257,12 @@ impl std::fmt::Debug for HookRegistry {
         f.debug_struct("HookRegistry")
             .field("hooks_count", &"<async>")
             .finish()
+    }
+}
+
+impl std::fmt::Display for HookRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HookRegistry(timeout={}s)", self.timeout.as_secs())
     }
 }
 

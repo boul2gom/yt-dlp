@@ -44,6 +44,10 @@ pub enum Extension {
 
 impl Extension {
     /// Returns the extension as a string slice.
+    ///
+    /// # Returns
+    ///
+    /// A static string representation of this extension variant (e.g. `"vtt"`, `"srt"`).
     pub fn as_str(&self) -> &'static str {
         match self {
             Extension::Json => "json",
@@ -60,19 +64,17 @@ impl Extension {
     }
 }
 
-// Implementation of the Display trait for AutomaticCaption
 impl fmt::Display for AutomaticCaption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Caption(lang={}, ext={:?})",
+            "AutomaticCaption(lang={}, ext={:?})",
             self.name.as_deref().unwrap_or("unknown"),
             self.extension
         )
     }
 }
 
-// Implementation of Hash for AutomaticCaption
 impl Hash for AutomaticCaption {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.url.hash(state);
@@ -81,7 +83,6 @@ impl Hash for AutomaticCaption {
     }
 }
 
-// Implementation of the Display trait for Extension
 impl fmt::Display for Extension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -116,7 +117,16 @@ pub struct Subtitle {
 }
 
 impl Subtitle {
-    /// Creates a new Subtitle from an AutomaticCaption.
+    /// Creates a new [`Subtitle`] from an [`AutomaticCaption`], marking it as automatically generated.
+    ///
+    /// # Arguments
+    ///
+    /// * `caption` - The automatic caption to convert.
+    /// * `language_code` - The language code to assign (e.g. `"en"`, `"fr"`).
+    ///
+    /// # Returns
+    ///
+    /// A [`Subtitle`] with `is_automatic` set to `true`.
     pub fn from_automatic_caption(caption: &AutomaticCaption, language_code: String) -> Self {
         Self {
             language_code: Some(language_code),
@@ -128,11 +138,23 @@ impl Subtitle {
     }
 
     /// Checks if this subtitle is in a specific format.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The extension variant to compare against.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the subtitle's extension matches the given format.
     pub fn is_format(&self, format: &Extension) -> bool {
         &self.extension == format
     }
 
     /// Returns the file extension as a string.
+    ///
+    /// # Returns
+    ///
+    /// The extension string (e.g. `"vtt"`, `"srt"`).
     pub fn file_extension(&self) -> &str {
         self.extension.as_str()
     }

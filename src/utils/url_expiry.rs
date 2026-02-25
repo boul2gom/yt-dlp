@@ -48,6 +48,28 @@ impl UrlStatus {
     }
 }
 
+impl std::fmt::Display for UrlStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Valid => f.write_str("Valid"),
+            Self::Expired(reason) => write!(f, "Expired(reason={})", reason),
+            Self::Unknown => f.write_str("Unknown"),
+        }
+    }
+}
+
+impl std::fmt::Display for ExpiredReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forbidden => f.write_str("Forbidden"),
+            Self::NotFound => f.write_str("NotFound"),
+            Self::Gone => f.write_str("Gone"),
+            Self::Unauthorized => f.write_str("Unauthorized"),
+            Self::Other(msg) => write!(f, "Other(msg={})", msg),
+        }
+    }
+}
+
 /// Check if an HTTP status code indicates an expired URL.
 ///
 /// # Arguments
@@ -58,14 +80,17 @@ impl UrlStatus {
 ///
 /// Returns `UrlStatus::Expired` if the status indicates expiry, `UrlStatus::Valid` otherwise
 pub fn check_http_status(status: StatusCode) -> UrlStatus {
-    match status {
+    let result = match status {
         StatusCode::FORBIDDEN => UrlStatus::Expired(ExpiredReason::Forbidden),
         StatusCode::NOT_FOUND => UrlStatus::Expired(ExpiredReason::NotFound),
         StatusCode::GONE => UrlStatus::Expired(ExpiredReason::Gone),
         StatusCode::UNAUTHORIZED => UrlStatus::Expired(ExpiredReason::Unauthorized),
         _ if status.is_success() => UrlStatus::Valid,
         _ => UrlStatus::Unknown,
-    }
+    };
+
+    tracing::debug!(status = status.as_u16(), result = %result, "⚙️ Checked HTTP status for URL expiry");
+    result
 }
 
 /// Check if a reqwest error indicates an expired URL.
@@ -111,7 +136,12 @@ pub fn check_download_error(error: &Error) -> UrlStatus {
 ///
 /// Returns `true` if the URL should be refreshed from yt-dlp
 pub fn should_refresh_url(error: &Error) -> bool {
-    check_download_error(error).is_expired()
+    let should_refresh = check_download_error(error).is_expired();
+    tracing::debug!(
+        should_refresh = should_refresh,
+        "⚙️ Checked if URL should be refreshed"
+    );
+    should_refresh
 }
 
 /// Determine if an HTTP error should trigger URL refresh.
@@ -151,5 +181,15 @@ impl Default for ExpiryConfig {
             max_refresh_attempts: 2,
             auto_refresh: true,
         }
+    }
+}
+
+impl std::fmt::Display for ExpiryConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ExpiryConfig(max_refresh={}, auto={})",
+            self.max_refresh_attempts, self.auto_refresh
+        )
     }
 }

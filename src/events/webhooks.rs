@@ -9,7 +9,7 @@ use super::{DownloadEvent, EventFilter, RetryStrategy};
 use crate::utils::retry::RetryPolicy;
 
 /// HTTP method for webhook delivery
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub enum WebhookMethod {
     /// HTTP POST
     #[default]
@@ -54,7 +54,7 @@ impl WebhookConfig {
 
         tracing::debug!(
             url = %url_string,
-            "Creating new WebhookConfig"
+            "⚙️ Creating new WebhookConfig"
         );
 
         Self {
@@ -79,13 +79,13 @@ impl WebhookConfig {
     ///
     /// Some(WebhookConfig) if YTDLP_WEBHOOK_URL is set, None otherwise
     pub fn from_env() -> Option<Self> {
-        tracing::debug!("Attempting to create WebhookConfig from environment variables");
+        tracing::debug!("⚙️ Loading WebhookConfig from environment");
 
         let url = std::env::var("YTDLP_WEBHOOK_URL").ok()?;
 
         tracing::debug!(
             url = %url,
-            "Found YTDLP_WEBHOOK_URL in environment"
+            "⚙️ Found YTDLP_WEBHOOK_URL in environment"
         );
 
         let mut config = Self::new(url);
@@ -109,7 +109,7 @@ impl WebhookConfig {
             url = %config.url,
             method = ?config.method,
             timeout_secs = config.timeout.as_secs(),
-            "WebhookConfig created from environment"
+            "✅ WebhookConfig created from environment"
         );
 
         Some(config)
@@ -125,34 +125,62 @@ impl WebhookConfig {
     ///
     /// Self for method chaining
     pub fn with_method(mut self, method: WebhookMethod) -> Self {
-        tracing::debug!(
-            method = ?method,
-            "Setting webhook HTTP method"
-        );
-
         self.method = method;
         self
     }
 
-    /// Adds a custom header
+    /// Adds a custom header.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Header name
+    /// * `value` - Header value
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(key.into(), value.into());
         self
     }
 
-    /// Sets multiple headers at once
+    /// Sets multiple headers at once.
+    ///
+    /// # Arguments
+    ///
+    /// * `headers` - Map of header names to values
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
         self.headers.extend(headers);
         self
     }
 
-    /// Sets the event filter
+    /// Sets the event filter.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - The event filter to apply
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_filter(mut self, filter: EventFilter) -> Self {
         self.filter = filter;
         self
     }
 
-    /// Sets the retry strategy
+    /// Sets the retry strategy.
+    ///
+    /// # Arguments
+    ///
+    /// * `strategy` - The retry strategy to use for failed deliveries
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_retry_strategy(mut self, strategy: RetryStrategy) -> Self {
         self.retry_policy = RetryPolicy::builder()
             .max_attempts(strategy.max_attempts as u32)
@@ -163,30 +191,76 @@ impl WebhookConfig {
         self
     }
 
-    /// Sets the request timeout
+    /// Sets the request timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The request timeout duration
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
-    /// Sets whether to include full event data
+    /// Sets whether to include full event data.
+    ///
+    /// # Arguments
+    ///
+    /// * `include` - Whether to include full event data or just a summary
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn with_full_data(mut self, include: bool) -> Self {
         self.include_full_data = include;
         self
     }
 
-    /// Returns the URL
+    /// Returns the URL.
+    ///
+    /// # Returns
+    ///
+    /// The webhook URL as a string slice.
     pub fn url(&self) -> &str {
         &self.url
     }
 
-    /// Returns the filter
+    /// Returns the filter.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the configured event filter.
     pub fn filter(&self) -> &EventFilter {
         &self.filter
     }
 }
 
 /// Webhook payload that will be sent
+impl std::fmt::Display for WebhookMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Post => f.write_str("Post"),
+            Self::Put => f.write_str("Put"),
+            Self::Patch => f.write_str("Patch"),
+        }
+    }
+}
+
+impl std::fmt::Display for WebhookConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "WebhookConfig(url={}, method={}, timeout={}s)",
+            self.url,
+            self.method,
+            self.timeout.as_secs()
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct WebhookPayload {
     /// Event type
@@ -217,7 +291,7 @@ impl WebhookDelivery {
     ///
     /// A new WebhookDelivery instance with a background worker
     pub fn new() -> Self {
-        tracing::debug!("Creating new WebhookDelivery system");
+        tracing::debug!("⚙️ Creating new WebhookDelivery system");
 
         let client = crate::utils::http::build_http_client(crate::utils::http::HttpClientConfig {
             timeout: Some(Duration::from_secs(30)),
@@ -231,11 +305,11 @@ impl WebhookDelivery {
 
         let client_clone = client.clone();
 
-        tracing::debug!("Spawning webhook delivery worker task");
+        tracing::debug!("⚙️ Spawning webhook delivery worker task");
 
         // Spawn worker task to process webhook deliveries
         tokio::spawn(async move {
-            tracing::debug!("Webhook delivery worker started");
+            tracing::debug!("⚙️ Webhook delivery worker started");
 
             while let Some((config, event)) = rx.recv().await {
                 let client = client_clone.clone();
@@ -244,7 +318,7 @@ impl WebhookDelivery {
                 });
             }
 
-            tracing::debug!("Webhook delivery worker stopped");
+            tracing::debug!("⚙️ Webhook delivery worker stopped");
         });
 
         Self {
@@ -263,13 +337,13 @@ impl WebhookDelivery {
         tracing::debug!(
             url = %config.url,
             method = ?config.method,
-            "Registering new webhook"
+            "🔔 Registering new webhook"
         );
 
         let mut webhooks = self.webhooks.write().await;
         webhooks.push(config);
 
-        tracing::debug!(total_webhooks = webhooks.len(), "Webhook registered");
+        tracing::debug!(total_webhooks = webhooks.len(), "✅ Webhook registered");
     }
 
     /// Processes an event and delivers it to matching webhooks
@@ -281,7 +355,7 @@ impl WebhookDelivery {
         tracing::debug!(
             event_type = event.event_type(),
             download_id = event.download_id(),
-            "Processing event for webhook delivery"
+            "🔔 Processing event for webhook delivery"
         );
 
         let webhooks = self.webhooks.read().await;
@@ -291,7 +365,7 @@ impl WebhookDelivery {
             if webhook.filter.matches(event) {
                 matched_count += 1;
                 if let Err(e) = self.tx.try_send((webhook.clone(), event.clone())) {
-                    tracing::warn!(error = %e, "Webhook channel full, dropping event");
+                    tracing::warn!(error = %e, "🔔 Webhook channel full, dropping event");
                 }
             }
         }
@@ -300,7 +374,7 @@ impl WebhookDelivery {
             event_type = event.event_type(),
             total_webhooks = webhooks.len(),
             matched_webhooks = matched_count,
-            "Event processed for webhook delivery"
+            "✅ Event processed for webhook delivery"
         );
     }
 
@@ -316,13 +390,13 @@ impl WebhookDelivery {
 
     /// Clears all registered webhooks
     pub async fn clear(&self) {
-        tracing::debug!("Clearing all registered webhooks");
+        tracing::debug!("⚙️ Clearing all webhooks");
 
         let mut webhooks = self.webhooks.write().await;
         let count = webhooks.len();
         webhooks.clear();
 
-        tracing::debug!(webhooks_cleared = count, "All webhooks cleared");
+        tracing::debug!(webhooks_cleared = count, "✅ All webhooks cleared");
     }
 
     /// Delivers a webhook with retry logic
@@ -337,7 +411,7 @@ impl WebhookDelivery {
             url = %config.url,
             event_type = event.event_type(),
             download_id = event.download_id(),
-            "Starting webhook delivery"
+            "🔔 Starting webhook delivery"
         );
 
         let payload = WebhookPayload {
@@ -373,10 +447,10 @@ impl WebhookDelivery {
 
         match result {
             Ok(_) => {
-                tracing::debug!("Webhook delivered successfully to {}", config.url);
+                tracing::debug!(url = config.url, "✅ Webhook delivered successfully");
             }
             Err(e) => {
-                tracing::error!("Webhook delivery failed to {}: {}", config.url, e);
+                tracing::error!(url = config.url, error = %e, "🔔 Webhook delivery failed after retries");
             }
         }
     }
@@ -401,7 +475,7 @@ impl WebhookDelivery {
             url = %config.url,
             method = ?config.method,
             event_type = %payload.event_type,
-            "Sending webhook request"
+            "🔔 Sending webhook request"
         );
 
         let mut request = match config.method {
@@ -437,7 +511,7 @@ impl WebhookDelivery {
             tracing::warn!(
                 url = %config.url,
                 status_code = status.as_u16(),
-                "Webhook request failed with non-success status"
+                "🔔 Webhook request failed"
             );
 
             return Err(format!("HTTP {}", status));
@@ -446,7 +520,7 @@ impl WebhookDelivery {
         tracing::debug!(
             url = %config.url,
             status_code = response.status().as_u16(),
-            "Webhook request succeeded"
+            "✅ Webhook request succeeded"
         );
 
         Ok(())
@@ -474,5 +548,11 @@ impl std::fmt::Debug for WebhookDelivery {
         f.debug_struct("WebhookDelivery")
             .field("webhooks_count", &"<async>")
             .finish()
+    }
+}
+
+impl std::fmt::Display for WebhookDelivery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WebhookDelivery")
     }
 }

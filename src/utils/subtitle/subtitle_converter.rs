@@ -34,10 +34,10 @@ pub async fn convert_subtitle(
     let output_path = output_path.as_ref();
 
     tracing::debug!(
-        "Converting subtitle from {:?} to {:?} (format: {:?})",
-        input_path,
-        output_path,
-        target_format
+        input = ?input_path,
+        output = ?output_path,
+        target_format = ?target_format,
+        "💬 Converting subtitle"
     );
 
     // Read input file
@@ -46,14 +46,14 @@ pub async fn convert_subtitle(
     // Detect source format
     let source_format = super::detect_subtitle_format(&content)?;
 
-    tracing::debug!("Detected source format: {:?}", source_format);
+    tracing::debug!(format = ?source_format, "💬 Detected source subtitle format");
 
     // Convert based on source and target formats
     let converted_content = match (source_format, target_format) {
         (Extension::Vtt, Extension::Srt) => vtt_to_srt(&content)?,
         (Extension::Srt, Extension::Vtt) => srt_to_vtt(&content)?,
         (source, target) if source == target => {
-            tracing::debug!("Source and target formats are the same, copying file");
+            tracing::debug!("💬 Source and target formats are the same, copying file");
             content
         }
         (source, target) => {
@@ -67,7 +67,7 @@ pub async fn convert_subtitle(
     // Write output file
     fs::write(output_path, converted_content).await?;
 
-    tracing::info!("Successfully converted subtitle to {:?}", output_path);
+    tracing::info!(path = ?output_path, "✅ Successfully converted subtitle");
 
     Ok(())
 }

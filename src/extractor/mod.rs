@@ -27,9 +27,9 @@ pub enum ExtractorName {
 impl fmt::Display for ExtractorName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Youtube => write!(f, "youtube"),
-            Self::Generic(Some(name)) => write!(f, "{}", name),
-            Self::Generic(None) => write!(f, "generic"),
+            Self::Youtube => f.write_str("Youtube"),
+            Self::Generic(Some(name)) => write!(f, "Generic(name={})", name),
+            Self::Generic(None) => f.write_str("Generic"),
         }
     }
 }
@@ -175,7 +175,7 @@ pub async fn execute_and_parse_video(
         executable = ?executable_path,
         arg_count = args.len(),
         timeout_secs = timeout.as_secs(),
-        "Executing extractor for video"
+        "📡 Executing extractor for video"
     );
 
     let executor = Executor::new(executable_path.clone(), args.to_vec(), timeout);
@@ -190,14 +190,14 @@ pub async fn execute_and_parse_video(
     tracing::debug!(
         executable = ?executable_path,
         output_path = ?output_path,
-        "Redirecting yt-dlp output to temporary file"
+        "📡 Redirecting yt-dlp output to temporary file"
     );
 
     let _output = executor.execute_to_file(&output_path).await?;
 
     tracing::debug!(
         output_path = ?output_path,
-        "Opening output file for parsing"
+        "⚙️ Opening output file for parsing"
     );
 
     // Open the file using tokio::fs (async)
@@ -205,7 +205,7 @@ pub async fn execute_and_parse_video(
     // Convert to std::fs::File for serde_json which is synchronous
     let file = file.into_std().await;
 
-    tracing::debug!("Spawning blocking task for JSON parsing");
+    tracing::debug!("⚙️ Spawning blocking task for JSON parsing");
 
     // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
     // without blocking the async runtime
@@ -219,7 +219,7 @@ pub async fn execute_and_parse_video(
         video_id = %video.id,
         title = %video.title,
         format_count = video.formats.len(),
-        "Video parsed successfully"
+        "✅ Video parsed successfully"
     );
 
     // Set video ID on each format for caching purposes
@@ -229,7 +229,7 @@ pub async fn execute_and_parse_video(
 
     tracing::debug!(
         video_id = %video.id,
-        "Set video_id on all formats"
+        "⚙️ Set video_id on all formats"
     );
 
     Ok(video)
@@ -259,7 +259,7 @@ pub async fn execute_and_parse_playlist(
         executable = ?executable_path,
         arg_count = args.len(),
         timeout_secs = timeout.as_secs(),
-        "Executing extractor for playlist"
+        "📡 Executing extractor for playlist"
     );
 
     let executor = Executor::new(executable_path.clone(), args.to_vec(), timeout);
@@ -273,21 +273,21 @@ pub async fn execute_and_parse_playlist(
     tracing::debug!(
         executable = ?executable_path,
         output_path = ?output_path,
-        "Redirecting yt-dlp output to temporary file"
+        "📡 Redirecting yt-dlp output to temporary file"
     );
 
     let _output = executor.execute_to_file(&output_path).await?;
 
     tracing::debug!(
         output_path = ?output_path,
-        "Opening output file for parsing"
+        "⚙️ Opening output file for parsing"
     );
 
     // Open the file using tokio::fs (async)
     let file = tokio::fs::File::open(&output_path).await?;
     let file = file.into_std().await;
 
-    tracing::debug!("Spawning blocking task for JSON parsing");
+    tracing::debug!("⚙️ Spawning blocking task for JSON parsing");
 
     // Use spawn_blocking to perform CPU-intensive and blocking I/O JSON parsing
     let playlist: Playlist = tokio::task::spawn_blocking(move || {
@@ -300,7 +300,7 @@ pub async fn execute_and_parse_playlist(
         playlist_id = %playlist.id,
         title = %playlist.title,
         entry_count = playlist.entries.len(),
-        "Playlist parsed successfully"
+        "✅ Playlist parsed successfully"
     );
 
     Ok(playlist)

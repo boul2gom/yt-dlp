@@ -22,7 +22,7 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
     tracing::debug!(
         url = %url,
         executable = ?executable_path,
-        "Detecting extractor type for URL"
+        "📡 Detecting extractor type for URL"
     );
 
     // Fast path: Pattern matching for YouTube
@@ -30,7 +30,7 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
         tracing::debug!(
             url = %url,
             extractor = "youtube",
-            "Detected YouTube URL via pattern matching"
+            "✅ Detected YouTube URL via pattern matching"
         );
 
         return Ok(ExtractorName::Youtube);
@@ -38,7 +38,7 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
 
     tracing::debug!(
         url = %url,
-        "URL is not YouTube, querying yt-dlp for extractor detection"
+        "📡 URL is not YouTube, querying yt-dlp for extractor detection"
     );
 
     // Slow path: Query yt-dlp to detect extractor
@@ -47,7 +47,7 @@ pub async fn detect_extractor_type(url: &str, executable_path: &Path) -> Result<
     tracing::debug!(
         url = %url,
         extractor = %extractor_name,
-        "Detected extractor via yt-dlp"
+        "✅ Detected extractor via yt-dlp"
     );
 
     Ok(ExtractorName::Generic(Some(extractor_name)))
@@ -86,7 +86,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     tracing::debug!(
         url = %url,
         executable = ?executable_path,
-        "Starting yt-dlp extractor detection"
+        "📡 Starting yt-dlp extractor detection"
     );
 
     let args = vec![
@@ -104,7 +104,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
 
     tracing::debug!(
         url = %url,
-        "Executing yt-dlp with --simulate to detect extractor"
+        "📡 Executing yt-dlp with --simulate to detect extractor"
     );
 
     let output = executor.execute().await?;
@@ -112,7 +112,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     tracing::debug!(
         url = %url,
         stdout_len = output.stdout.len(),
-        "yt-dlp execution completed, parsing JSON"
+        "⚙️ yt-dlp execution completed, parsing JSON"
     );
 
     let json: serde_json::Value = serde_json::from_str(&output.stdout)?;
@@ -132,7 +132,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     tracing::debug!(
         url = %url,
         extractor = extractor,
-        "Successfully detected extractor from yt-dlp"
+        "✅ Successfully detected extractor from yt-dlp"
     );
 
     Ok(extractor.to_string())

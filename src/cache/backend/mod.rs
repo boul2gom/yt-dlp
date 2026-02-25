@@ -32,49 +32,160 @@ use sqlite::{SqliteFileCache, SqlitePlaylistCache, SqliteVideoCache};
 /// Trait for video cache backend implementations.
 pub trait VideoBackend: Send + Sync + std::fmt::Debug {
     /// Retrieves a video by its URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to retrieve
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend lookup fails.
+    ///
+    /// # Returns
+    ///
+    /// The cached `Video` if found, or `None` if not present.
     fn get(&self, url: &str) -> impl Future<Output = Result<Option<Video>>> + Send;
 
     /// Stores a video in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to use as the cache key
+    /// * `video` - The video metadata to cache
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the write operation fails.
     fn put(&self, url: String, video: Video) -> impl Future<Output = Result<()>> + Send;
 
     /// Removes a video from the cache by URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video to remove
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the removal operation fails.
     fn remove(&self, url: &str) -> impl Future<Output = Result<()>> + Send;
 
     /// Cleans expired entries from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cleanup operation fails.
     fn clean(&self) -> impl Future<Output = Result<()>> + Send;
 
     /// Retrieves a video by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The unique identifier of the video
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend lookup fails.
+    ///
+    /// # Returns
+    ///
+    /// The cached video entry.
     fn get_by_id(&self, id: &str) -> impl Future<Output = Result<CachedVideo>> + Send;
 }
 
 /// Trait for playlist cache backend implementations.
 pub trait PlaylistBackend: Send + Sync + std::fmt::Debug {
     /// Retrieves a playlist by its URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the playlist to retrieve
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend lookup fails.
+    ///
+    /// # Returns
+    ///
+    /// The cached `Playlist` if found, or `None` if not present.
     fn get(&self, url: &str) -> impl Future<Output = Result<Option<Playlist>>> + Send;
 
     /// Retrieves a playlist by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The unique identifier of the playlist
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend lookup fails.
+    ///
+    /// # Returns
+    ///
+    /// The cached `Playlist` if found, or `None` if not present.
     fn get_by_id(&self, id: &str) -> impl Future<Output = Result<Option<Playlist>>> + Send;
 
     /// Stores a playlist in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to use as the cache key
+    /// * `playlist` - The playlist to cache
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the write operation fails.
     fn put(&self, url: String, playlist: Playlist) -> impl Future<Output = Result<()>> + Send;
 
     /// Invalidates (removes) a playlist from the cache by URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the playlist to invalidate
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the invalidation operation fails.
     fn invalidate(&self, url: &str) -> impl Future<Output = Result<()>> + Send;
 
     /// Cleans expired entries from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cleanup operation fails.
     fn clean(&self) -> impl Future<Output = Result<()>> + Send;
 
     /// Clears all entries from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the clear operation fails.
     fn clear_all(&self) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Trait for file cache backend implementations.
 pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// Retrieves a file from the cache by its hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `hash` - The content hash of the file
+    ///
+    /// # Returns
+    ///
+    /// The cached file entry and its path, or `None` if not found.
     fn get_by_hash(&self, hash: &str)
     -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 
     /// Retrieves a file from the cache by video ID and format ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video identifier
+    /// * `format_id` - The format identifier
+    ///
+    /// # Returns
+    ///
+    /// The cached file entry and its path, or `None` if not found.
     fn get_by_video_and_format(
         &self,
         video_id: &str,
@@ -82,6 +193,18 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 
     /// Retrieves a file from the cache based on video ID and quality preferences.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video identifier
+    /// * `video_quality` - Preferred video quality
+    /// * `audio_quality` - Preferred audio quality
+    /// * `video_codec` - Preferred video codec
+    /// * `audio_codec` - Preferred audio codec
+    ///
+    /// # Returns
+    ///
+    /// The cached file entry and its path, or `None` if no match.
     fn get_by_video_and_preferences(
         &self,
         video_id: &str,
@@ -92,6 +215,19 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 
     /// Store a file in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The cached file metadata
+    /// * `source_path` - Path to the source file to store
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be stored.
+    ///
+    /// # Returns
+    ///
+    /// The path where the file was cached.
     fn put(
         &self,
         file: CachedFile,
@@ -99,18 +235,51 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     ) -> impl Future<Output = Result<PathBuf>> + Send;
 
     /// Removes a file from the cache by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The unique identifier of the cached file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the removal operation fails.
     fn remove(&self, id: &str) -> impl Future<Output = Result<()>> + Send;
 
     /// Cleans expired entries from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cleanup operation fails.
     fn clean(&self) -> impl Future<Output = Result<()>> + Send;
 
     /// Retrieve a thumbnail from the cache by video ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video identifier
+    ///
+    /// # Returns
+    ///
+    /// The cached thumbnail entry and its path, or `None` if not found.
     fn get_thumbnail_by_video_id(
         &self,
         video_id: &str,
     ) -> impl Future<Output = Option<(CachedThumbnail, PathBuf)>> + Send;
 
     /// Store a thumbnail in the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `thumbnail` - The cached thumbnail metadata
+    /// * `source_path` - Path to the source thumbnail file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the thumbnail cannot be stored.
+    ///
+    /// # Returns
+    ///
+    /// The path where the thumbnail was cached.
     fn put_thumbnail(
         &self,
         thumbnail: CachedThumbnail,
@@ -118,6 +287,15 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     ) -> impl Future<Output = Result<PathBuf>> + Send;
 
     /// Retrieve a subtitle from the cache by video ID and language.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video identifier
+    /// * `language` - The subtitle language code
+    ///
+    /// # Returns
+    ///
+    /// The cached subtitle file entry and its path, or `None` if not found.
     fn get_subtitle_by_language(
         &self,
         video_id: &str,

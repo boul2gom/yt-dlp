@@ -33,7 +33,7 @@ pub struct ProxyConfig {
 }
 
 /// Type of proxy to use.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum ProxyType {
     /// HTTP proxy
     Http,
@@ -60,7 +60,7 @@ impl ProxyConfig {
         tracing::debug!(
             proxy_type = ?proxy_type,
             url = %url,
-            "Creating new ProxyConfig"
+            "🔧 Creating proxy config"
         );
 
         Self {
@@ -87,7 +87,7 @@ impl ProxyConfig {
 
         tracing::debug!(
             username = %username,
-            "Adding authentication to proxy"
+            "🔧 Adding proxy authentication"
         );
 
         self.username = Some(username);
@@ -108,7 +108,7 @@ impl ProxyConfig {
         tracing::debug!(
             no_proxy = ?no_proxy,
             count = no_proxy.len(),
-            "Setting no-proxy list"
+            "🔧 Setting no-proxy list"
         );
 
         self.no_proxy = no_proxy;
@@ -116,26 +116,46 @@ impl ProxyConfig {
     }
 
     /// Returns the proxy type.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the configured `ProxyType`.
     pub fn proxy_type(&self) -> &ProxyType {
         &self.proxy_type
     }
 
     /// Returns the proxy URL.
+    ///
+    /// # Returns
+    ///
+    /// The proxy URL as a string slice.
     pub fn url(&self) -> &str {
         &self.url
     }
 
     /// Returns the username if authentication is configured.
+    ///
+    /// # Returns
+    ///
+    /// The proxy username, or `None` if no authentication is set.
     pub fn username(&self) -> Option<&str> {
         self.username.as_deref()
     }
 
     /// Returns the password if authentication is configured.
+    ///
+    /// # Returns
+    ///
+    /// The proxy password, or `None` if no authentication is set.
     pub fn password(&self) -> Option<&str> {
         self.password.as_deref()
     }
 
     /// Returns the no-proxy list.
+    ///
+    /// # Returns
+    ///
+    /// A slice of domain strings that should bypass the proxy.
     pub fn no_proxy(&self) -> &[String] {
         &self.no_proxy
     }
@@ -146,7 +166,7 @@ impl ProxyConfig {
     ///
     /// The proxy URL with embedded authentication credentials if provided
     pub fn build_url(&self) -> String {
-        tracing::debug!(has_auth = self.username.is_some(), "Building proxy URL");
+        tracing::debug!(has_auth = self.username.is_some(), "🔧 Building proxy URL");
 
         if let (Some(username), Some(password)) = (&self.username, &self.password) {
             // URL-encode username and password
@@ -181,6 +201,8 @@ impl ProxyConfig {
     pub fn to_reqwest_proxy(&self) -> reqwest::Result<reqwest::Proxy> {
         let url = self.build_url();
 
+        tracing::debug!(proxy_type = ?self.proxy_type, no_proxy_count = self.no_proxy.len(), "🔧 Converting to reqwest proxy");
+
         match self.proxy_type {
             ProxyType::Http => reqwest::Proxy::http(&url),
             ProxyType::Https => reqwest::Proxy::https(&url),
@@ -206,11 +228,21 @@ impl ProxyConfig {
     }
 }
 
+impl fmt::Display for ProxyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http => f.write_str("Http"),
+            Self::Https => f.write_str("Https"),
+            Self::Socks5 => f.write_str("Socks5"),
+        }
+    }
+}
+
 impl fmt::Display for ProxyConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ProxyConfig {{ type: {:?}, url: {:?}, auth_configured: {} }}",
+            "ProxyConfig(type={}, url={}, auth={})",
             self.proxy_type,
             self.url,
             self.username.is_some()

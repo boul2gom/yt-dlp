@@ -2,7 +2,6 @@
 //!
 //! This module provides a fluent API for constructing Downloader instances with various configurations.
 
-use crate::extractor::ExtractorConfig;
 #[cfg(feature = "cache-backend")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::proxy::ProxyConfig;
@@ -10,6 +9,7 @@ use crate::client::{Downloader, Libraries};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
+use crate::extractor::ExtractorConfig;
 #[cfg(feature = "cache-backend")]
 use crate::utils::fs;
 use std::path::PathBuf;
@@ -64,7 +64,7 @@ impl DownloaderBuilder {
         tracing::debug!(
             output_dir = ?output_dir,
             timeout = ?crate::client::DEFAULT_TIMEOUT,
-            "Creating new DownloaderBuilder"
+            "🔧 Creating new DownloaderBuilder"
         );
 
         Self {
@@ -91,7 +91,7 @@ impl DownloaderBuilder {
         tracing::debug!(
             args = ?args,
             arg_count = args.len(),
-            "Setting custom yt-dlp arguments"
+            "🔧 Setting custom yt-dlp arguments"
         );
 
         self.args = args;
@@ -116,7 +116,7 @@ impl DownloaderBuilder {
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         tracing::debug!(
             timeout = ?timeout,
-            "Setting command execution timeout"
+            "🔧 Setting command execution timeout"
         );
 
         self.timeout = timeout;
@@ -133,7 +133,7 @@ impl DownloaderBuilder {
             proxy_type = ?proxy.proxy_type(),
             proxy_url = proxy.url(),
             has_auth = proxy.username().is_some(),
-            "Setting proxy configuration"
+            "🔧 Setting proxy configuration"
         );
 
         self.proxy = Some(proxy);
@@ -146,7 +146,10 @@ impl DownloaderBuilder {
     ///
     /// * `path` - Path to the Netscape cookie file
     pub fn with_cookies(mut self, path: impl Into<PathBuf>) -> Self {
-        self.cookies = Some(path.into());
+        let path = path.into();
+        tracing::debug!(cookies_path = ?path, "🔧 Setting cookie file");
+
+        self.cookies = Some(path);
         self
     }
 
@@ -156,12 +159,17 @@ impl DownloaderBuilder {
     ///
     /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
     pub fn with_cookies_from_browser(mut self, browser: impl Into<String>) -> Self {
-        self.cookies_from_browser = Some(browser.into());
+        let browser = browser.into();
+        tracing::debug!(browser = %browser, "🔧 Setting cookies from browser");
+
+        self.cookies_from_browser = Some(browser);
         self
     }
 
     /// Use .netrc for authentication.
     pub fn with_netrc(mut self) -> Self {
+        tracing::debug!("🔧 Enabling .netrc authentication");
+
         self.use_netrc = true;
         self
     }
@@ -177,7 +185,7 @@ impl DownloaderBuilder {
 
         tracing::debug!(
             cache_dir = ?cache_dir,
-            "Enabling cache with directory"
+            "🔧 Enabling cache with directory"
         );
 
         self.cache_dir = Some(cache_dir);
@@ -241,7 +249,7 @@ impl DownloaderBuilder {
             segment_size = profile.segment_size(),
             parallel_segments = profile.parallel_segments(),
             max_buffer_size = profile.max_buffer_size(),
-            "Setting speed profile"
+            "🔧 Setting speed profile"
         );
 
         if let Some(config) = &mut self.download_manager_config {
@@ -280,7 +288,7 @@ impl DownloaderBuilder {
                 timeout = ?self.timeout,
                 has_proxy = self.proxy.is_some(),
                 has_cache = self.cache_dir.is_some(),
-                "Building Downloader instance"
+                "🔧 Building Downloader instance"
             );
 
             #[cfg(not(feature = "cache-backend"))]
@@ -289,7 +297,7 @@ impl DownloaderBuilder {
                 args_count = self.args.len(),
                 timeout = ?self.timeout,
                 has_proxy = self.proxy.is_some(),
-                "Building Downloader instance"
+                "🔧 Building Downloader instance"
             );
         }
 
@@ -393,5 +401,17 @@ impl DownloaderBuilder {
             #[cfg(feature = "statistics")]
             statistics,
         })
+    }
+}
+
+impl std::fmt::Display for DownloaderBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DownloaderBuilder(output_dir={}, timeout={}s, proxy={})",
+            self.output_dir.display(),
+            self.timeout.as_secs(),
+            self.proxy.is_some()
+        )
     }
 }

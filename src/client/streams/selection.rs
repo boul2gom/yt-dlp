@@ -11,26 +11,151 @@ use std::cmp::Ordering;
 
 /// Trait for selecting video, audio, and storyboard formats from a Video.
 pub trait VideoSelection {
+    /// Returns the best video format available.
+    ///
+    /// Sorting criteria: quality → resolution height → fps → video bitrate (all descending).
+    ///
+    /// # Returns
+    ///
+    /// The highest-ranked video-only format, or `None` if no video formats exist.
     fn best_video_format(&self) -> Option<&Format>;
+
+    /// Returns the best audio format available.
+    ///
+    /// Sorting criteria: quality → audio bitrate → sample rate → audio channels (all descending).
+    ///
+    /// # Returns
+    ///
+    /// The highest-ranked audio-only format, or `None` if no audio formats exist.
     fn best_audio_format(&self) -> Option<&Format>;
+
+    /// Returns the worst video format available.
+    ///
+    /// Uses the same sorting criteria as [`best_video_format`] but returns the lowest-ranked.
+    ///
+    /// # Returns
+    ///
+    /// The lowest-ranked video-only format, or `None` if no video formats exist.
     fn worst_video_format(&self) -> Option<&Format>;
+
+    /// Returns the worst audio format available.
+    ///
+    /// Uses the same sorting criteria as [`best_audio_format`] but returns the lowest-ranked.
+    ///
+    /// # Returns
+    ///
+    /// The lowest-ranked audio-only format, or `None` if no audio formats exist.
     fn worst_audio_format(&self) -> Option<&Format>;
+
+    /// Compares two video formats for ordering.
+    ///
+    /// Sorting criteria: quality → resolution height → fps → video bitrate.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - First video format to compare.
+    /// * `b` - Second video format to compare.
+    ///
+    /// # Returns
+    ///
+    /// An [`Ordering`] indicating how `a` and `b` compare.
     fn compare_video_formats(&self, a: &Format, b: &Format) -> Ordering;
+
+    /// Compares two audio formats for ordering.
+    ///
+    /// Sorting criteria: quality → audio bitrate → sample rate → audio channels.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - First audio format to compare.
+    /// * `b` - Second audio format to compare.
+    ///
+    /// # Returns
+    ///
+    /// An [`Ordering`] indicating how `a` and `b` compare.
     fn compare_audio_formats(&self, a: &Format, b: &Format) -> Ordering;
+
+    /// Selects a video format based on quality and codec preferences.
+    ///
+    /// Filters by codec first (falling back to all formats if no codec matches),
+    /// then selects based on the quality preset or custom target.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired video quality level.
+    /// * `codec` - The preferred video codec.
+    ///
+    /// # Returns
+    ///
+    /// The best-matching video format, or `None` if no video formats exist.
     fn select_video_format(
         &self,
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Option<&Format>;
+
+    /// Selects an audio format based on quality and codec preferences.
+    ///
+    /// Filters by codec first (falling back to all formats if no codec matches),
+    /// then selects based on the quality preset or custom bitrate target.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired audio quality level.
+    /// * `codec` - The preferred audio codec.
+    ///
+    /// # Returns
+    ///
+    /// The best-matching audio format, or `None` if no audio formats exist.
     fn select_audio_format(
         &self,
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Option<&Format>;
+
+    /// Returns all storyboard formats, ordered from best to worst quality.
+    ///
+    /// Best quality = highest fragment count × largest resolution (width × height).
+    ///
+    /// # Returns
+    ///
+    /// A vector of storyboard format references in descending quality order.
     fn storyboard_formats(&self) -> Vec<&Format>;
+
+    /// Returns the best storyboard format (most fragments, then highest resolution).
+    ///
+    /// # Returns
+    ///
+    /// The best storyboard format, or `None` if no storyboards are available.
     fn best_storyboard_format(&self) -> Option<&Format>;
+
+    /// Returns the worst storyboard format (fewest fragments, then lowest resolution).
+    ///
+    /// # Returns
+    ///
+    /// The worst storyboard format, or `None` if no storyboards are available.
     fn worst_storyboard_format(&self) -> Option<&Format>;
+
+    /// Selects a storyboard format based on quality preference.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired storyboard quality.
+    ///
+    /// # Returns
+    ///
+    /// The matching storyboard format, or `None` if no storyboards are available.
     fn select_storyboard_format(&self, quality: StoryboardQuality) -> Option<&Format>;
+
+    /// Selects a thumbnail based on quality preference.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired thumbnail quality.
+    ///
+    /// # Returns
+    ///
+    /// The matching thumbnail, or `None` if no thumbnails are available.
     fn select_thumbnail(&self, quality: ThumbnailQuality) -> Option<&Thumbnail>;
 }
 
@@ -41,7 +166,7 @@ impl VideoSelection for Video {
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
-            "Selecting best video format"
+            "🧩 Selecting best video format"
         );
 
         self.formats
@@ -56,7 +181,7 @@ impl VideoSelection for Video {
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
-            "Selecting best audio format"
+            "🧩 Selecting best audio format"
         );
 
         self.formats
@@ -71,7 +196,7 @@ impl VideoSelection for Video {
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
-            "Selecting worst video format"
+            "🧩 Selecting worst video format"
         );
 
         self.formats
@@ -86,7 +211,7 @@ impl VideoSelection for Video {
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
-            "Selecting worst audio format"
+            "🧩 Selecting worst audio format"
         );
 
         self.formats
@@ -98,12 +223,6 @@ impl VideoSelection for Video {
     /// Compares two video formats.
     /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
     fn compare_video_formats(&self, a: &Format, b: &Format) -> Ordering {
-        tracing::trace!(
-            "Comparing video formats: {} and {}",
-            a.format_id,
-            b.format_id
-        );
-
         let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
         let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
 
@@ -137,12 +256,6 @@ impl VideoSelection for Video {
     /// Compares two audio formats.
     /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
     fn compare_audio_formats(&self, a: &Format, b: &Format) -> Ordering {
-        tracing::trace!(
-            "Comparing audio formats: {} and {}",
-            a.format_id,
-            b.format_id
-        );
-
         let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
         let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
 
@@ -184,7 +297,7 @@ impl VideoSelection for Video {
             quality = ?quality,
             codec = ?codec,
             total_formats = self.formats.len(),
-            "Selecting video format with preferences"
+            "🧩 Selecting video format with preferences"
         );
 
         let video_formats: Vec<&Format> = self.formats.iter().filter(|f| f.is_video()).collect();
@@ -247,7 +360,7 @@ impl VideoSelection for Video {
             quality = ?quality,
             codec = ?codec,
             total_formats = self.formats.len(),
-            "Selecting audio format with preferences"
+            "🧩 Selecting audio format with preferences"
         );
 
         let audio_formats: Vec<&Format> = self.formats.iter().filter(|f| f.is_audio()).collect();
@@ -303,7 +416,7 @@ impl VideoSelection for Video {
         tracing::debug!(
             video_id = %self.id,
             format_count = self.formats.len(),
-            "Collecting storyboard formats"
+            "🧩 Collecting storyboard formats"
         );
 
         let mut formats: Vec<&Format> = self
@@ -326,22 +439,14 @@ impl VideoSelection for Video {
         formats
     }
 
-    /// Returns the best storyboard format (highest resolution and most fragments).
     fn best_storyboard_format(&self) -> Option<&Format> {
-        tracing::debug!(
-            video_id = %self.id,
-            "Selecting best storyboard format"
-        );
-        self.storyboard_formats().into_iter().next()
+        // Delegates to the model-level implementation on Video
+        Video::best_storyboard_format(self)
     }
 
-    /// Returns the worst storyboard format (lowest resolution and fewest fragments).
     fn worst_storyboard_format(&self) -> Option<&Format> {
-        tracing::debug!(
-            video_id = %self.id,
-            "Selecting worst storyboard format"
-        );
-        self.storyboard_formats().into_iter().last()
+        // Delegates to the model-level implementation on Video
+        Video::worst_storyboard_format(self)
     }
 
     /// Selects a storyboard format based on quality preference.
@@ -361,17 +466,12 @@ impl VideoSelection for Video {
             video_id = %self.id,
             quality = ?quality,
             total_thumbnails = self.thumbnails.len(),
-            "Selecting thumbnail with preferences"
+            "🧩 Selecting thumbnail with preferences"
         );
 
         match quality {
             ThumbnailQuality::Best => self.best_thumbnail(),
-            ThumbnailQuality::Worst => self
-                .thumbnails
-                .iter()
-                .filter(|t| t.width.is_some() && t.height.is_some())
-                .min_by_key(|t| (t.width.unwrap_or(0) * t.height.unwrap_or(0), t.preference))
-                .or_else(|| self.thumbnails.iter().min_by_key(|t| t.preference)),
+            ThumbnailQuality::Worst => self.worst_thumbnail(),
             ThumbnailQuality::MinimumResolution(width, height) => {
                 self.thumbnail_for_size(width, height)
             }
@@ -401,7 +501,7 @@ where
     tracing::debug!(
         target_height = target_height,
         video_id = %video.id,
-        "Selecting video format closest to target height"
+        "🧩 Selecting video format closest to target height"
     );
 
     let closest_above = formats
@@ -468,7 +568,7 @@ where
     tracing::debug!(
         target_width = target_width,
         video_id = %video.id,
-        "Selecting video format closest to target width"
+        "🧩 Selecting video format closest to target width"
     );
 
     let closest_above = formats
@@ -535,7 +635,7 @@ where
     tracing::debug!(
         target_bitrate = target_bitrate,
         video_id = %video.id,
-        "Selecting audio format closest to target bitrate"
+        "🧩 Selecting audio format closest to target bitrate"
     );
 
     let target_float = OrderedFloat(target_bitrate as f64);
@@ -606,7 +706,7 @@ impl Downloader {
             video_id = %video.id,
             language_count = languages.len(),
             languages = ?languages,
-            "Listing subtitle/caption languages"
+            "💬 Listing subtitle/caption languages"
         );
 
         languages
@@ -623,16 +723,7 @@ impl Downloader {
     ///
     /// `true` if subtitles or automatic captions are available in the specified language.
     pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
-        let has_language = video.subtitles.contains_key(language_code)
-            || video.automatic_captions.contains_key(language_code);
-
-        tracing::debug!(
-            video_id = %video.id,
-            language_code = language_code,
-            has_language = has_language,
-            "Checking for subtitle/caption language"
-        );
-
-        has_language
+        video.subtitles.contains_key(language_code)
+            || video.automatic_captions.contains_key(language_code)
     }
 }

@@ -46,7 +46,7 @@ impl DownloadCache {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ttl.unwrap_or(7 * 24 * 60 * 60),
-            "Creating download cache"
+            "⚙️ Creating download cache"
         );
 
         let backend = FileBackendEnum::new(cache_dir, ttl).await?;
@@ -69,7 +69,7 @@ impl DownloadCache {
     pub async fn calculate_file_hash(file_path: impl Into<PathBuf>) -> Result<String> {
         let file_path: PathBuf = file_path.into();
 
-        tracing::debug!(file_path = ?file_path, "Calculating SHA-256 hash for file");
+        tracing::debug!(file_path = ?file_path, "⚙️ Calculating SHA-256 hash");
 
         let mut file = File::open(&file_path).await?;
         let mut buffer = Vec::new();
@@ -83,9 +83,9 @@ impl DownloadCache {
 
         tracing::debug!(
             file_path = ?file_path,
-            hash = %hash_str,
+            hash = hash_str,
             file_size = buffer.len(),
-            "Calculated file hash"
+            "✅ File hash calculated"
         );
 
         Ok(hash_str)
@@ -101,17 +101,9 @@ impl DownloadCache {
     ///
     /// Returns an error if the cleanup operation fails.
     pub async fn clean(&self) -> Result<()> {
-        tracing::debug!("Cleaning download cache");
+        tracing::debug!("⚙️ Cleaning download cache");
 
-        let result = self.backend.clean().await;
-
-        if result.is_ok() {
-            tracing::debug!("Successfully cleaned download cache");
-        } else {
-            tracing::debug!("Failed to clean download cache");
-        }
-
-        result
+        self.backend.clean().await
     }
 
     /// Gets a file from the cache by hash.
@@ -124,15 +116,13 @@ impl DownloadCache {
     ///
     /// `Some((CachedFile, PathBuf))` if found and not expired, `None` otherwise.
     pub async fn get_by_hash(&self, file_hash: &str) -> Option<(CachedFile, PathBuf)> {
-        tracing::debug!(hash = file_hash, "Getting file from cache by hash");
+        tracing::debug!(hash = file_hash, "🔍 Looking up file by hash");
 
         let result = self.backend.get_by_hash(file_hash).await;
 
-        tracing::debug!(
-            hash = file_hash,
-            found = result.is_some(),
-            "File cache lookup by hash completed"
-        );
+        if result.is_some() {
+            tracing::debug!(hash = file_hash, "✅ File cache hit by hash");
+        }
 
         result
     }
@@ -210,14 +200,14 @@ impl DownloadCache {
 
         tracing::debug!(
             source_path = ?source_path,
-            filename = %filename,
+            filename = filename,
             video_id = ?video_id,
             has_format = format.is_some(),
             video_quality = ?video_quality,
             audio_quality = ?audio_quality,
             video_codec = ?video_codec,
             audio_codec = ?audio_codec,
-            "Caching file with preferences"
+            "⚙️ Caching file with preferences"
         );
 
         let sanitized_filename = sanitize_filename(&filename);
@@ -284,7 +274,7 @@ impl DownloadCache {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
-            "Getting file from cache by video and format"
+            "🔍 Looking up file by video and format"
         );
 
         let result = self
@@ -292,12 +282,13 @@ impl DownloadCache {
             .get_by_video_and_format(video_id, format_id)
             .await;
 
-        tracing::debug!(
-            video_id = video_id,
-            format_id = format_id,
-            found = result.is_some(),
-            "File cache lookup by video and format completed"
-        );
+        if result.is_some() {
+            tracing::debug!(
+                video_id = video_id,
+                format_id = format_id,
+                "✅ File cache hit by video and format"
+            );
+        }
 
         result
     }
@@ -330,7 +321,7 @@ impl DownloadCache {
             audio_quality = ?audio_quality,
             video_codec = ?video_codec,
             audio_codec = ?audio_codec,
-            "Getting file from cache by video and preferences"
+            "🔍 Looking up file by video and preferences"
         );
 
         let result = self
@@ -344,11 +335,9 @@ impl DownloadCache {
             )
             .await;
 
-        tracing::debug!(
-            video_id = video_id,
-            found = result.is_some(),
-            "File cache lookup by preferences completed"
-        );
+        if result.is_some() {
+            tracing::debug!(video_id = video_id, "✅ File cache hit by preferences");
+        }
 
         result
     }
@@ -381,11 +370,11 @@ impl DownloadCache {
 
         tracing::debug!(
             source_path = ?source_path,
-            filename = %filename,
-            video_id = %video_id,
+            filename = filename,
+            video_id = video_id,
             width = ?thumbnail.width,
             height = ?thumbnail.height,
-            "Caching thumbnail"
+            "⚙️ Caching thumbnail"
         );
 
         let (file_hash, filesize, mime_type, extension) =
@@ -428,18 +417,13 @@ impl DownloadCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
-        tracing::debug!(
-            video_id = video_id,
-            "Getting thumbnail from cache by video ID"
-        );
+        tracing::debug!(video_id = video_id, "🔍 Looking up thumbnail by video ID");
 
         let result = self.backend.get_thumbnail_by_video_id(video_id).await;
 
-        tracing::debug!(
-            video_id = video_id,
-            found = result.is_some(),
-            "Thumbnail cache lookup completed"
-        );
+        if result.is_some() {
+            tracing::debug!(video_id = video_id, "✅ Thumbnail cache hit");
+        }
 
         result
     }
@@ -462,7 +446,7 @@ impl DownloadCache {
         tracing::debug!(
             video_id = video_id,
             language = language,
-            "Getting subtitle from cache by video ID and language"
+            "🔍 Looking up subtitle by video ID and language"
         );
 
         let result = self
@@ -470,12 +454,13 @@ impl DownloadCache {
             .get_subtitle_by_language(video_id, language)
             .await;
 
-        tracing::debug!(
-            video_id = video_id,
-            language = language,
-            found = result.is_some(),
-            "Subtitle cache lookup completed"
-        );
+        if result.is_some() {
+            tracing::debug!(
+                video_id = video_id,
+                language = language,
+                "✅ Subtitle cache hit"
+            );
+        }
 
         result
     }
@@ -508,10 +493,10 @@ impl DownloadCache {
 
         tracing::debug!(
             source_path = ?source_path,
-            filename = %filename,
-            video_id = %video_id,
-            language = %language,
-            "Caching subtitle file"
+            filename = filename,
+            video_id = video_id,
+            language = language,
+            "⚙️ Caching subtitle file"
         );
 
         let sanitized_filename = sanitize_filename(&filename);

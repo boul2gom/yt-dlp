@@ -4,17 +4,17 @@
 #[derive(Clone, Debug, derive_more::Display)]
 pub enum Platform {
     /// The Windows operating system.
-    #[display("windows")]
+    #[display("Windows")]
     Windows,
     /// The Linux operating system.
-    #[display("linux")]
+    #[display("Linux")]
     Linux,
     /// The macOS operating system.
-    #[display("osx")]
+    #[display("Mac")]
     Mac,
 
     /// An unknown operating system.
-    #[display("Unknown: {_0}")]
+    #[display("Unknown(os={_0})")]
     Unknown(String),
 }
 
@@ -28,25 +28,43 @@ pub enum Architecture {
     #[display("x86")]
     X86,
     /// The ARMv7l architecture.
-    #[display("armv7l")]
+    #[display("Armv7l")]
     Armv7l,
     /// The Aarch64 (Arm64) architecture.
-    #[display("arm64")]
+    #[display("Aarch64")]
     Aarch64,
 
     /// An unknown architecture.
-    #[display("Unknown: {_0}")]
+    #[display("Unknown(arch={_0})")]
     Unknown(String),
 }
 
 impl Platform {
+    /// Returns the lowercase platform identifier used in binary names.
+    ///
+    /// # Returns
+    ///
+    /// A string slice with the platform name (e.g., "windows", "linux", "osx").
+    pub fn as_str(&self) -> &str {
+        match self {
+            Platform::Windows => "windows",
+            Platform::Linux => "linux",
+            Platform::Mac => "osx",
+            Platform::Unknown(s) => s,
+        }
+    }
+
     /// Detects the current platform where the program is running.
+    ///
+    /// # Returns
+    ///
+    /// The detected `Platform` variant, or `Platform::Unknown` if the OS is not recognized.
     pub fn detect() -> Self {
-        tracing::debug!("Detecting current platform");
+        tracing::debug!("⚙️ Detecting current platform");
 
         let os = std::env::consts::OS;
 
-        tracing::debug!("Detected platform: {}", os);
+        tracing::debug!(os = os, "✅ Detected platform");
 
         match os {
             "windows" => Platform::Windows,
@@ -58,13 +76,32 @@ impl Platform {
 }
 
 impl Architecture {
+    /// Returns the lowercase architecture identifier used in binary names.
+    ///
+    /// # Returns
+    ///
+    /// A string slice with the architecture name (e.g., "x64", "x86", "arm64").
+    pub fn as_str(&self) -> &str {
+        match self {
+            Architecture::X64 => "x64",
+            Architecture::X86 => "x86",
+            Architecture::Armv7l => "armv7l",
+            Architecture::Aarch64 => "arm64",
+            Architecture::Unknown(s) => s,
+        }
+    }
+
     /// Detects the current architecture of the CPU where the program is running.
+    ///
+    /// # Returns
+    ///
+    /// The detected `Architecture` variant, or `Architecture::Unknown` if the arch is not recognized.
     pub fn detect() -> Self {
-        tracing::debug!("Detecting current architecture");
+        tracing::debug!("⚙️ Detecting current architecture");
 
         let arch = std::env::consts::ARCH;
 
-        tracing::debug!("Detected architecture: {}", arch);
+        tracing::debug!(arch = arch, "✅ Detected architecture");
 
         match arch {
             "x86_64" => Architecture::X64,

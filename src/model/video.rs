@@ -249,6 +249,21 @@ impl Video {
             .or_else(|| self.thumbnails.iter().max_by_key(|t| t.preference))
     }
 
+    /// Returns the worst thumbnail by resolution (width × height), breaking ties by preference.
+    ///
+    /// Falls back to the lowest-preference thumbnail if none have resolution metadata.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the worst `Thumbnail`, or `None` if the list is empty.
+    pub fn worst_thumbnail(&self) -> Option<&Thumbnail> {
+        self.thumbnails
+            .iter()
+            .filter(|t| t.width.is_some() && t.height.is_some())
+            .min_by_key(|t| (t.width.unwrap_or(0) * t.height.unwrap_or(0), t.preference))
+            .or_else(|| self.thumbnails.iter().min_by_key(|t| t.preference))
+    }
+
     /// Returns the smallest thumbnail that meets the given minimum dimensions.
     ///
     /// Useful when you need at least a certain resolution without over-fetching.
@@ -269,6 +284,50 @@ impl Video {
                     && t.height.is_some_and(|h| h >= min_height as i64)
             })
             .min_by_key(|t| t.width.unwrap_or(0) * t.height.unwrap_or(0))
+    }
+
+    /// Returns the best storyboard format (most fragments, then highest resolution).
+    ///
+    /// Storyboard formats are grids of video preview images embedded in MHTML fragments.
+    /// The best storyboard has the most fragments (temporal coverage) and the largest
+    /// per-frame resolution as a tiebreaker.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the best storyboard `Format`, or `None` if no storyboard is available.
+    pub fn best_storyboard_format(&self) -> Option<&Format> {
+        self.formats
+            .iter()
+            .filter(|f| f.format_type() == FormatType::Storyboard)
+            .max_by(|a, b| {
+                let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
+                let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
+                let a_area = a.video_resolution.width.unwrap_or(0) as u64
+                    * a.video_resolution.height.unwrap_or(0) as u64;
+                let b_area = b.video_resolution.width.unwrap_or(0) as u64
+                    * b.video_resolution.height.unwrap_or(0) as u64;
+                a_frags.cmp(&b_frags).then_with(|| a_area.cmp(&b_area))
+            })
+    }
+
+    /// Returns the worst storyboard format (fewest fragments, then lowest resolution).
+    ///
+    /// # Returns
+    ///
+    /// A reference to the worst storyboard `Format`, or `None` if no storyboard is available.
+    pub fn worst_storyboard_format(&self) -> Option<&Format> {
+        self.formats
+            .iter()
+            .filter(|f| f.format_type() == FormatType::Storyboard)
+            .min_by(|a, b| {
+                let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
+                let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
+                let a_area = a.video_resolution.width.unwrap_or(0) as u64
+                    * a.video_resolution.height.unwrap_or(0) as u64;
+                let b_area = b.video_resolution.width.unwrap_or(0) as u64
+                    * b.video_resolution.height.unwrap_or(0) as u64;
+                a_frags.cmp(&b_frags).then_with(|| a_area.cmp(&b_area))
+            })
     }
 
     /// Returns the best format that contains both audio and video.

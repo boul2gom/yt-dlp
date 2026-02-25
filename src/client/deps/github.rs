@@ -39,7 +39,7 @@ impl GitHubFetcher {
         tracing::debug!(
             owner = %owner,
             repo = %repo,
-            "Creating new GitHubFetcher"
+            "⚙️ Creating new GitHubFetcher"
         );
 
         Self { owner, repo }
@@ -78,7 +78,7 @@ impl GitHubFetcher {
             has_token = auth_token.is_some(),
             platform = ?Platform::detect(),
             architecture = ?Architecture::detect(),
-            "Fetching latest release from GitHub"
+            "📦 Fetching latest release from GitHub"
         );
 
         let platform = Platform::detect();
@@ -116,7 +116,7 @@ impl GitHubFetcher {
             platform = ?platform,
             architecture = ?architecture,
             has_token = auth_token.is_some(),
-            "Fetching release for specific platform"
+            "📦 Fetching release for specific platform"
         );
 
         let release = self.fetch_latest_release(auth_token.clone()).await?;
@@ -126,7 +126,7 @@ impl GitHubFetcher {
             architecture = ?architecture,
             release_tag = %release.tag_name,
             asset_count = release.assets.len(),
-            "Selecting asset from release"
+            "⚙️ Selecting asset from release"
         );
 
         let asset = selector(&release, &platform, &architecture).ok_or(Error::NoBinaryRelease {
@@ -158,7 +158,7 @@ impl GitHubFetcher {
             owner = %self.owner,
             repo = %self.repo,
             has_token = auth_token.is_some(),
-            "Fetching latest release metadata from GitHub API"
+            "📦 Fetching latest release metadata from GitHub API"
         );
 
         let url = format!(
@@ -191,7 +191,7 @@ impl GitHubFetcher {
         tracing::debug!(
             asset_name = asset_name,
             release_tag = %release.tag_name,
-            "Looking for checksum in release"
+            "⚙️ Looking for checksum in release"
         );
         if let Some(digest) = release
             .assets
@@ -203,14 +203,14 @@ impl GitHubFetcher {
                 tracing::debug!(
                     asset_name = asset_name,
                     checksum = stripped,
-                    "Found SHA256 digest from API"
+                    "✅ Found SHA256 digest from API"
                 );
                 Ok(Some(stripped.to_string()))
             } else {
                 tracing::debug!(
                     asset_name = asset_name,
                     digest = digest,
-                    "Found digest from API (raw format)"
+                    "✅ Found digest from API (raw format)"
                 );
                 Ok(Some(digest.clone()))
             };
@@ -219,7 +219,7 @@ impl GitHubFetcher {
         tracing::warn!(
             asset_name = asset_name,
             release_tag = %release.tag_name,
-            "Checksum not found for asset"
+            "⚙️ Checksum not found for asset"
         );
         Ok(None)
     }

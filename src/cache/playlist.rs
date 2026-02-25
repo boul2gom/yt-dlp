@@ -47,6 +47,12 @@ impl From<(String, Playlist)> for CachedPlaylist {
     }
 }
 
+impl std::fmt::Display for CachedPlaylist {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CachedPlaylist(id={}, title={})", self.id, self.title)
+    }
+}
+
 /// Playlist cache for storing and retrieving playlist metadata.
 #[derive(Debug)]
 pub struct PlaylistCache {
@@ -94,7 +100,7 @@ impl PlaylistCache {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl_seconds = ttl_seconds,
-            "Creating playlist cache"
+            "⚙️ Creating playlist cache"
         );
 
         let backend = PlaylistBackendEnum::new(cache_dir, Some(ttl_seconds)).await?;
@@ -115,15 +121,13 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(url = url, "Retrieving playlist from cache by URL");
+        tracing::debug!(url = url, "🔍 Looking up playlist by URL");
 
         let result = self.backend.get(url).await;
 
-        tracing::debug!(
-            url = url,
-            found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
-            "Playlist cache lookup by URL completed"
-        );
+        if let Ok(Some(_)) = &result {
+            tracing::debug!(url = url, "✅ Playlist cache hit by URL");
+        }
 
         result
     }
@@ -142,15 +146,13 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(playlist_id = id, "Retrieving playlist from cache by ID");
+        tracing::debug!(playlist_id = id, "🔍 Looking up playlist by ID");
 
         let result = self.backend.get_by_id(id).await;
 
-        tracing::debug!(
-            playlist_id = id,
-            found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
-            "Playlist cache lookup by ID completed"
-        );
+        if let Ok(Some(_)) = &result {
+            tracing::debug!(playlist_id = id, "✅ Playlist cache hit by ID");
+        }
 
         result
     }
@@ -171,22 +173,14 @@ impl PlaylistCache {
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
         tracing::debug!(
-            url = %url,
-            playlist_id = %playlist.id,
-            playlist_title = %playlist.title,
+            url = url,
+            playlist_id = playlist.id,
+            playlist_title = playlist.title,
             entry_count = playlist.entries.len(),
-            "Putting playlist in cache"
+            "⚙️ Storing playlist in cache"
         );
 
-        let result = self.backend.put(url.clone(), playlist).await;
-
-        if result.is_ok() {
-            tracing::debug!(url = %url, "Successfully cached playlist");
-        } else {
-            tracing::debug!(url = %url, "Failed to cache playlist");
-        }
-
-        result
+        self.backend.put(url, playlist).await
     }
 
     /// Remove a playlist from the cache.
@@ -203,17 +197,9 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend invalidate operation fails.
     pub async fn invalidate(&self, url: &str) -> Result<()> {
-        tracing::debug!(url = url, "Invalidating playlist in cache");
+        tracing::debug!(url = url, "⚙️ Invalidating playlist in cache");
 
-        let result = self.backend.invalidate(url).await;
-
-        if result.is_ok() {
-            tracing::debug!(url = url, "Successfully invalidated playlist");
-        } else {
-            tracing::debug!(url = url, "Failed to invalidate playlist");
-        }
-
-        result
+        self.backend.invalidate(url).await
     }
 
     /// Clean expired entries.
@@ -226,17 +212,9 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend clean operation fails.
     pub async fn clean(&self) -> Result<()> {
-        tracing::debug!("Cleaning playlist cache");
+        tracing::debug!("⚙️ Cleaning playlist cache");
 
-        let result = self.backend.clean().await;
-
-        if result.is_ok() {
-            tracing::debug!("Successfully cleaned playlist cache");
-        } else {
-            tracing::debug!("Failed to clean playlist cache");
-        }
-
-        result
+        self.backend.clean().await
     }
 
     /// Clear all playlists.
@@ -249,16 +227,8 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend clear operation fails.
     pub async fn clear_all(&self) -> Result<()> {
-        tracing::debug!("Clearing all playlists from cache");
+        tracing::debug!("⚙️ Clearing all playlists from cache");
 
-        let result = self.backend.clear_all().await;
-
-        if result.is_ok() {
-            tracing::debug!("Successfully cleared all playlists");
-        } else {
-            tracing::debug!("Failed to clear all playlists");
-        }
-
-        result
+        self.backend.clear_all().await
     }
 }

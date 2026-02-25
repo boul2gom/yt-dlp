@@ -33,6 +33,10 @@ pub struct FfmpegArgs {
 
 impl FfmpegArgs {
     /// Creates a new empty FFmpeg argument builder.
+    ///
+    /// # Returns
+    ///
+    /// A new `FfmpegArgs` with no arguments or output set.
     pub fn new() -> Self {
         Self {
             parts: Vec::new(),
@@ -42,6 +46,14 @@ impl FfmpegArgs {
     }
 
     /// Adds an input file (`-i <path>`).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the input file
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn input(mut self, path: impl AsRef<str>) -> Self {
         self.parts.push("-i".to_string());
         self.parts.push(path.as_ref().to_string());
@@ -49,6 +61,10 @@ impl FfmpegArgs {
     }
 
     /// Adds global codec copy (`-c copy`).
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn codec_copy(mut self) -> Self {
         self.parts.push("-c".to_string());
         self.parts.push("copy".to_string());
@@ -56,18 +72,38 @@ impl FfmpegArgs {
     }
 
     /// Adds the overwrite flag (`-y`).
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn overwrite(mut self) -> Self {
         self.overwrite = true;
         self
     }
 
     /// Sets the output path (always placed last).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the output file
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn output(mut self, path: impl AsRef<str>) -> Self {
         self.output = Some(path.as_ref().to_string());
         self
     }
 
     /// Adds arbitrary arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Iterator of arguments to append
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -78,6 +114,14 @@ impl FfmpegArgs {
     }
 
     /// Adds a single argument.
+    ///
+    /// # Arguments
+    ///
+    /// * `arg` - The argument to append
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining.
     pub fn arg(mut self, arg: impl Into<String>) -> Self {
         self.parts.push(arg.into());
         self
@@ -136,12 +180,24 @@ pub async fn run_ffmpeg_with_tempfile(
         .to_str()
         .ok_or_else(|| Error::path_validation(&temp_output_path, "Invalid output path"))?;
 
+    tracing::debug!(
+        base_path = ?base_path,
+        temp_path = ?temp_output_path,
+        timeout_secs = timeout.as_secs(),
+        "✂️ Running ffmpeg with temp file"
+    );
+
     let final_args = args.overwrite().output(temp_output_str).build();
 
     let executor = Executor::new(ffmpeg_path.to_path_buf(), final_args, timeout);
     let output = executor.execute().await?;
 
     if !output.code.eq(&0) {
+        tracing::warn!(
+            exit_code = output.code,
+            base_path = ?base_path,
+            "✂️ ffmpeg command failed"
+        );
         if temp_output_path.exists() {
             remove_temp_file(&temp_output_path).await;
         }
@@ -153,5 +209,6 @@ pub async fn run_ffmpeg_with_tempfile(
     }
 
     tokio::fs::rename(&temp_output_path, base_path).await?;
+    tracing::debug!(base_path = ?base_path, "✅ ffmpeg temp file renamed to final path");
     Ok(())
 }

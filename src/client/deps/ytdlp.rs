@@ -35,7 +35,7 @@ impl YoutubeFetcher {
         tracing::debug!(
             owner = %owner,
             repo = %repo,
-            "Creating new YoutubeFetcher"
+            "⚙️ Creating new YoutubeFetcher"
         );
 
         Self {
@@ -59,7 +59,7 @@ impl YoutubeFetcher {
     pub async fn fetch_release(&self, auth_token: Option<String>) -> Result<WantedRelease> {
         tracing::debug!(
             has_token = auth_token.is_some(),
-            "Fetching yt-dlp release for current platform"
+            "📦 Fetching yt-dlp release for current platform"
         );
 
         self.fetcher
@@ -87,7 +87,7 @@ impl YoutubeFetcher {
             platform = ?platform,
             architecture = ?architecture,
             asset_count = release.assets.len(),
-            "Selecting yt-dlp asset for platform"
+            "⚙️ Selecting yt-dlp asset for platform"
         );
 
         let base_name = "yt-dlp";
@@ -121,6 +121,6 @@ impl YoutubeFetcher {
 
 impl fmt::Display for YoutubeFetcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "YoutubeFetcher({})", self.fetcher)
+        write!(f, "YoutubeFetcher(fetcher={})", self.fetcher)
     }
 }

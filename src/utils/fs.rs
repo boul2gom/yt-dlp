@@ -1,5 +1,8 @@
 //! Tools for working with the file system.
 
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 use tar::Archive;
@@ -81,10 +84,7 @@ pub fn create_temp_path(file_path: &Path, file_format: &str) -> PathBuf {
 ///
 /// The MIME type as a string
 pub fn determine_mime_type(path: &Path) -> String {
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("");
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
     match extension.to_lowercase().as_str() {
         "mp4" => "video/mp4",
@@ -117,23 +117,12 @@ pub fn determine_mime_type(path: &Path) -> String {
 pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
     let path: PathBuf = path.into();
 
-    tracing::trace!(
-        path = ?path,
-        "Extracting file name from path"
-    );
-
     let name = path
         .file_name()
         .ok_or_else(|| Error::path_validation(&path, "Path has no file name"))?;
     let name = name
         .to_str()
         .ok_or_else(|| Error::path_validation(&path, "File name contains invalid UTF-8"))?;
-
-    tracing::trace!(
-        path = ?path,
-        name = name,
-        "File name extracted"
-    );
 
     Ok(name.to_string())
 }
@@ -154,23 +143,12 @@ pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
 pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
     let path: PathBuf = path.into();
 
-    tracing::trace!(
-        path = ?path,
-        "Extracting file stem from path"
-    );
-
     let name = path
         .file_stem()
         .ok_or_else(|| Error::path_validation(&path, "Path has no file stem"))?;
     let name = name
         .to_str()
         .ok_or_else(|| Error::path_validation(&path, "File stem contains invalid UTF-8"))?;
-
-    tracing::trace!(
-        path = ?path,
-        stem = name,
-        "File stem extracted"
-    );
 
     Ok(name.to_string())
 }
@@ -191,24 +169,11 @@ pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
 pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
     let path: PathBuf = path.into();
 
-    tracing::trace!(
-        path = ?path,
-        "Extracting parent directory from path"
-    );
-
     let parent = path
         .parent()
         .ok_or_else(|| Error::path_validation(&path, "Path has no parent directory"))?;
 
-    let parent_buf = parent.to_path_buf();
-
-    tracing::trace!(
-        path = ?path,
-        parent = ?parent_buf,
-        "Parent directory extracted"
-    );
-
-    Ok(parent_buf)
+    Ok(parent.to_path_buf())
 }
 
 /// Creates a new file at the given destination.
@@ -229,7 +194,7 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
 
     tracing::debug!(
         destination = ?destination,
-        "Creating new file"
+        "⚙️ Creating new file"
     );
 
     let mut open_options = OpenOptions::new();
@@ -246,7 +211,7 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
 
     tracing::debug!(
         destination = ?destination,
-        "File created successfully"
+        "✅ File created successfully"
     );
 
     Ok(file)
@@ -271,14 +236,14 @@ pub async fn create_dir(destination: impl Into<PathBuf>) -> Result<()> {
 
     tracing::debug!(
         destination = ?destination,
-        "Creating directory"
+        "⚙️ Creating directory"
     );
 
     tokio::fs::create_dir_all(&destination).await?;
 
     tracing::debug!(
         destination = ?destination,
-        "Directory created successfully"
+        "✅ Directory created successfully"
     );
 
     Ok(())
@@ -303,26 +268,18 @@ pub async fn create_parent_dir(destination: impl Into<PathBuf>) -> Result<()> {
 
     tracing::debug!(
         destination = ?destination,
-        "Creating parent directory"
+        "⚙️ Creating parent directory"
     );
 
     if let Some(parent) = destination.parent() {
-        tracing::trace!(
-            parent = ?parent,
-            "Creating parent directory"
-        );
         tokio::fs::create_dir_all(parent).await?;
     } else {
-        tracing::trace!(
-            destination = ?destination,
-            "No parent, creating destination as directory"
-        );
         tokio::fs::create_dir_all(&destination).await?;
     }
 
     tracing::debug!(
         destination = ?destination,
-        "Parent directory created successfully"
+        "✅ Parent directory created successfully"
     );
 
     Ok(())
@@ -344,7 +301,7 @@ pub async fn extract_zip(
     tracing::debug!(
         zip_path = ?zip_path,
         destination = ?destination,
-        "Extracting zip file"
+        "⚙️ Extracting zip file"
     );
 
     let zip_path_for_tracing = zip_path.clone();
@@ -410,7 +367,7 @@ pub async fn extract_zip(
     tracing::debug!(
         zip_path = ?zip_path_for_tracing,
         destination = ?destination_for_tracing,
-        "Zip file extracted successfully"
+        "✅ Zip file extracted successfully"
     );
 
     Ok(())
@@ -432,7 +389,7 @@ pub async fn extract_tar_xz(
     tracing::debug!(
         tar_path = ?tar_path,
         destination = ?destination,
-        "Extracting tar.xz file"
+        "⚙️ Extracting tar.xz file"
     );
 
     let tar_path_for_tracing = tar_path.clone();
@@ -457,7 +414,7 @@ pub async fn extract_tar_xz(
     tracing::debug!(
         tar_path = ?tar_path_for_tracing,
         destination = ?destination_for_tracing,
-        "Tar.xz file extracted successfully"
+        "✅ Tar.xz file extracted successfully"
     );
 
     Ok(())
@@ -471,7 +428,9 @@ pub async fn extract_tar_xz(
 #[cfg(not(target_os = "windows"))]
 pub async fn set_executable(executable: impl Into<PathBuf>) -> Result<()> {
     let executable: PathBuf = executable.into();
-    use std::os::unix::fs::PermissionsExt;
+
+    tracing::debug!(path = ?executable, "⚙️ Setting executable permissions");
+
     let mut perms = tokio::fs::metadata(&executable).await?.permissions();
 
     perms.set_mode(0o755);
@@ -561,7 +520,7 @@ pub async fn remove_temp_file(file_path: impl Into<PathBuf>) -> bool {
     let result = tokio::fs::remove_file(&file_path).await;
 
     if let Err(ref e) = result {
-        tracing::warn!("Failed to remove temporary file {:?}: {}", file_path, e);
+        tracing::warn!(path = ?file_path, error = %e, "⚙️ Failed to remove temporary file");
     }
 
     result.is_ok()

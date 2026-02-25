@@ -92,12 +92,11 @@ impl Downloader {
             subtitle_count = subtitle_paths.len(),
             language_count = language_codes.len(),
             output_path = ?output_path,
-            "Embedding subtitles into video"
+            "💬 Embedding subtitles into video"
         );
 
         // Build ffmpeg command
-        let mut builder = crate::executor::FfmpegArgs::new()
-            .input(video_path.to_string_lossy());
+        let mut builder = crate::executor::FfmpegArgs::new().input(video_path.to_string_lossy());
 
         for subtitle_path in subtitle_paths {
             builder = builder.input(subtitle_path.to_string_lossy());
@@ -122,7 +121,7 @@ impl Downloader {
                     language = language_code,
                     stream_index = i,
                     subtitle_path = ?subtitle_paths.get(i),
-                    "Setting language metadata for subtitle stream"
+                    "💬 Setting language metadata for subtitle stream"
                 );
             }
         }
@@ -136,20 +135,16 @@ impl Downloader {
             args = ?args,
             arg_count = args.len(),
             output_path = ?output_path,
-            "Running ffmpeg to embed subtitles"
+            "⚙️ Running ffmpeg to embed subtitles"
         );
 
-        let executor = Executor::new(
-            self.libraries.ffmpeg.clone(),
-            args,
-            self.timeout,
-        );
+        let executor = Executor::new(self.libraries.ffmpeg.clone(), args, self.timeout);
 
         executor.execute().await?;
 
         tracing::info!(
-            "Successfully embedded subtitles into video at {:?}",
-            output_path
+            output_path = ?output_path,
+            "✅ Successfully embedded subtitles into video"
         );
 
         Ok(output_path)
@@ -184,7 +179,7 @@ impl Downloader {
             format_id = %format.format_id,
             format_type = ?format_type,
             is_standalone = is_standalone_format,
-            "Checking if metadata should be added"
+            "🏷️ Checking if metadata should be added"
         );
 
         if is_standalone_format {
@@ -192,7 +187,7 @@ impl Downloader {
                 tracing::debug!(
                     video_id = video_id,
                     format_id = %format.format_id,
-                    "Adding metadata to standalone format file"
+                    "🏷️ Adding metadata to standalone format file"
                 );
 
                 // Try to get video metadata from cache
@@ -211,13 +206,13 @@ impl Downloader {
                             error = %_e,
                             path = ?path,
                             video_id = video_id,
-                            "Failed to add metadata"
+                            "🏷️ Failed to add metadata"
                         );
                     } else {
                         tracing::debug!(
                             path = ?path,
                             video_id = video_id,
-                            "Successfully added metadata"
+                            "✅ Successfully added metadata"
                         );
 
                         self.emit_event(crate::events::DownloadEvent::MetadataApplied {
@@ -232,7 +227,7 @@ impl Downloader {
                 {
                     tracing::debug!(
                         video_id = video_id,
-                        "Cache feature disabled, cannot retrieve video metadata"
+                        "⚙️ Cache feature disabled, cannot retrieve video metadata"
                     );
                 }
             }
@@ -240,7 +235,7 @@ impl Downloader {
             tracing::debug!(
                 format_id = %format.format_id,
                 format_type = ?format_type,
-                "Skipping metadata for non-standalone format (will be added after combining)"
+                "🏷️ Skipping metadata for non-standalone format (will be added after combining)"
             );
         }
 

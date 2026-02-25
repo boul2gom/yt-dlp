@@ -69,7 +69,7 @@ impl MetadataManager {
 
         tracing::debug!(
             ffmpeg_path = ?ffmpeg_path,
-            "Creating new MetadataManager"
+            "⚙️ Creating new MetadataManager"
         );
 
         Self { ffmpeg_path }
@@ -89,7 +89,7 @@ impl MetadataManager {
 
         tracing::debug!(
             ffmpeg_path = ?ffmpeg_path,
-            "Creating MetadataManager with custom ffmpeg path"
+            "⚙️ Creating MetadataManager with custom ffmpeg path"
         );
 
         Self { ffmpeg_path }
@@ -107,12 +107,12 @@ impl MetadataManager {
             .map(|path| {
                 tracing::debug!(
                     ffmpeg_path = %path,
-                    "Using ffmpeg path from FFMPEG_PATH environment variable"
+                    "⚙️ Using ffmpeg path from FFMPEG_PATH environment variable"
                 );
                 PathBuf::from(path)
             })
             .unwrap_or_else(|_| {
-                tracing::debug!("Using default ffmpeg path");
+                tracing::debug!("⚙️ Using default ffmpeg path");
                 PathBuf::from("ffmpeg")
             })
     }
@@ -131,7 +131,10 @@ impl MetadataManager {
         file_path: impl Into<PathBuf>,
         file_format: &str,
     ) -> crate::error::Result<PathBuf> {
-        Ok(crate::utils::fs::create_temp_path(&file_path.into(), file_format))
+        Ok(crate::utils::fs::create_temp_path(
+            &file_path.into(),
+            file_format,
+        ))
     }
 }
 

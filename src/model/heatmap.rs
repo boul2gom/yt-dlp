@@ -20,16 +20,33 @@ pub struct HeatmapPoint {
 
 impl Heatmap {
     /// Creates a new Heatmap from a list of points.
+    ///
+    /// # Arguments
+    ///
+    /// * `points` - The heatmap points to include
+    ///
+    /// # Returns
+    ///
+    /// A new `Heatmap` instance containing the provided points
     pub fn new(points: Vec<HeatmapPoint>) -> Self {
         Self(points)
     }
 
+    /// Returns a slice of all heatmap points.
+    ///
+    /// # Returns
+    ///
+    /// A slice of all `HeatmapPoint` entries in this heatmap
     pub fn points(&self) -> &[HeatmapPoint] {
         &self.0
     }
 
     /// Returns the heatmap point with the highest engagement value.
     /// This represents the most replayed segment of the video.
+    ///
+    /// # Returns
+    ///
+    /// The most engaged `HeatmapPoint`, or `None` if the heatmap is empty
     pub fn most_engaged_segment(&self) -> Option<&HeatmapPoint> {
         self.points().iter().max_by(|a, b| {
             a.value
@@ -76,6 +93,12 @@ impl Heatmap {
     /// True if the heatmap is empty, false otherwise
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+impl fmt::Display for Heatmap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Heatmap(points={})", self.0.len())
     }
 }
 

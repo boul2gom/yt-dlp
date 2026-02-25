@@ -229,9 +229,9 @@ impl Error {
         let operation_str = operation.into();
 
         tracing::warn!(
-            operation = %operation_str,
+            operation = operation_str,
             error = %source,
-            "IO error occurred"
+            "⚙️ IO error occurred"
         );
 
         Self::IO {
@@ -261,10 +261,10 @@ impl Error {
         let path_buf = path.into();
 
         tracing::warn!(
-            operation = %operation_str,
+            operation = operation_str,
             path = ?path_buf,
             error = %source,
-            "IO error occurred with path"
+            "⚙️ IO error occurred with path"
         );
 
         Self::IO {
@@ -294,13 +294,13 @@ impl Error {
         let context_str = context.into();
 
         tracing::warn!(
-            url = %url_str,
-            context = %context_str,
+            url = url_str,
+            context = context_str,
             error = %source,
             is_timeout = source.is_timeout(),
             is_connect = source.is_connect(),
             status = ?source.status(),
-            "HTTP error occurred"
+            "⚙️ HTTP error occurred"
         );
 
         Self::Http {
@@ -324,11 +324,11 @@ impl Error {
         let context_str = context.into();
 
         tracing::warn!(
-            context = %context_str,
+            context = context_str,
             error = %source,
             line = source.line(),
             column = source.column(),
-            "JSON error occurred"
+            "⚙️ JSON error occurred"
         );
 
         Self::Json {
@@ -352,9 +352,9 @@ impl Error {
         let operation_str = operation.into();
 
         tracing::warn!(
-            operation = %operation_str,
+            operation = operation_str,
             error = %source,
-            "Database error occurred"
+            "⚙️ Database error occurred"
         );
 
         Self::Database {
@@ -377,11 +377,11 @@ impl Error {
         let context_str = context.into();
 
         tracing::error!(
-            context = %context_str,
+            context = context_str,
             error = %source,
             is_cancelled = source.is_cancelled(),
             is_panic = source.is_panic(),
-            "Runtime task error occurred"
+            "⚙️ Runtime task error occurred"
         );
 
         Self::Runtime {
@@ -404,11 +404,7 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        tracing::warn!(
-            url = %url_str,
-            reason = %reason_str,
-            "Video fetch failed"
-        );
+        tracing::warn!(url = url_str, reason = reason_str, "⚙️ Video fetch failed");
 
         Self::VideoFetch {
             url: url_str,
@@ -432,8 +428,8 @@ impl Error {
 
         tracing::warn!(
             path = ?path_buf,
-            reason = %reason_str,
-            "Path validation failed"
+            reason = reason_str,
+            "⚙️ Path validation failed"
         );
 
         Self::PathValidation {
@@ -457,9 +453,9 @@ impl Error {
         let reason_str = reason.into();
 
         tracing::warn!(
-            url = %url_str,
-            reason = %reason_str,
-            "URL validation failed"
+            url = url_str,
+            reason = reason_str,
+            "⚙️ URL validation failed"
         );
 
         Self::UrlValidation {
@@ -483,8 +479,8 @@ impl Error {
 
         tracing::error!(
             download_id = download_id,
-            reason = %reason_str,
-            "Download failed"
+            reason = reason_str,
+            "⚙️ Download failed"
         );
 
         Self::DownloadFailed {
@@ -502,7 +498,7 @@ impl From<tokio::task::JoinError> for Error {
             error = %err,
             is_cancelled = err.is_cancelled(),
             is_panic = err.is_panic(),
-            "Task execution failed (automatic conversion)"
+            "⚙️ Task execution failed (automatic conversion)"
         );
 
         Self::Runtime {
@@ -517,7 +513,7 @@ impl From<std::io::Error> for Error {
         tracing::warn!(
             error = %err,
             kind = ?err.kind(),
-            "IO error (automatic conversion)"
+            "⚙️ IO error (automatic conversion)"
         );
 
         Self::IO {
@@ -533,12 +529,12 @@ impl From<reqwest::Error> for Error {
         let url = err.url().map(|u| u.to_string()).unwrap_or_default();
 
         tracing::warn!(
-            url = %url,
+            url = url,
             error = %err,
             is_timeout = err.is_timeout(),
             is_connect = err.is_connect(),
             status = ?err.status(),
-            "HTTP error (automatic conversion)"
+            "⚙️ HTTP error (automatic conversion)"
         );
 
         Self::Http {
@@ -555,7 +551,7 @@ impl From<serde_json::Error> for Error {
             error = %err,
             line = err.line(),
             column = err.column(),
-            "JSON error (automatic conversion)"
+            "⚙️ JSON error (automatic conversion)"
         );
 
         Self::Json {
@@ -570,7 +566,7 @@ impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Self {
         tracing::warn!(
             error = %err,
-            "Database error (automatic conversion)"
+            "⚙️ Database error (automatic conversion)"
         );
 
         Self::Database {
@@ -584,7 +580,7 @@ impl From<zip::result::ZipError> for Error {
     fn from(err: zip::result::ZipError) -> Self {
         tracing::warn!(
             error = %err,
-            "ZIP archive error (automatic conversion)"
+            "⚙️ ZIP archive error (automatic conversion)"
         );
 
         Self::Archive {

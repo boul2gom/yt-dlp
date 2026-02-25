@@ -30,7 +30,7 @@ impl RetryStrategy {
             max_attempts = max_attempts,
             initial_delay_ms = initial_delay.as_millis(),
             max_delay_ms = max_delay.as_millis(),
-            "Creating exponential retry strategy"
+            "⚙️ Creating exponential retry strategy"
         );
 
         Self {
@@ -55,7 +55,7 @@ impl RetryStrategy {
         tracing::debug!(
             max_attempts = max_attempts,
             delay_ms = delay.as_millis(),
-            "Creating linear retry strategy"
+            "⚙️ Creating linear retry strategy"
         );
 
         Self {
@@ -72,7 +72,7 @@ impl RetryStrategy {
     ///
     /// A RetryStrategy that never retries
     pub fn none() -> Self {
-        tracing::debug!("Creating no-retry strategy");
+        tracing::debug!("⚙️ Creating no-retry strategy");
 
         Self {
             max_attempts: 0,
@@ -104,7 +104,7 @@ impl RetryStrategy {
         tracing::debug!(
             attempt = attempt,
             delay_ms = result.as_millis(),
-            "Calculated retry delay"
+            "🔄 Calculated retry delay"
         );
 
         result
@@ -126,7 +126,7 @@ impl RetryStrategy {
             attempt = attempt,
             max_attempts = self.max_attempts,
             should_retry = should_retry,
-            "Checked if retry should continue"
+            "🔄 Checking retry status"
         );
 
         should_retry
@@ -137,5 +137,17 @@ impl Default for RetryStrategy {
     fn default() -> Self {
         // Default: 3 retries with exponential backoff starting at 1 second, max 30 seconds
         Self::exponential(3, Duration::from_secs(1), Duration::from_secs(30))
+    }
+}
+
+impl std::fmt::Display for RetryStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RetryStrategy(max_attempts={}, initial_delay={}ms, backoff={}x)",
+            self.max_attempts,
+            self.initial_delay.as_millis(),
+            self.backoff_multiplier
+        )
     }
 }

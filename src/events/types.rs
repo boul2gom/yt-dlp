@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 
 use std::time::Duration;
@@ -183,7 +184,7 @@ pub enum DownloadEvent {
 }
 
 /// Types of metadata that can be applied
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, serde::Serialize)]
 pub enum MetadataType {
     /// MP3 ID3 tags
     Mp3,
@@ -191,6 +192,16 @@ pub enum MetadataType {
     Mp4,
     /// FFmpeg metadata
     Ffmpeg,
+}
+
+impl fmt::Display for MetadataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Mp3 => f.write_str("Mp3"),
+            Self::Mp4 => f.write_str("Mp4"),
+            Self::Ffmpeg => f.write_str("Ffmpeg"),
+        }
+    }
 }
 
 /// Post-processing operations
@@ -209,6 +220,20 @@ pub enum PostProcessOperation {
     EmbedThumbnail { thumbnail_path: PathBuf },
     /// Custom FFmpeg operation
     Custom { description: String },
+}
+
+impl fmt::Display for PostProcessOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CombineStreams { .. } => f.write_str("CombineStreams"),
+            Self::ConvertAudio { target_format } => {
+                write!(f, "ConvertAudio(format={})", target_format)
+            }
+            Self::EmbedSubtitles { .. } => f.write_str("EmbedSubtitles"),
+            Self::EmbedThumbnail { .. } => f.write_str("EmbedThumbnail"),
+            Self::Custom { description } => write!(f, "Custom(description={})", description),
+        }
+    }
 }
 
 impl DownloadEvent {
@@ -271,6 +296,33 @@ impl DownloadEvent {
             Self::PlaylistCompleted { .. } => "playlist_completed",
             Self::SegmentStarted { .. } => "segment_started",
             Self::SegmentCompleted { .. } => "segment_completed",
+        }
+    }
+}
+
+impl fmt::Display for DownloadEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DownloadProgress {
+                download_id,
+                downloaded_bytes,
+                total_bytes,
+                ..
+            } => {
+                write!(
+                    f,
+                    "DownloadProgress(id={}, downloaded={}, total={})",
+                    download_id, downloaded_bytes, total_bytes
+                )
+            }
+            _ => {
+                let event_type = self.event_type();
+                if let Some(id) = self.download_id() {
+                    write!(f, "{}(id={})", event_type, id)
+                } else {
+                    f.write_str(event_type)
+                }
+            }
         }
     }
 }

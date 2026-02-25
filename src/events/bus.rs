@@ -27,7 +27,7 @@ impl EventBus {
     ///
     /// A new EventBus instance
     pub fn new(capacity: usize) -> Self {
-        tracing::debug!(capacity = capacity, "Creating new EventBus");
+        tracing::debug!(capacity = capacity, "⚙️ Creating new EventBus");
 
         let (tx, _) = broadcast::channel(capacity);
         Self { tx }
@@ -64,7 +64,7 @@ impl EventBus {
             event_type = event_type,
             download_id = download_id,
             subscriber_count = self.subscriber_count(),
-            "Emitting event"
+            "🔔 Emitting event"
         );
 
         // send returns Err if there are no receivers, which is fine
@@ -74,7 +74,7 @@ impl EventBus {
             event_type = event_type,
             download_id = download_id,
             receivers_notified = receiver_count,
-            "Event emitted"
+            "✅ Event emitted"
         );
 
         receiver_count
@@ -117,14 +117,14 @@ impl EventBus {
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<DownloadEvent>> {
         tracing::debug!(
             subscriber_count_before = self.subscriber_count(),
-            "Creating new subscriber"
+            "🔔 Creating new subscriber"
         );
 
         let receiver = self.tx.subscribe();
 
         tracing::debug!(
             subscriber_count_after = self.subscriber_count(),
-            "Subscriber created"
+            "✅ Subscriber created"
         );
 
         receiver
@@ -181,5 +181,11 @@ impl std::fmt::Debug for EventBus {
         f.debug_struct("EventBus")
             .field("subscriber_count", &self.subscriber_count())
             .finish()
+    }
+}
+
+impl std::fmt::Display for EventBus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EventBus(subscribers={})", self.subscriber_count())
     }
 }

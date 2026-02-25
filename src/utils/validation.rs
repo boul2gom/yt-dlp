@@ -3,7 +3,10 @@
 //! This module provides functions to validate YouTube URLs and sanitize file paths
 //! to prevent security vulnerabilities like path traversal attacks.
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    extractor::Youtube,
+};
 use std::path::PathBuf;
 
 /// Validates a YouTube URL.
@@ -36,7 +39,7 @@ use std::path::PathBuf;
 /// assert!(validate_youtube_url("file:///etc/passwd").is_err());
 /// ```
 pub fn validate_youtube_url(url: &str) -> Result<()> {
-    tracing::trace!(url = url, "Validating YouTube URL");
+    tracing::debug!(url = url, "⚙️ Validating YouTube URL");
 
     // Try to parse the URL
     let parsed = url::Url::parse(url)
@@ -60,18 +63,13 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
         .ok_or_else(|| Error::url_validation(url, "URL must have a host"))?;
 
     // Allow YouTube domains
-    let is_youtube = host == "youtube.com"
-        || host.ends_with(".youtube.com")
-        || host == "youtu.be"
-        || host.ends_with(".youtu.be")
-        || host == "youtube-nocookie.com"
-        || host.ends_with(".youtube-nocookie.com");
+    let is_youtube = Youtube::supports_url(url);
 
     if !is_youtube {
         tracing::warn!(
             url = url,
             host = host,
-            "URL validation failed: not a YouTube domain"
+            "⚙️ URL validation failed: not a YouTube domain"
         );
         return Err(Error::url_validation(
             url,
@@ -79,7 +77,11 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
         ));
     }
 
-    tracing::trace!(url = url, host = host, "YouTube URL validated successfully");
+    tracing::debug!(
+        url = url,
+        host = host,
+        "✅ YouTube URL validated successfully"
+    );
 
     Ok(())
 }
@@ -114,9 +116,9 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
 pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
     let path = path.into();
 
-    tracing::trace!(
+    tracing::debug!(
         path = ?path,
-        "Sanitizing file path"
+        "⚙️ Sanitizing file path"
     );
 
     // Check for absolute paths (not allowed for user-provided paths)
@@ -177,10 +179,10 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
         ));
     }
 
-    tracing::trace!(
+    tracing::debug!(
         original_path = ?path,
         sanitized_path = ?sanitized,
-        "Path sanitized successfully"
+        "✅ Path sanitized successfully"
     );
 
     Ok(sanitized)
@@ -205,7 +207,7 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
 /// assert_eq!(sanitize_filename("file:name.mp4"), "filename.mp4");
 /// ```
 pub fn sanitize_filename(filename: &str) -> String {
-    tracing::trace!(filename = filename, "Sanitizing filename");
+    tracing::debug!(filename = filename, "⚙️ Sanitizing filename");
 
     // Single-pass: remove forbidden chars, control chars, and consecutive dots (..)
     let mut result = String::with_capacity(filename.len());
@@ -234,10 +236,10 @@ pub fn sanitize_filename(filename: &str) -> String {
         result.trim().to_string()
     };
 
-    tracing::trace!(
+    tracing::debug!(
         original_filename = filename,
         sanitized_filename = %result,
-        "Filename sanitized"
+        "✅ Filename sanitized"
     );
 
     result

@@ -31,11 +31,14 @@ const DEFAULT_RETRY_ATTEMPTS: usize = 3;
 const DEFAULT_CLEANUP_THRESHOLD: usize = 1000; // Cleanup after 1000 entries
 
 /// Download priority
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, Default, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 pub enum DownloadPriority {
     /// Low priority
     Low = 0,
     /// Normal priority
+    #[default]
     Normal = 1,
     /// High priority
     High = 2,
@@ -52,6 +55,17 @@ impl DownloadPriority {
             2 => Self::High,
             3 => Self::Critical,
             _ => Self::Normal,
+        }
+    }
+}
+
+impl std::fmt::Display for DownloadPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => f.write_str("Low"),
+            Self::Normal => f.write_str("Normal"),
+            Self::High => f.write_str("High"),
+            Self::Critical => f.write_str("Critical"),
         }
     }
 }
@@ -197,6 +211,20 @@ impl Default for ManagerConfig {
     }
 }
 
+impl std::fmt::Display for ManagerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ManagerConfig(concurrent={}, segments={}, segment_size={}, retries={}, profile={})",
+            self.max_concurrent_downloads,
+            self.parallel_segments,
+            self.segment_size,
+            self.retry_attempts,
+            self.speed_profile
+        )
+    }
+}
+
 /// Progress update event for streaming API
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgressUpdate {
@@ -206,6 +234,16 @@ pub struct ProgressUpdate {
     pub downloaded_bytes: u64,
     /// Total bytes
     pub total_bytes: u64,
+}
+
+impl std::fmt::Display for ProgressUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ProgressUpdate(id={}, downloaded={}, total={})",
+            self.download_id, self.downloaded_bytes, self.total_bytes
+        )
+    }
 }
 
 /// Download status
@@ -231,10 +269,33 @@ pub enum DownloadStatus {
     Canceled,
 }
 
+impl std::fmt::Display for DownloadStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Queued => f.write_str("Queued"),
+            Self::Downloading {
+                downloaded_bytes,
+                total_bytes,
+            } => {
+                write!(
+                    f,
+                    "Downloading(downloaded={}, total={})",
+                    downloaded_bytes, total_bytes
+                )
+            }
+            Self::Completed => f.write_str("Completed"),
+            Self::Failed { reason } => write!(f, "Failed(reason={})", reason),
+            Self::Canceled => f.write_str("Canceled"),
+        }
+    }
+}
+
 /// Download manager
 pub struct DownloadManager {
     /// Download manager configuration
     config: ManagerConfig,
+    /// Shared HTTP client with connection pooling (avoids per-download client creation)
+    client: Arc<reqwest::Client>,
     /// Download queue
     queue: Arc<Mutex<BinaryHeap<DownloadTask>>>,
     /// Semaphore to limit the number of concurrent downloads
@@ -279,11 +340,13 @@ impl DownloadManager {
 
     /// Create a new download manager with default configuration
     pub fn new() -> Self {
+        tracing::debug!("⚙️ Creating download manager with default config");
         Self::with_config(ManagerConfig::default())
     }
 
     /// Create a new download manager with custom configuration
     pub fn with_config(config: ManagerConfig) -> Self {
+        tracing::debug!(config = %config, "⚙️ Creating download manager with config");
         Self::with_config_and_event_bus(config, None)
     }
 
@@ -297,11 +360,17 @@ impl DownloadManager {
         config: ManagerConfig,
         event_bus: Option<crate::events::EventBus>,
     ) -> Self {
+        tracing::debug!(config = %config, has_event_bus = event_bus.is_some(), "⚙️ Initializing download manager");
         let (completion_tx, _) = broadcast::channel(100);
         let (progress_tx, _) = broadcast::channel(1000); // Larger buffer for frequent progress updates
 
+        // Build a shared HTTP client from config so all downloads reuse
+        // connection pools, TLS sessions, and DNS caches
+        let client = Self::build_shared_client(&config);
+
         Self {
             config: config.clone(),
+            client,
             queue: Arc::new(Mutex::new(BinaryHeap::new())),
             semaphore: Arc::new(Semaphore::new(config.max_concurrent_downloads)),
             next_id: Arc::new(Mutex::new(0)),
@@ -315,6 +384,34 @@ impl DownloadManager {
             worker_notify: Arc::new(tokio::sync::Notify::new()),
             worker_started: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Returns the shared HTTP client used by all downloads.
+    ///
+    /// This client is configured with connection pooling, TLS session caching,
+    /// and any proxy settings from the manager configuration. Passing it to
+    /// [`Fetcher::with_client`] avoids the cost of rebuilding these resources
+    /// per download.
+    pub fn client(&self) -> &Arc<reqwest::Client> {
+        &self.client
+    }
+
+    /// Builds the base HTTP client from the manager config.
+    fn build_shared_client(config: &ManagerConfig) -> Arc<reqwest::Client> {
+        let default_headers = config.user_agent.as_ref().map(|ua| {
+            crate::model::format::HttpHeaders::browser_defaults(ua.clone()).to_header_map()
+        });
+
+        let http_config = crate::utils::http::HttpClientConfig {
+            proxy: config.proxy.as_ref(),
+            user_agent: config.user_agent.clone(),
+            default_headers,
+            http2_adaptive_window: true,
+            ..Default::default()
+        };
+
+        crate::utils::http::build_http_client(http_config)
+            .unwrap_or_else(|_| Arc::new(reqwest::Client::new()))
     }
 
     /// Add a download to the queue
@@ -448,6 +545,7 @@ impl DownloadManager {
     ///
     /// The download status, or None if the ID doesn't exist
     pub async fn get_status(&self, id: u64) -> Option<DownloadStatus> {
+        tracing::debug!(download_id = id, "⚙️ Getting download status");
         let statuses = self.statuses.lock().await;
         let status = statuses.get(&id)?;
 
@@ -470,6 +568,7 @@ impl DownloadManager {
     /// This method removes finished downloads from memory to prevent memory leaks.
     /// It should be called periodically or after downloads complete.
     pub async fn cleanup_finished(&self) {
+        tracing::debug!("⚙️ Cleaning up finished downloads");
         let mut statuses = self.statuses.lock().await;
         let mut cancelled = self.cancelled.lock().await;
 
@@ -514,7 +613,7 @@ impl DownloadManager {
     /// # }
     /// ```
     pub async fn cancel(&self, id: u64) -> bool {
-        tracing::debug!(download_id = id, "Cancelling download");
+        tracing::debug!(download_id = id, "⬇️ Cancelling download");
 
         // Mark as cancelled first to prevent race conditions
         {
@@ -616,6 +715,7 @@ impl DownloadManager {
     /// # }
     /// ```
     pub async fn wait_for_completion(&self, id: u64) -> Option<DownloadStatus> {
+        tracing::debug!(download_id = id, "⬇️ Waiting for download completion");
         // First check if the download already completed
         if let Some(status) = self.get_status(id).await {
             match status {
@@ -699,6 +799,7 @@ impl DownloadManager {
     /// }
     /// ```
     pub fn progress_stream(&self, id: u64) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
+        tracing::debug!(download_id = id, "⬇️ Subscribing to progress stream");
         let rx = self.progress_tx.subscribe();
 
         // Create a stream that filters events for the specific download ID
@@ -716,6 +817,7 @@ impl DownloadManager {
     ///
     /// A stream of `ProgressUpdate` events for all downloads
     pub fn progress_stream_all(&self) -> impl Stream<Item = ProgressUpdate> + Send + 'static {
+        tracing::debug!("⬇️ Subscribing to all progress streams");
         let rx = self.progress_tx.subscribe();
 
         BroadcastStream::new(rx).filter_map(|result| result.ok())
@@ -723,6 +825,7 @@ impl DownloadManager {
 
     /// Emits an event if an event bus is configured
     fn emit_event(&self, event: crate::events::DownloadEvent) {
+        tracing::trace!(event = ?event, "🔔 Emitting download event");
         if let Some(ref bus) = self.event_bus {
             bus.emit(event);
         }
@@ -750,13 +853,7 @@ impl DownloadManager {
             http_headers,
         };
 
-        tracing::debug!(
-            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
-            id,
-            url,
-            destination,
-            priority
-        );
+        tracing::debug!(id = id, url = url, destination = ?destination, priority = ?priority, "⬇️ Enqueuing download");
 
         // Add the task to the queue
         {
@@ -815,7 +912,7 @@ impl DownloadManager {
 
         tracing::debug!(
             max_concurrent = self.config.max_concurrent_downloads,
-            "Starting download queue worker"
+            "⚙️ Starting download queue worker"
         );
 
         let queue = self.queue.clone();
@@ -829,6 +926,7 @@ impl DownloadManager {
         let event_bus = self.event_bus.clone();
         let notify = self.worker_notify.clone();
         let progress_counters = self.progress_counters.clone();
+        let shared_client = Arc::clone(&self.client);
 
         tokio::spawn(async move {
             loop {
@@ -855,7 +953,7 @@ impl DownloadManager {
                         url = %task.url,
                         destination = ?task.destination,
                         priority = ?task.priority,
-                        "Popped task from download queue"
+                        "⚙️ Popped task from download queue"
                     );
 
                     // Skip tasks that were cancelled before they started
@@ -894,16 +992,16 @@ impl DownloadManager {
                         config
                             .user_agent
                             .clone()
-                            .map(|ua| crate::model::format::HttpHeaders {
-                                user_agent: ua,
-                                accept: "*/*".to_string(),
-                                accept_language: "en-US,en".to_string(),
-                                sec_fetch_mode: "navigate".to_string(),
-                            })
+                            .map(crate::model::format::HttpHeaders::browser_defaults)
                     });
 
-                    // Build the fetcher
-                    let fetcher_result = Fetcher::new(&task.url, config.proxy.as_ref(), headers);
+                    // Reuse the shared client when no custom headers are needed;
+                    // otherwise build a per-task client with the specific headers
+                    let fetcher_result = if headers.is_none() {
+                        Ok(Fetcher::with_client(&task.url, Arc::clone(&shared_client)))
+                    } else {
+                        Fetcher::new(&task.url, config.proxy.as_ref(), headers)
+                    };
 
                     let mut fetcher = match fetcher_result {
                         Ok(f) => f,
@@ -1021,11 +1119,20 @@ impl DownloadManager {
                             task_id = task_id,
                             url = %task_url,
                             destination = ?destination,
-                            "Starting download attempt"
+                            "⬇️ Starting download attempt"
                         );
 
                         let result = fetcher.fetch_asset(&destination).await;
                         let duration = start_time.elapsed();
+
+                        match &result {
+                            Ok(_) => {
+                                tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully")
+                            }
+                            Err(e) => {
+                                tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "⬇️ Download failed")
+                            }
+                        }
 
                         let final_status = match &result {
                             Ok(_) => DownloadStatus::Completed,

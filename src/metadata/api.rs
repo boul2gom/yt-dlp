@@ -49,7 +49,7 @@ impl MetadataManager {
             file_path = ?file_path,
             video_id = %video.id,
             title = %video.title,
-            "Adding metadata to file"
+            "🏷️ Adding metadata to file"
         );
 
         let file_format = Self::get_file_extension(&file_path)?;
@@ -60,7 +60,7 @@ impl MetadataManager {
             file_path = ?file_path,
             file_format = %file_format,
             extension = ?extension,
-            "Detected file format and extension"
+            "⚙️ Detected file format and extension"
         );
 
         let result = match extension {
@@ -82,7 +82,7 @@ impl MetadataManager {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,
                 video_id = %video.id,
-                "Metadata added successfully"
+                "✅ Metadata added successfully"
             ),
             Err(e) => tracing::warn!(
                 file_path = ?file_path,
@@ -126,7 +126,7 @@ impl MetadataManager {
             title = %video.title,
             has_video_format = video_format.is_some(),
             has_audio_format = audio_format.is_some(),
-            "Adding metadata with format details to file"
+            "🏷️ Adding metadata with format details to file"
         );
 
         let file_format = Self::get_file_extension(&file_path)?;
@@ -137,7 +137,7 @@ impl MetadataManager {
             file_path = ?file_path,
             file_format = %file_format,
             extension = ?extension,
-            "Detected file format and extension"
+            "⚙️ Detected file format and extension"
         );
 
         let result = match extension {
@@ -168,7 +168,7 @@ impl MetadataManager {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,
                 video_id = %video.id,
-                "Metadata with format added successfully"
+                "✅ Metadata with format added successfully"
             ),
             Err(e) => tracing::warn!(
                 file_path = ?file_path,
@@ -217,7 +217,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
-            "Adding thumbnail to file"
+            "🏷️ Adding thumbnail to file"
         );
 
         let file_format = Self::get_file_extension(&file_path)?;
@@ -228,7 +228,7 @@ impl MetadataManager {
             file_path = ?file_path,
             file_format = %file_format,
             extension = ?extension,
-            "Detected file format for thumbnail"
+            "⚙️ Detected file format for thumbnail"
         );
 
         let result = match extension {
@@ -243,7 +243,7 @@ impl MetadataManager {
             _ => {
                 tracing::debug!(
                     file_format = %file_format,
-                    "Thumbnails not supported for file format"
+                    "⚙️ Thumbnails not supported for file format"
                 );
                 Ok(())
             }
@@ -252,7 +252,7 @@ impl MetadataManager {
         match &result {
             Ok(()) => tracing::debug!(
                 file_path = ?file_path,
-                "Thumbnail added successfully"
+                "✅ Thumbnail added successfully"
             ),
             Err(e) => tracing::warn!(
                 file_path = ?file_path,

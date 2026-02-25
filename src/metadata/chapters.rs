@@ -48,7 +48,7 @@ impl MetadataManager {
             chapter_count = video.chapters.len(),
             has_video_format = video_format.is_some(),
             has_audio_format = audio_format.is_some(),
-            "Adding metadata with chapters"
+            "🏷️ Adding metadata with chapters"
         );
 
         // First add regular metadata
@@ -63,7 +63,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?path,
             video_id = %video.id,
-            "Metadata with chapters added successfully"
+            "✅ Metadata with chapters added successfully"
         );
 
         Ok(())
@@ -96,7 +96,7 @@ impl MetadataManager {
         if chapters.is_empty() {
             tracing::debug!(
                 file_path = ?path,
-                "No chapters to add, skipping"
+                "🏷️ No chapters to add, skipping"
             );
             return Ok(());
         }
@@ -104,26 +104,15 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?path,
             chapter_count = chapters.len(),
-            "Adding chapters to video file"
+            "🏷️ Adding chapters to video file"
         );
 
         // Determine file extension
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
 
-        tracing::trace!(
-            file_path = ?path,
-            extension = extension,
-            "Determined file extension for chapters"
-        );
-
         // Create temporary metadata file
         let temp_metadata_path =
             std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
-
-        tracing::trace!(
-            temp_metadata_path = ?temp_metadata_path,
-            "Created temporary metadata file path"
-        );
 
         let chapters_clone = chapters.to_vec();
         let metadata_path_clone = temp_metadata_path.clone();
@@ -160,7 +149,7 @@ impl MetadataManager {
             file_path = ?path,
             metadata_file = ?metadata_file,
             arg_count = ffmpeg_args.len(),
-            "Running FFmpeg to embed chapters"
+            "✂️ Running FFmpeg to embed chapters"
         );
 
         let executor = Executor::new(
@@ -170,10 +159,6 @@ impl MetadataManager {
         );
 
         let output = executor.execute().await;
-
-        if let Ok(ref result) = output {
-            tracing::trace!(exit_code = result.code, "FFmpeg chapters command executed");
-        }
 
         // Clean up temporary metadata file
         remove_temp_file(&metadata_file).await;
@@ -199,7 +184,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?path,
             chapter_count = chapters.len(),
-            "Chapters added successfully to video file"
+            "✅ Chapters added successfully"
         );
 
         Ok(())
@@ -228,7 +213,7 @@ impl MetadataManager {
             video_id = %video.id,
             chapter_count = video.chapters.len(),
             temp_path = ?temp_path,
-            "Creating combined FFMETADATA1 file with metadata and chapters"
+            "⚙️ Creating combined FFMETADATA1 file"
         );
 
         let mut file = fs::File::create(&temp_path)
@@ -278,7 +263,7 @@ impl MetadataManager {
         tracing::debug!(
             temp_path = ?temp_path,
             chapter_count = video.chapters.len(),
-            "Combined FFMETADATA1 file created successfully"
+            "✅ Combined FFMETADATA1 file created"
         );
 
         Ok(temp_path)
@@ -310,7 +295,7 @@ impl MetadataManager {
                 output_path = ?output_path,
                 chapter_count = chapters.len(),
                 total_duration_secs = total_duration,
-                "Creating chapters metadata file"
+                "⚙️ Creating chapters metadata file"
             );
         }
 
@@ -325,14 +310,6 @@ impl MetadataManager {
             // Convert seconds to timebase (FFmpeg uses microseconds for chapters)
             let start_us = (chapter.start_time * 1_000_000.0) as i64;
             let end_us = (chapter.end_time * 1_000_000.0) as i64;
-
-            tracing::trace!(
-                chapter_index = idx,
-                start_time_secs = chapter.start_time,
-                end_time_secs = chapter.end_time,
-                title = ?chapter.title,
-                "Writing chapter to metadata file"
-            );
 
             writeln!(file, "[CHAPTER]").map_err(|e| Error::io("write chapter marker", e))?;
             writeln!(file, "TIMEBASE=1/1000000").map_err(|e| Error::io("write timebase", e))?;
@@ -358,7 +335,7 @@ impl MetadataManager {
         tracing::debug!(
             output_path = ?output_path,
             chapter_count = chapters.len(),
-            "Chapters metadata file created successfully"
+            "✅ Chapters metadata file created"
         );
 
         Ok(output_path)

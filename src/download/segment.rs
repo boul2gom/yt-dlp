@@ -21,6 +21,30 @@ pub struct SegmentContext {
     pub total_bytes: u64,
 }
 
+impl std::fmt::Debug for SegmentContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SegmentContext")
+            .field(
+                "downloaded_bytes",
+                &self.downloaded_bytes.load(Ordering::Relaxed),
+            )
+            .field("total_bytes", &self.total_bytes)
+            .field("has_callback", &self.progress_callback.is_some())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for SegmentContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SegmentContext(downloaded={}, total={})",
+            self.downloaded_bytes.load(Ordering::Relaxed),
+            self.total_bytes
+        )
+    }
+}
+
 impl SegmentContext {
     /// Creates a new segment context
     ///
@@ -41,7 +65,7 @@ impl SegmentContext {
         tracing::debug!(
             total_bytes = total_bytes,
             has_callback = progress_callback.is_some(),
-            "Created new segment context"
+            "⚙️ Created new segment context"
         );
 
         Self {
@@ -61,15 +85,13 @@ impl SegmentContext {
         let downloaded = self.downloaded_bytes.fetch_add(bytes, Ordering::Relaxed);
         let new_total = downloaded + bytes;
 
+        let percentage = (new_total as f64 / self.total_bytes as f64) * 100.0;
         tracing::debug!(
             bytes_downloaded = bytes,
             total_downloaded = new_total,
             total_bytes = self.total_bytes,
-            percentage = format!(
-                "{:.2}%",
-                (new_total as f64 / self.total_bytes as f64) * 100.0
-            ),
-            "Segment progress updated"
+            percentage = percentage,
+            "⬇️ Segment progress updated"
         );
 
         if let Some(callback) = &self.progress_callback {

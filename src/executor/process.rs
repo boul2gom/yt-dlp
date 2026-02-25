@@ -3,6 +3,9 @@
 use crate::error::{Error, Result};
 use std::{path::PathBuf, time::Duration};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// Represents the output of a process.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcessOutput {
@@ -12,6 +15,18 @@ pub struct ProcessOutput {
     pub stderr: String,
     /// The exit code of the process.
     pub code: i32,
+}
+
+impl std::fmt::Display for ProcessOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ProcessOutput(code={}, stdout_len={}, stderr_len={})",
+            self.code,
+            self.stdout.len(),
+            self.stderr.len()
+        )
+    }
 }
 
 /// Executes a command with the given arguments and timeout.
@@ -84,7 +99,7 @@ async fn execute_command_internal(
         timeout_secs = timeout.as_secs(),
         output_to_file = output_path.is_some(),
         output_path = ?output_path,
-        "Starting command execution"
+        "⚙️ Starting command execution"
     );
 
     let mut command = tokio::process::Command::new(&executable_path);
@@ -100,16 +115,13 @@ async fn execute_command_internal(
     command.stderr(std::process::Stdio::piped());
 
     #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
+    command.creation_flags(0x08000000);
 
     command.args(args);
 
     tracing::debug!(
         executable = ?executable_path,
-        "Spawning child process"
+        "⚙️ Spawning child process"
     );
 
     let mut child = command.spawn()?;
@@ -117,32 +129,36 @@ async fn execute_command_internal(
     tracing::debug!(
         executable = ?executable_path,
         pid = ?child.id(),
-        "Child process spawned"
+        "✅ Child process spawned"
     );
 
     // Read streams asynchronously
     let stdout_task = if output_path.is_none() {
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| Error::io("capture stdout", std::io::Error::other("stdout stream not available")))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            Error::io(
+                "capture stdout",
+                std::io::Error::other("stdout stream not available"),
+            )
+        })?;
 
         Some(tokio::spawn(read_stream(stdout)))
     } else {
         None
     };
 
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| Error::io("capture stderr", std::io::Error::other("stderr stream not available")))?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        Error::io(
+            "capture stderr",
+            std::io::Error::other("stderr stream not available"),
+        )
+    })?;
 
     let stderr_task = tokio::spawn(read_stream(stderr));
 
     tracing::debug!(
         executable = ?executable_path,
         timeout_secs = timeout.as_secs(),
-        "Waiting for process to complete"
+        "⚙️ Waiting for process to complete"
     );
 
     // Wait for the process to finish with timeout
@@ -152,20 +168,20 @@ async fn execute_command_internal(
             tracing::warn!(
                 executable = ?executable_path,
                 timeout_secs = timeout.as_secs(),
-                "Process timed out, killing it"
+                "⚙️ Process timed out, killing it"
             );
 
             if let Err(e) = child.kill().await {
                 tracing::error!(
                     executable = ?executable_path,
                     error = %e,
-                    "Failed to kill process after timeout"
+                    "⚙️ Failed to kill process after timeout"
                 );
             } else if let Err(e) = child.wait().await {
                 tracing::error!(
                     executable = ?executable_path,
                     error = %e,
-                    "Failed to wait for process after kill"
+                    "⚙️ Failed to wait for process after kill"
                 );
             }
 
@@ -180,7 +196,7 @@ async fn execute_command_internal(
         executable = ?executable_path,
         exit_code = exit_status.code().unwrap_or(-1),
         success = exit_status.success(),
-        "Process completed"
+        "⚙️ Process completed"
     );
 
     // Read stderr stream
@@ -210,14 +226,14 @@ async fn execute_command_internal(
         exit_code = code,
         stdout_len = stdout.len(),
         stderr_len = stderr.len(),
-        "Command output captured"
+        "⚙️ Command output captured"
     );
 
     if exit_status.success() {
         tracing::debug!(
             executable = ?executable_path,
             exit_code = code,
-            "Command execution succeeded"
+            "✅ Command execution succeeded"
         );
 
         return Ok(ProcessOutput {
@@ -235,7 +251,7 @@ async fn execute_command_internal(
         } else {
             &stderr
         },
-        "Command execution failed"
+        "⚙️ Command execution failed"
     );
 
     Err(Error::CommandFailed {

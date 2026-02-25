@@ -22,15 +22,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_basic_metadata(video: &Video) -> Vec<(String, String)> {
-        tracing::trace!(
-            video_id = %video.id,
-            title = %video.title,
-            has_channel = video.channel.is_some(),
-            tag_count = video.tags.len(),
-            has_upload_date = video.upload_date.is_some(),
-            "Extracting basic metadata"
-        );
-
         let mut metadata = vec![("title".to_string(), video.title.clone())];
 
         Self::add_metadata_if_some(&mut metadata, "artist", video.channel.clone());
@@ -67,15 +58,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_video_format_metadata(format: &Format) -> Vec<(String, String)> {
-        tracing::trace!(
-            format_id = %format.format_id,
-            has_resolution = format.video_resolution.width.is_some() && format.video_resolution.height.is_some(),
-            has_fps = format.video_resolution.fps.is_some(),
-            has_video_codec = format.codec_info.video_codec.is_some(),
-            has_video_bitrate = format.rates_info.video_rate.is_some(),
-            "Extracting video format metadata"
-        );
-
         let mut metadata = Vec::new();
 
         // Resolution
@@ -114,15 +96,6 @@ pub trait BaseMetadata {
     ///
     /// Vector of (key, value) metadata pairs
     fn extract_audio_format_metadata(format: &Format) -> Vec<(String, String)> {
-        tracing::trace!(
-            format_id = %format.format_id,
-            has_audio_bitrate = format.rates_info.audio_rate.is_some(),
-            has_audio_codec = format.codec_info.audio_codec.is_some(),
-            has_audio_channels = format.codec_info.audio_channels.is_some(),
-            has_sample_rate = format.codec_info.asr.is_some(),
-            "Extracting audio format metadata"
-        );
-
         let mut metadata = Vec::new();
 
         // Audio bitrate
@@ -159,12 +132,6 @@ pub trait BaseMetadata {
     ///
     /// Formatted string if the timestamp is valid, None otherwise
     fn format_timestamp(timestamp: i64, format_str: &str) -> Option<String> {
-        tracing::trace!(
-            timestamp = timestamp,
-            format = format_str,
-            "Formatting timestamp"
-        );
-
         DateTime::from_timestamp(timestamp, 0).map(|dt| dt.format(format_str).to_string())
     }
 
@@ -182,14 +149,7 @@ pub trait BaseMetadata {
     ) {
         if let Some(value) = value {
             let value_str = value.to_string();
-            tracing::trace!(
-                key = key,
-                value = %value_str,
-                "Adding metadata value"
-            );
             metadata.push((key.to_string(), value_str));
-        } else {
-            tracing::trace!(key = key, "Skipping metadata value (None)");
         }
     }
 }

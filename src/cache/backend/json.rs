@@ -55,7 +55,7 @@ impl VideoBackend for JsonVideoCache {
             url = url,
             cache_dir = ?self.cache_dir,
             ttl = self.ttl,
-            "Looking for video in JSON cache by URL"
+            "🔍 Looking for video in JSON cache by URL"
         );
         // Implementation detail: We will use a simple directory traversal for `get` by URL if no index.
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
@@ -70,16 +70,16 @@ impl VideoBackend for JsonVideoCache {
                             url = url,
                             cached_at = cached.cached_at,
                             ttl = self.ttl,
-                            "Cache expired for video"
+                            "⚙️ Cache expired for video"
                         );
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
                     tracing::debug!(
                         url = url,
-                        video_id = %cached.id,
-                        video_title = %cached.title,
-                        "Cache hit for video"
+                        video_id = cached.id,
+                        video_title = cached.title,
+                        "✅ Cache hit for video"
                     );
                     return Ok(Some(cached.video()?));
                 }
@@ -90,11 +90,11 @@ impl VideoBackend for JsonVideoCache {
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
         tracing::debug!(
-            url = %url,
-            video_id = %video.id,
-            video_title = %video.title,
+            url = url,
+            video_id = video.id,
+            video_title = video.title,
             cache_dir = ?self.cache_dir,
-            "Caching video to JSON backend"
+            "⚙️ Caching video to JSON backend"
         );
         let cached = CachedVideo::from((url, video));
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
@@ -107,7 +107,7 @@ impl VideoBackend for JsonVideoCache {
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
-            "Removing video from JSON cache"
+            "⚙️ Removing video from JSON cache"
         );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -128,7 +128,7 @@ impl VideoBackend for JsonVideoCache {
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,
-            "Cleaning JSON video cache"
+            "⚙️ Cleaning JSON video cache"
         );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -145,6 +145,8 @@ impl VideoBackend for JsonVideoCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
+        tracing::debug!(video_id = id, cache_dir = ?self.cache_dir, "🔍 Looking up video by ID in JSON cache");
+
         let file_path = self.cache_dir.join(format!("{}.json", id));
         if file_path.exists() {
             let content = tokio::fs::read_to_string(file_path).await?;
@@ -200,7 +202,7 @@ impl PlaylistBackend for JsonPlaylistCache {
             url = url,
             cache_dir = ?self.cache_dir,
             ttl = self.ttl,
-            "Looking for playlist in JSON cache by URL"
+            "🔍 Looking for playlist in JSON cache by URL"
         );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -214,16 +216,16 @@ impl PlaylistBackend for JsonPlaylistCache {
                             url = url,
                             cached_at = cached.cached_at,
                             ttl = self.ttl,
-                            "Cache expired for playlist"
+                            "⚙️ Cache expired for playlist"
                         );
                         let _ = tokio::fs::remove_file(entry.path()).await;
                         return Ok(None);
                     }
                     tracing::debug!(
                         url = url,
-                        playlist_id = %cached.id,
-                        playlist_title = %cached.title,
-                        "Cache hit for playlist"
+                        playlist_id = cached.id,
+                        playlist_title = cached.title,
+                        "✅ Cache hit for playlist"
                     );
                     return Ok(Some(cached.playlist()?));
                 }
@@ -233,6 +235,8 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        tracing::debug!(playlist_id = id, cache_dir = ?self.cache_dir, "🔍 Looking up playlist by ID in JSON cache");
+
         let file_path = self.cache_dir.join(format!("{}.json", id));
         if file_path.exists() {
             let content = tokio::fs::read_to_string(file_path).await?;
@@ -249,12 +253,12 @@ impl PlaylistBackend for JsonPlaylistCache {
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
         tracing::debug!(
-            url = %url,
-            playlist_id = %playlist.id,
-            playlist_title = %playlist.title,
+            url = url,
+            playlist_id = playlist.id,
+            playlist_title = playlist.title,
             entry_count = playlist.entries.len(),
             cache_dir = ?self.cache_dir,
-            "Caching playlist to JSON backend"
+            "⚙️ Caching playlist to JSON backend"
         );
         let cached = CachedPlaylist::from((url, playlist));
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
@@ -267,7 +271,7 @@ impl PlaylistBackend for JsonPlaylistCache {
         tracing::debug!(
             url = url,
             cache_dir = ?self.cache_dir,
-            "Invalidating playlist in JSON cache"
+            "⚙️ Invalidating playlist in JSON cache"
         );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -288,7 +292,7 @@ impl PlaylistBackend for JsonPlaylistCache {
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,
-            "Cleaning JSON playlist cache"
+            "⚙️ Cleaning JSON playlist cache"
         );
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -305,6 +309,8 @@ impl PlaylistBackend for JsonPlaylistCache {
     }
 
     async fn clear_all(&self) -> Result<()> {
+        tracing::debug!(cache_dir = ?self.cache_dir, "⚙️ Clearing all playlists from JSON cache");
+
         tokio::fs::remove_dir_all(&self.cache_dir).await?;
         tokio::fs::create_dir_all(&self.cache_dir).await?;
         Ok(())
@@ -367,7 +373,7 @@ impl FileBackend for JsonFileCache {
             hash = hash,
             cache_dir = ?self.cache_dir,
             ttl = self.ttl,
-            "Looking for file in JSON cache by hash"
+            "🔍 Looking for file in JSON cache by hash"
         );
         let meta_path = self
             .cache_dir
@@ -382,7 +388,7 @@ impl FileBackend for JsonFileCache {
                     hash = hash,
                     cached_at = cached.cached_at,
                     ttl = self.ttl,
-                    "Cache expired for file"
+                    "⚙️ Cache expired for file"
                 );
                 return None;
             }
@@ -391,9 +397,9 @@ impl FileBackend for JsonFileCache {
             if file_path.exists() {
                 tracing::debug!(
                     hash = hash,
-                    filename = %cached.filename,
+                    filename = cached.filename,
                     file_path = ?file_path,
-                    "Cache hit for file"
+                    "✅ Cache hit for file"
                 );
                 return Some((cached, file_path));
             }
@@ -406,6 +412,8 @@ impl FileBackend for JsonFileCache {
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
+        tracing::debug!(video_id = video_id, format_id = format_id, cache_dir = ?self.cache_dir, "🔍 Looking for file by video and format in JSON cache");
+
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
 
@@ -454,7 +462,6 @@ impl FileBackend for JsonFileCache {
                         audio_codec.clone(),
                     )
                 {
-
                     if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }
@@ -470,13 +477,13 @@ impl FileBackend for JsonFileCache {
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
         tracing::debug!(
-            filename = %file.filename,
-            file_id = %file.id,
+            filename = file.filename,
+            file_id = file.id,
             source_path = ?source_path,
             video_id = ?file.video_id,
             format_id = ?file.format_id,
             cache_dir = ?self.cache_dir,
-            "Caching file to JSON backend"
+            "⚙️ Caching file to JSON backend"
         );
         // Write file content (copy from source)
         let file_path = self.cache_dir.join(&file.relative_path);
@@ -500,7 +507,7 @@ impl FileBackend for JsonFileCache {
         tracing::debug!(
             file_id = id,
             cache_dir = ?self.cache_dir,
-            "Removing file from JSON cache"
+            "⚙️ Removing file from JSON cache"
         );
         let meta_path = self
             .cache_dir
@@ -524,7 +531,7 @@ impl FileBackend for JsonFileCache {
         tracing::debug!(
             ttl = self.ttl,
             cache_dir = ?self.cache_dir,
-            "Cleaning JSON file cache"
+            "⚙️ Cleaning JSON file cache"
         );
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await?;
@@ -570,6 +577,8 @@ impl FileBackend for JsonFileCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
+        tracing::debug!(video_id = video_id, cache_dir = ?self.cache_dir, "🔍 Looking for thumbnail by video ID in JSON cache");
+
         let meta_dir = self.cache_dir.join("thumbnails_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
 
@@ -620,6 +629,8 @@ impl FileBackend for JsonFileCache {
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
+        tracing::debug!(video_id = video_id, language = language, cache_dir = ?self.cache_dir, "🔍 Looking for subtitle by language in JSON cache");
+
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
 

@@ -1,11 +1,11 @@
 #![doc = include_str!("../README.md")]
 
 use crate::client::deps::{Libraries, LibraryInstaller};
-use crate::extractor::ExtractorConfig;
 use crate::download::PostProcessConfig;
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
+use crate::extractor::ExtractorConfig;
 use crate::extractor::ExtractorName;
 use crate::metadata::MetadataManager;
 use crate::utils::fs;
@@ -379,10 +379,10 @@ impl Downloader {
         let executables_dir: PathBuf = executables_dir.into();
         let output_dir: PathBuf = output_dir.into();
 
-        tracing::debug!(
+        tracing::info!(
             executables_dir = ?executables_dir,
             output_dir = ?output_dir,
-            "Creating video fetcher with binaries installation"
+            "📦 Installing dependencies"
         );
 
         let installer = LibraryInstaller::new(executables_dir.clone());
@@ -399,29 +399,29 @@ impl Downloader {
             youtube_exists = youtube_exists,
             ffmpeg_path = ?ffmpeg_path,
             ffmpeg_exists = ffmpeg_exists,
-            "Checking for existing binaries"
+            "📦 Checking for existing binaries"
         );
 
         let youtube = if youtube_exists {
-            tracing::debug!("Using existing yt-dlp binary");
+            tracing::debug!("📦 Using existing yt-dlp binary");
             youtube_path
         } else {
-            tracing::debug!("Installing yt-dlp binary");
+            tracing::debug!("📦 Installing yt-dlp binary");
             installer.install_youtube(None).await?
         };
 
         let ffmpeg = if ffmpeg_exists {
-            tracing::debug!("Using existing ffmpeg binary");
+            tracing::debug!("📦 Using existing ffmpeg binary");
             ffmpeg_path
         } else {
-            tracing::debug!("Installing ffmpeg binary");
+            tracing::debug!("📦 Installing ffmpeg binary");
             installer.install_ffmpeg(None).await?
         };
 
-        tracing::debug!(
+        tracing::info!(
             youtube_path = ?youtube,
             ffmpeg_path = ?ffmpeg,
-            "Binaries ready"
+            "✅ Dependencies ready"
         );
 
         let libraries = Libraries::new(youtube, ffmpeg);
@@ -458,12 +458,25 @@ impl Downloader {
     }
 
     /// Returns a reference to the Generic extractor.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the [`Generic`](extractor::Generic) extractor.
     pub fn generic_extractor(&self) -> &extractor::Generic {
         &self.generic_extractor
     }
 
     /// Sets the user agent for HTTP requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_agent` - The user agent string to use for HTTP requests.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to `self` for method chaining.
     pub fn with_user_agent(&mut self, user_agent: impl AsRef<str>) -> &mut Self {
+        tracing::debug!(user_agent = user_agent.as_ref(), "🔧 Setting user agent");
         self.user_agent = Some(user_agent.as_ref().to_string());
         self
     }
@@ -497,6 +510,7 @@ impl Downloader {
     /// # }
     /// ```
     pub fn with_args(&mut self, mut args: Vec<String>) -> &mut Self {
+        tracing::debug!(arg_count = args.len(), "🔧 Setting custom yt-dlp arguments");
         self.args.append(&mut args);
         self
     }
@@ -531,6 +545,7 @@ impl Downloader {
     /// # }
     /// ```
     pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
+        tracing::debug!(timeout = ?timeout, "🔧 Setting command execution timeout");
         self.timeout = timeout;
         self
     }
@@ -563,6 +578,7 @@ impl Downloader {
     /// # }
     /// ```
     pub fn with_arg(&mut self, arg: impl AsRef<str>) -> &mut Self {
+        tracing::debug!(arg = arg.as_ref(), "🔧 Adding custom yt-dlp argument");
         self.args.push(arg.as_ref().to_string());
         self
     }
@@ -576,6 +592,7 @@ impl Downloader {
     ///
     /// * `path` - Path to the Netscape cookie file
     pub fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        tracing::debug!(cookies_path = ?path.as_ref(), "🔧 Configuring cookie authentication");
         let s = path.as_ref().display().to_string();
         self.youtube_extractor.with_cookies(path.as_ref());
         self.generic_extractor.with_cookies(path.as_ref());
@@ -592,6 +609,10 @@ impl Downloader {
     ///
     /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
     pub fn with_cookies_from_browser(&mut self, browser: impl AsRef<str>) -> &mut Self {
+        tracing::debug!(
+            browser = browser.as_ref(),
+            "🔧 Configuring browser cookie extraction"
+        );
         let b = browser.as_ref();
         self.youtube_extractor.with_cookies_from_browser(b);
         self.generic_extractor.with_cookies_from_browser(b);
@@ -602,7 +623,12 @@ impl Downloader {
     /// Use .netrc for authentication.
     ///
     /// Pushes `--netrc` to both extractors and the raw yt-dlp arg list.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to `self` for method chaining.
     pub fn with_netrc(&mut self) -> &mut Self {
+        tracing::debug!("🔧 Configuring .netrc authentication");
         self.youtube_extractor.with_netrc();
         self.generic_extractor.with_netrc();
         self.args.push("--netrc".to_string());
@@ -638,7 +664,7 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn update_downloader(&self) -> Result<()> {
-        tracing::debug!("Updating the downloader");
+        tracing::info!("🔄 Updating yt-dlp binary");
 
         let args = vec!["--update"];
 
@@ -729,11 +755,11 @@ impl Downloader {
         let video_path = video_file.into();
         let output_path = output_file.into();
 
-        tracing::debug!(
-            "Combining audio and video files {:?} and {:?}, into {:?}",
-            audio_path,
-            video_path,
-            output_path
+        tracing::info!(
+            audio_path = ?audio_path,
+            video_path = ?video_path,
+            output_path = ?output_path,
+            "🎬 Combining audio and video"
         );
 
         let operation = crate::events::PostProcessOperation::CombineStreams {
@@ -806,24 +832,18 @@ impl Downloader {
         metadata_file: Option<&Path>,
         audio_codec_hint: Option<&str>,
     ) -> Result<()> {
-        let audio = audio_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: audio_path.to_path_buf(),
-                reason: "Non-UTF8 audio path".to_string(),
-            })?;
-        let video = video_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: video_path.to_path_buf(),
-                reason: "Non-UTF8 video path".to_string(),
-            })?;
-        let output = output_path
-            .to_str()
-            .ok_or_else(|| Error::PathValidation {
-                path: output_path.to_path_buf(),
-                reason: "Non-UTF8 output path".to_string(),
-            })?;
+        let audio = audio_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: audio_path.to_path_buf(),
+            reason: "Non-UTF8 audio path".to_string(),
+        })?;
+        let video = video_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: video_path.to_path_buf(),
+            reason: "Non-UTF8 video path".to_string(),
+        })?;
+        let output = output_path.to_str().ok_or_else(|| Error::PathValidation {
+            path: output_path.to_path_buf(),
+            reason: "Non-UTF8 output path".to_string(),
+        })?;
 
         let audio_codec = audio_codec_for_mux(audio_path, output_path, audio_codec_hint);
 
@@ -835,20 +855,16 @@ impl Downloader {
             has_metadata = metadata_file.is_some(),
             ffmpeg_path = ?self.libraries.ffmpeg,
             timeout = ?self.timeout,
-            "Executing FFmpeg combine operation"
+            "🎬 Executing FFmpeg combine operation"
         );
 
-        let mut builder = crate::executor::FfmpegArgs::new()
-            .input(audio)
-            .input(video);
+        let mut builder = crate::executor::FfmpegArgs::new().input(audio).input(video);
 
         if let Some(meta) = metadata_file {
-            let meta_str = meta
-                .to_str()
-                .ok_or_else(|| Error::PathValidation {
-                    path: meta.to_path_buf(),
-                    reason: "Non-UTF8 metadata path".to_string(),
-                })?;
+            let meta_str = meta.to_str().ok_or_else(|| Error::PathValidation {
+                path: meta.to_path_buf(),
+                reason: "Non-UTF8 metadata path".to_string(),
+            })?;
             builder = builder.input(meta_str);
         }
 
@@ -865,16 +881,16 @@ impl Downloader {
 
         tracing::debug!(
             args = ?args,
-            "FFmpeg combine command arguments"
+            "🎬 FFmpeg combine command arguments"
         );
 
         let executor = Executor::new(self.libraries.ffmpeg.clone(), args, self.timeout);
 
         executor.execute().await?;
 
-        tracing::debug!(
+        tracing::info!(
             output_path = ?output_path,
-            "FFmpeg combine operation completed successfully"
+            "✅ Audio and video combined successfully"
         );
 
         Ok(())
@@ -898,7 +914,7 @@ impl Downloader {
         if let Some(video_id) = video_id
             && let Some(video) = self.get_video_by_id(&video_id).await
         {
-            tracing::debug!("Adding metadata to combined file");
+            tracing::debug!("🏷️ Adding metadata to combined file");
 
             cfg_if::cfg_if! {
                 if #[cfg(feature = "cache-backend")] {
@@ -915,9 +931,9 @@ impl Downloader {
                     )
                     .await
                     {
-                        tracing::warn!("Failed to add metadata to combined file: {}", _e);
+                        tracing::warn!(error = %_e, "Failed to add metadata to combined file");
                     } else {
-                        tracing::debug!("Successfully added metadata (including chapters) to combined file");
+                        tracing::debug!("✅ Metadata (including chapters) added to combined file");
                     }
                 } else {
                     // Without cache, we don't have format details, add basic metadata only
@@ -928,9 +944,9 @@ impl Downloader {
                     )
                     .await
                     {
-                        tracing::warn!("Failed to add basic metadata to combined file: {}", e);
+                        tracing::warn!(error = %e, "Failed to add basic metadata to combined file");
                     } else {
-                        tracing::debug!("Successfully added basic metadata to combined file");
+                        tracing::debug!("✅ Basic metadata added to combined file");
                     }
                 }
             }
@@ -951,16 +967,16 @@ impl Downloader {
         tracing::trace!(
             video_path = ?video_path,
             audio_path = ?audio_path,
-            "Extracting video ID from file paths"
+            "🔍 Extracting video ID from file paths"
         );
 
         let video_filename = video_path.as_path().file_name()?.to_str()?;
 
         if let Some(id) = fs::extract_video_id(video_filename) {
             tracing::trace!(
-                video_id = %id,
+                video_id = id,
                 source = "video_path",
-                "Video ID extracted from video filename"
+                "🔍 Video ID extracted from video filename"
             );
             return Some(id);
         }
@@ -970,12 +986,12 @@ impl Downloader {
 
         if let Some(ref id_str) = id {
             tracing::trace!(
-                video_id = %id_str,
+                video_id = id_str,
                 source = "audio_path",
-                "Video ID extracted from audio filename"
+                "🔍 Video ID extracted from audio filename"
             );
         } else {
-            tracing::trace!("No video ID found in file paths");
+            tracing::trace!("🔍 No video ID found in file paths");
         }
 
         id
@@ -989,7 +1005,7 @@ impl Downloader {
         tracing::trace!(
             file_path = ?file_path,
             has_cache = self.download_cache.is_some(),
-            "Looking up format in download cache"
+            "🔍 Looking up format in download cache"
         );
 
         if let Some(download_cache) = &self.download_cache {
@@ -997,8 +1013,8 @@ impl Downloader {
                 Ok(hash) => {
                     tracing::trace!(
                         file_path = ?file_path,
-                        file_hash = %hash,
-                        "Calculated file hash for cache lookup"
+                        file_hash = hash,
+                        "🔍 Calculated file hash for cache lookup"
                     );
                     hash
                 }
@@ -1006,7 +1022,7 @@ impl Downloader {
                     tracing::trace!(
                         file_path = ?file_path,
                         error = %_e,
-                        "Failed to calculate file hash"
+                        "🔍 Failed to calculate file hash"
                     );
                     return None;
                 }
@@ -1018,15 +1034,15 @@ impl Downloader {
             {
                 tracing::trace!(
                     file_path = ?file_path,
-                    format_id = %format.format_id,
-                    "Format found in cache"
+                    format_id = format.format_id,
+                    "🔍 Format found in cache"
                 );
                 return Some(format);
             }
 
             tracing::trace!(
                 file_path = ?file_path,
-                "Format not found in cache"
+                "🔍 Format not found in cache"
             );
         }
 
@@ -1077,13 +1093,13 @@ impl Downloader {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
-            "Enabling video metadata cache"
+            "🔍 Enabling video metadata cache"
         );
 
         let cache = VideoCache::new(cache_dir, ttl).await?;
         self.cache = Some(Arc::new(cache));
 
-        tracing::debug!("Video metadata cache enabled successfully");
+        tracing::debug!("✅ Video metadata cache enabled");
 
         Ok(self)
     }
@@ -1132,13 +1148,13 @@ impl Downloader {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
-            "Enabling downloaded files cache"
+            "🔍 Enabling downloaded files cache"
         );
 
         let download_cache = DownloadCache::new(cache_dir, ttl).await?;
         self.download_cache = Some(Arc::new(download_cache));
 
-        tracing::debug!("Downloaded files cache enabled successfully");
+        tracing::debug!("✅ Downloaded files cache enabled");
 
         Ok(self)
     }
@@ -1187,14 +1203,14 @@ impl Downloader {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
-            "Enabling playlist metadata cache"
+            "🔍 Enabling playlist metadata cache"
         );
 
         let db_path = cache_dir.join("playlists.db");
 
         tracing::trace!(
             db_path = ?db_path,
-            "Playlist cache database path"
+            "🔍 Playlist cache database path"
         );
 
         let playlist_cache = if let Some(ttl_seconds) = ttl {
@@ -1204,7 +1220,7 @@ impl Downloader {
         };
         self.playlist_cache = Some(Arc::new(playlist_cache));
 
-        tracing::debug!("Playlist metadata cache enabled successfully");
+        tracing::debug!("✅ Playlist metadata cache enabled");
 
         Ok(self)
     }
@@ -1261,21 +1277,21 @@ impl Downloader {
         let output_path: PathBuf = output.into();
 
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
+            video_id = video.id,
+            video_title = video.title,
             output_path = ?output_path,
             priority = ?priority,
-            "Downloading video with priority"
+            "⬇️ Downloading video with priority"
         );
 
         // Get the best format with video and audio
         let format = video.best_audio_video_format()?;
 
         tracing::debug!(
-            video_id = %video.id,
-            format_id = %format.format_id,
+            video_id = video.id,
+            format_id = format.format_id,
             format_type = ?format.format_type(),
-            "Selected format for download"
+            "🧩 Selected format for download"
         );
 
         // Get the URL
@@ -1288,9 +1304,9 @@ impl Downloader {
             .await;
 
         tracing::debug!(
-            video_id = %video.id,
+            video_id = video.id,
             download_id = download_id,
-            "Video added to download queue"
+            "⬇️ Video added to download queue"
         );
 
         Ok(download_id)
@@ -1353,20 +1369,20 @@ impl Downloader {
         let output_path: PathBuf = output.into();
 
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
+            video_id = video.id,
+            video_title = video.title,
             output_path = ?output_path,
-            "Downloading video with progress tracking"
+            "⬇️ Downloading video with progress tracking"
         );
 
         // Get the best format with video and audio
         let format = video.best_audio_video_format()?;
 
         tracing::debug!(
-            video_id = %video.id,
-            format_id = %format.format_id,
+            video_id = video.id,
+            format_id = format.format_id,
             format_type = ?format.format_type(),
-            "Selected format for download with progress"
+            "🧩 Selected format for download with progress"
         );
 
         // Get the URL
@@ -1384,9 +1400,9 @@ impl Downloader {
             .await;
 
         tracing::debug!(
-            video_id = %video.id,
+            video_id = video.id,
             download_id = download_id,
-            "Video added to download queue with progress tracking"
+            "⬇️ Video added to download queue with progress tracking"
         );
 
         Ok(download_id)
@@ -1536,13 +1552,13 @@ impl Downloader {
         audio_codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
+            video_id = video.id,
+            video_title = video.title,
             video_quality = ?video_quality,
             video_codec = ?video_codec,
             audio_quality = ?audio_quality,
             audio_codec = ?audio_codec,
-            "Selecting formats based on quality preferences"
+            "🧩 Selecting formats based on quality preferences"
         );
 
         // Select video format based on quality and codec preferences
@@ -1555,12 +1571,12 @@ impl Downloader {
             })?;
 
         tracing::debug!(
-            video_id = %video.id,
-            format_id = %video_format.format_id,
+            video_id = video.id,
+            format_id = video_format.format_id,
             width = ?video_format.video_resolution.width,
             height = ?video_format.video_resolution.height,
             codec = ?video_format.codec_info.video_codec,
-            "Selected video format"
+            "🧩 Selected video format"
         );
 
         let output_path: PathBuf = output.into();
@@ -1587,15 +1603,15 @@ impl Downloader {
         // Select audio format: try the container-compatible codec first, fall back to any
         let audio_format = if let Some(pref) = preferred_audio_codec {
             tracing::debug!(
-                video_id = %video.id,
+                video_id = video.id,
                 preferred_codec = ?pref,
                 output_ext = ?output_path.extension(),
-                "Trying container-compatible audio codec to avoid re-encoding"
+                "🧩 Trying container-compatible audio codec to avoid re-encoding"
             );
             video.select_audio_format(audio_quality, pref).or_else(|| {
                 tracing::debug!(
-                    video_id = %video.id,
-                    "Container-compatible audio not available, falling back to any codec"
+                    video_id = video.id,
+                    "🧩 Container-compatible audio not available, falling back to any codec"
                 );
                 video.select_audio_format(audio_quality, AudioCodecPreference::Any)
             })
@@ -1609,11 +1625,11 @@ impl Downloader {
         })?;
 
         tracing::debug!(
-            video_id = %video.id,
-            format_id = %audio_format.format_id,
+            video_id = video.id,
+            format_id = audio_format.format_id,
             bitrate = ?audio_format.rates_info.audio_rate,
             codec = ?audio_format.codec_info.audio_codec,
-            "Selected audio format"
+            "🧩 Selected audio format"
         );
 
         // Download and combine formats, embedding metadata in a single ffmpeg pass
@@ -1689,11 +1705,11 @@ impl Downloader {
         let output: PathBuf = output.into();
 
         tracing::debug!(
-            video_id = %video.id,
+            video_id = video.id,
             output = ?output,
             quality = ?quality,
             codec = ?codec,
-            "Downloading {} stream with quality preferences",
+            "⬇️ Downloading {} stream with quality preferences",
             stream_type_name
         );
 
@@ -1839,7 +1855,7 @@ impl Downloader {
     /// # }
     /// ```
     pub fn shutdown(&self) {
-        tracing::info!("Initiating graceful shutdown");
+        tracing::info!("🛑 Initiating graceful shutdown");
 
         self.cancellation_token.cancel();
     }
@@ -1879,18 +1895,15 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn detect_extractor(&self, url: &str) -> Result<ExtractorName> {
-        tracing::debug!(
-            url = %url,
-            "Detecting extractor for URL"
-        );
+        tracing::debug!(url = url, "📡 Detecting extractor for URL");
 
         let extractor =
             extractor::detector::detect_extractor_type(url, &self.libraries.youtube).await?;
 
         tracing::debug!(
-            url = %url,
+            url = url,
             extractor = ?extractor,
-            "Extractor detected"
+            "📡 Extractor detected"
         );
 
         Ok(extractor)
@@ -1932,17 +1945,14 @@ impl Downloader {
     pub async fn fetch(self, url: impl AsRef<str>) -> Result<(Self, Video)> {
         let url_str = url.as_ref();
 
-        tracing::debug!(
-            url = %url_str,
-            "Fetching video info (fluent API)"
-        );
+        tracing::debug!(url = url_str, "📡 Fetching video info (fluent API)");
 
         let video = self.fetch_video_infos(url_str.to_string()).await?;
 
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
-            "Video info fetched successfully (fluent API)"
+            video_id = video.id,
+            video_title = video.title,
+            "✅ Video info fetched (fluent API)"
         );
 
         Ok((self, video))
@@ -1981,18 +1991,15 @@ impl Downloader {
         output: impl AsRef<str>,
     ) -> Result<Self> {
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
-            output = %output.as_ref(),
-            "Downloading video (fluent API)"
+            video_id = video.id,
+            video_title = video.title,
+            output = output.as_ref(),
+            "⬇️ Downloading video (fluent API)"
         );
 
         self.download_video(video, output).await?;
 
-        tracing::debug!(
-            video_id = %video.id,
-            "Video downloaded successfully (fluent API)"
-        );
+        tracing::debug!(video_id = video.id, "✅ Video downloaded (fluent API)");
 
         Ok(self)
     }
@@ -2014,17 +2021,17 @@ impl Downloader {
         let output_path = output.into();
 
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
+            video_id = video.id,
+            video_title = video.title,
             output = ?output_path,
-            "Downloading video to path (fluent API)"
+            "⬇️ Downloading video to path (fluent API)"
         );
 
         self.download_video_to_path(video, output_path).await?;
 
         tracing::debug!(
-            video_id = %video.id,
-            "Video downloaded to path successfully (fluent API)"
+            video_id = video.id,
+            "✅ Video downloaded to path (fluent API)"
         );
 
         Ok(self)
@@ -2061,22 +2068,19 @@ impl Downloader {
     {
         let url_str = url.as_ref();
 
-        tracing::debug!(
-            url = %url_str,
-            "Starting pipeline operation"
-        );
+        tracing::info!(url = url_str, "⬇️ Starting download pipeline");
 
         let video = self.fetch_video_infos(url_str).await?;
 
         tracing::debug!(
-            video_id = %video.id,
-            video_title = %video.title,
-            "Video fetched, executing pipeline operation"
+            video_id = video.id,
+            video_title = video.title,
+            "📡 Video fetched, executing pipeline operation"
         );
 
         let result = operation(self, video).await?;
 
-        tracing::debug!("Pipeline operation completed successfully");
+        tracing::info!("✅ Pipeline completed");
 
         Ok(result)
     }
@@ -2138,7 +2142,7 @@ impl Downloader {
             output = ?output_path,
             video_codec = ?config.video_codec,
             audio_codec = ?config.audio_codec,
-            "Applying post-processing to video"
+            "✂️ Applying post-processing to video"
         );
 
         self.postprocess_video_to_path(input, output_path, config)
@@ -2173,7 +2177,7 @@ impl Downloader {
             audio_bitrate = ?config.audio_bitrate,
             resolution = ?config.resolution,
             filters_count = config.filters.len(),
-            "Applying post-processing to video file"
+            "✂️ Applying post-processing to video file"
         );
 
         let result = metadata::postprocess::apply_postprocess(
@@ -2185,9 +2189,9 @@ impl Downloader {
         )
         .await?;
 
-        tracing::debug!(
+        tracing::info!(
             output = ?result,
-            "Post-processing completed successfully"
+            "✅ Post-processing completed"
         );
 
         Ok(result)
@@ -2227,7 +2231,7 @@ impl Downloader {
     > {
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
-            "Creating event stream"
+            "🔔 Creating event stream"
         );
 
         self.event_bus.stream()
@@ -2243,20 +2247,24 @@ impl Downloader {
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<Arc<events::DownloadEvent>> {
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
-            "Creating event subscription"
+            "🔔 Creating event subscription"
         );
 
         let receiver = self.event_bus.subscribe();
 
         tracing::debug!(
             subscriber_count = self.event_bus.subscriber_count(),
-            "Event subscription created"
+            "🔔 Event subscription created"
         );
 
         receiver
     }
 
     /// Returns the number of active event subscribers.
+    ///
+    /// # Returns
+    ///
+    /// The number of currently active event subscribers.
     pub fn event_subscriber_count(&self) -> usize {
         self.event_bus.subscriber_count()
     }
@@ -2336,15 +2344,15 @@ impl Downloader {
     pub async fn register_hook(&mut self, hook: impl events::EventHook + 'static) {
         tracing::debug!(
             has_registry = self.hook_registry.is_some(),
-            "Registering event hook"
+            "🔔 Registering event hook"
         );
 
         if let Some(ref mut registry) = self.hook_registry {
             registry.register(hook).await;
 
-            tracing::debug!("Event hook registered successfully");
+            tracing::debug!("✅ Event hook registered");
         } else {
-            tracing::warn!("Hook registry not available, hook not registered");
+            tracing::warn!("🔔 Hook registry not available, hook not registered");
         }
     }
 
@@ -2381,17 +2389,17 @@ impl Downloader {
     /// ```
     pub async fn register_webhook(&mut self, config: events::WebhookConfig) {
         tracing::debug!(
-            url = %config.url(),
+            url = config.url(),
             has_delivery = self.webhook_delivery.is_some(),
-            "Registering webhook"
+            "🔔 Registering webhook"
         );
 
         if let Some(ref mut delivery) = self.webhook_delivery {
             delivery.register(config).await;
 
-            tracing::debug!("Webhook registered successfully");
+            tracing::debug!("✅ Webhook registered");
         } else {
-            tracing::warn!("Webhook delivery not available, webhook not registered");
+            tracing::warn!("🔔 Webhook delivery not available, webhook not registered");
         }
     }
 }
@@ -2434,9 +2442,9 @@ impl Display for Downloader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Downloader: output_dir={:?}, args={:?}, proxy={}",
-            self.output_dir,
-            self.args,
+            "Downloader(output_dir={}, timeout={}s, proxy={})",
+            self.output_dir.display(),
+            self.timeout.as_secs(),
             self.proxy.is_some()
         )
     }

@@ -99,28 +99,32 @@ impl RetryPolicy {
 
         for attempt in 0..self.max_attempts {
             if attempt > 0 {
-                tracing::debug!("Retry attempt {}/{}", attempt + 1, self.max_attempts);
+                tracing::debug!(
+                    attempt = attempt + 1,
+                    max = self.max_attempts,
+                    "🔄 Retry attempt"
+                );
             }
 
             match operation().await {
                 Ok(result) => {
                     if attempt > 0 {
-                        tracing::info!("Operation succeeded after {} retry attempts", attempt);
+                        tracing::info!(attempts = attempt, "✅ Operation succeeded after retries");
                     }
                     return Ok(result);
                 }
                 Err(e) => {
                     // Check if the error is retryable
                     if !is_retryable(&e) {
-                        tracing::warn!("Non-retryable error encountered: {}", e);
+                        tracing::warn!(error = %e, "🔄 Non-retryable error encountered");
                         return Err(e);
                     }
 
                     tracing::warn!(
-                        "Operation failed (attempt {}/{}): {}",
-                        attempt + 1,
-                        self.max_attempts,
-                        e
+                        attempt = attempt + 1,
+                        max = self.max_attempts,
+                        error = %e,
+                        "🔄 Operation failed, retrying"
                     );
 
                     last_error = Some(e);
@@ -129,7 +133,7 @@ impl RetryPolicy {
                     if attempt + 1 < self.max_attempts {
                         let delay = self.calculate_delay(attempt);
 
-                        tracing::debug!("Waiting {:?} before retry", delay);
+                        tracing::debug!(delay = ?delay, "🔄 Waiting before retry");
 
                         sleep(delay).await;
                     }
@@ -143,26 +147,46 @@ impl RetryPolicy {
     }
 
     /// Get the maximum number of attempts.
+    ///
+    /// # Returns
+    ///
+    /// The maximum number of retry attempts.
     pub fn max_attempts(&self) -> u32 {
         self.max_attempts
     }
 
     /// Get the initial delay.
+    ///
+    /// # Returns
+    ///
+    /// The initial delay before the first retry.
     pub fn initial_delay(&self) -> Duration {
         self.initial_delay
     }
 
     /// Get the maximum delay.
+    ///
+    /// # Returns
+    ///
+    /// The maximum delay cap between retries.
     pub fn max_delay(&self) -> Duration {
         self.max_delay
     }
 
     /// Get the backoff factor.
+    ///
+    /// # Returns
+    ///
+    /// The multiplicative factor applied to the delay between retries.
     pub fn backoff_factor(&self) -> f64 {
         self.backoff_factor
     }
 
     /// Check if jitter is enabled.
+    ///
+    /// # Returns
+    ///
+    /// `true` if random jitter is added to retry delays.
     pub fn has_jitter(&self) -> bool {
         self.jitter
     }
@@ -203,6 +227,16 @@ impl Default for RetryPolicy {
             backoff_factor: 2.0,
             jitter: true,
         }
+    }
+}
+
+impl std::fmt::Display for RetryPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RetryPolicy(attempts={}, backoff={}x, jitter={})",
+            self.max_attempts, self.backoff_factor, self.jitter
+        )
     }
 }
 

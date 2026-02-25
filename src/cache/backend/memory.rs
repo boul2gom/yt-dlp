@@ -14,11 +14,11 @@ use crate::model::selector::{
 };
 use crate::utils::current_timestamp;
 use lru::LruCache;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::hash::Hash;
 
 fn clean_expired<K, V>(data: &mut LruCache<K, V>, ttl: i64, now: i64)
 where
@@ -102,7 +102,7 @@ impl VideoBackend for MemoryVideoCache {
         tracing::debug!(
             url = url,
             ttl = self.ttl,
-            "Looking for video in memory cache by URL"
+            "🔍 Looking for video in memory cache by URL"
         );
 
         let mut data = self.data.lock().await;
@@ -118,7 +118,11 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        tracing::debug!(url = %url, video_id = %video.id, "Caching video to memory backend");
+        tracing::debug!(
+            url = url,
+            video_id = video.id,
+            "⚙️ Caching video to memory backend"
+        );
 
         let mut data = self.data.lock().await;
         let cached = CachedVideo::from((url.clone(), video));
@@ -127,7 +131,7 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
-        tracing::debug!(url = url, "Removing video from memory cache");
+        tracing::debug!(url = url, "⚙️ Removing video from memory cache");
 
         let mut data = self.data.lock().await;
         data.pop(url);
@@ -137,7 +141,7 @@ impl VideoBackend for MemoryVideoCache {
     async fn clean(&self) -> Result<()> {
         tracing::debug!(
             ttl = self.ttl,
-            "Cleaning expired entries from memory video cache"
+            "⚙️ Cleaning expired entries from memory video cache"
         );
 
         let mut data = self.data.lock().await;
@@ -147,6 +151,8 @@ impl VideoBackend for MemoryVideoCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
+        tracing::debug!(video_id = id, "🔍 Looking up video by ID in memory cache");
+
         let data = self.data.lock().await;
         let now = current_timestamp();
 
@@ -184,6 +190,8 @@ impl MemoryPlaylistCache {
 
 impl PlaylistBackend for MemoryPlaylistCache {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        tracing::debug!(url = url, "🔍 Looking for playlist in memory cache by URL");
+
         let mut data = self.data.lock().await;
         let now = current_timestamp();
 
@@ -197,6 +205,11 @@ impl PlaylistBackend for MemoryPlaylistCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        tracing::debug!(
+            playlist_id = id,
+            "🔍 Looking up playlist by ID in memory cache"
+        );
+
         let data = self.data.lock().await;
         let now = current_timestamp();
 
@@ -210,6 +223,12 @@ impl PlaylistBackend for MemoryPlaylistCache {
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        tracing::debug!(
+            url = url,
+            playlist_id = playlist.id,
+            "⚙️ Caching playlist to memory backend"
+        );
+
         let mut data = self.data.lock().await;
         let cached = CachedPlaylist::from((url.clone(), playlist));
         data.put(url, cached);
@@ -217,18 +236,24 @@ impl PlaylistBackend for MemoryPlaylistCache {
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
+        tracing::debug!(url = url, "⚙️ Invalidating playlist in memory cache");
+
         let mut data = self.data.lock().await;
         data.pop(url);
         Ok(())
     }
 
     async fn clean(&self) -> Result<()> {
+        tracing::debug!("⚙️ Cleaning expired entries from memory playlist cache");
+
         let mut data = self.data.lock().await;
         clean_expired(&mut data, self.ttl, current_timestamp());
         Ok(())
     }
 
     async fn clear_all(&self) -> Result<()> {
+        tracing::debug!("⚙️ Clearing all playlists from memory cache");
+
         let mut data = self.data.lock().await;
         data.clear();
         Ok(())
@@ -264,7 +289,7 @@ impl FileBackend for MemoryFileCache {
         tracing::debug!(
             hash = hash,
             ttl = self.ttl,
-            "Looking for file in memory cache by hash"
+            "🔍 Looking for file in memory cache by hash"
         );
 
         let mut files = self.files.lock().await;
@@ -284,6 +309,12 @@ impl FileBackend for MemoryFileCache {
         video_id: &str,
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
+        tracing::debug!(
+            video_id = video_id,
+            format_id = format_id,
+            "🔍 Looking for file by video and format in memory cache"
+        );
+
         let files = self.files.lock().await;
         let now = current_timestamp();
 
@@ -307,6 +338,8 @@ impl FileBackend for MemoryFileCache {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
+        tracing::debug!(video_id = video_id, video_quality = ?video_quality, audio_quality = ?audio_quality, "🔍 Looking for file by preferences in memory cache");
+
         let files = self.files.lock().await;
         let now = current_timestamp();
 
@@ -329,9 +362,9 @@ impl FileBackend for MemoryFileCache {
 
     async fn put(&self, file: CachedFile, _source_path: &Path) -> Result<PathBuf> {
         tracing::debug!(
-            filename = %file.filename,
-            file_id = %file.id,
-            "Caching file metadata to memory backend"
+            filename = file.filename,
+            file_id = file.id,
+            "⚙️ Caching file metadata to memory backend"
         );
 
         let mut files = self.files.lock().await;
@@ -341,7 +374,7 @@ impl FileBackend for MemoryFileCache {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        tracing::debug!(file_id = id, "Removing file from memory cache");
+        tracing::debug!(file_id = id, "⚙️ Removing file from memory cache");
 
         let mut files = self.files.lock().await;
         files.pop(id);
@@ -351,7 +384,7 @@ impl FileBackend for MemoryFileCache {
     async fn clean(&self) -> Result<()> {
         tracing::debug!(
             ttl = self.ttl,
-            "Cleaning expired entries from memory file cache"
+            "⚙️ Cleaning expired entries from memory file cache"
         );
 
         let now = current_timestamp();
@@ -373,6 +406,11 @@ impl FileBackend for MemoryFileCache {
         &self,
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
+        tracing::debug!(
+            video_id = video_id,
+            "🔍 Looking for thumbnail by video ID in memory cache"
+        );
+
         let thumbnails = self.thumbnails.lock().await;
         let now = current_timestamp();
 
@@ -391,9 +429,9 @@ impl FileBackend for MemoryFileCache {
         _source_path: &Path,
     ) -> Result<PathBuf> {
         tracing::debug!(
-            thumbnail_id = %thumbnail.id,
-            video_id = %thumbnail.video_id,
-            "Caching thumbnail metadata to memory backend"
+            thumbnail_id = thumbnail.id,
+            video_id = thumbnail.video_id,
+            "⚙️ Caching thumbnail metadata to memory backend"
         );
 
         let mut thumbnails = self.thumbnails.lock().await;
@@ -407,6 +445,12 @@ impl FileBackend for MemoryFileCache {
         video_id: &str,
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
+        tracing::debug!(
+            video_id = video_id,
+            language = language,
+            "🔍 Looking for subtitle by language in memory cache"
+        );
+
         let files = self.files.lock().await;
         let now = current_timestamp();
 

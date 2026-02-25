@@ -40,6 +40,10 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     /// Creates a new validation result indicating success.
+    ///
+    /// # Returns
+    ///
+    /// A `ValidationResult` with `is_valid` set to `true`.
     pub fn valid(format: Extension, entry_count: usize) -> Self {
         Self {
             is_valid: true,
@@ -51,6 +55,14 @@ impl ValidationResult {
     }
 
     /// Creates a new validation result indicating failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `errors` - The validation errors that caused failure
+    ///
+    /// # Returns
+    ///
+    /// A `ValidationResult` with `is_valid` set to `false`.
     pub fn invalid(errors: Vec<String>) -> Self {
         Self {
             is_valid: false,
@@ -62,12 +74,28 @@ impl ValidationResult {
     }
 
     /// Adds a warning to the validation result.
+    ///
+    /// # Arguments
+    ///
+    /// * `warning` - The warning message to add
+    ///
+    /// # Returns
+    ///
+    /// The modified `ValidationResult` with the warning appended.
     pub fn with_warning(mut self, warning: String) -> Self {
         self.warnings.push(warning);
         self
     }
 
     /// Adds multiple warnings to the validation result.
+    ///
+    /// # Arguments
+    ///
+    /// * `warnings` - The warning messages to add
+    ///
+    /// # Returns
+    ///
+    /// The modified `ValidationResult` with the warnings appended.
     pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
         self.warnings.extend(warnings);
         self
@@ -90,7 +118,7 @@ impl ValidationResult {
 pub async fn validate_subtitle(subtitle_path: impl AsRef<Path>) -> Result<ValidationResult> {
     let subtitle_path = subtitle_path.as_ref();
 
-    tracing::debug!("Validating subtitle file: {:?}", subtitle_path);
+    tracing::debug!(path = ?subtitle_path, "💬 Validating subtitle file");
 
     // Check if file exists
     if !subtitle_path.exists() {
@@ -127,7 +155,7 @@ pub async fn validate_subtitle(subtitle_path: impl AsRef<Path>) -> Result<Valida
         }
     };
 
-    tracing::debug!("Detected subtitle format: {:?}", format);
+    tracing::debug!(format = ?format, "💬 Detected subtitle format for validation");
 
     // Validate based on format
     match format {
@@ -266,7 +294,9 @@ fn validate_vtt(content: &str) -> Result<ValidationResult> {
             result.is_valid = false;
             result.format = None;
         }
-        result.errors.insert(0, "VTT file must start with 'WEBVTT' header".to_string());
+        result
+            .errors
+            .insert(0, "VTT file must start with 'WEBVTT' header".to_string());
     }
 
     Ok(result)
@@ -290,7 +320,7 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
         if expect_index && SRT_INDEX_RE.is_match(trimmed) {
             has_index = true;
             let index: usize = trimmed.parse().unwrap_or(0);
-            
+
             if index != last_index + 1 && last_index != 0 {
                 result.warnings.push(format!(
                     "Subtitle index {} is not sequential (expected {})",
@@ -309,7 +339,9 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
     }
 
     if !has_index && result.entry_count > 0 {
-        result.warnings.push("SRT file is missing subtitle indices".to_string());
+        result
+            .warnings
+            .push("SRT file is missing subtitle indices".to_string());
     }
 
     Ok(result)

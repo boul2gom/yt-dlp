@@ -50,7 +50,7 @@ impl<'a> DownloadBuilder<'a> {
         tracing::debug!(
             video_id = %video.id,
             output = ?output,
-            "Creating new DownloadBuilder"
+            "⬇️ Creating new DownloadBuilder"
         );
 
         Self {
@@ -70,57 +70,99 @@ impl<'a> DownloadBuilder<'a> {
     }
 
     /// Sets the desired video quality.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired video quality level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn video_quality(mut self, quality: VideoQuality) -> Self {
-        tracing::debug!(quality = ?quality, "Setting video quality");
-
         self.video_quality = Some(quality);
         self
     }
 
     /// Sets the desired audio quality.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired audio quality level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn audio_quality(mut self, quality: AudioQuality) -> Self {
-        tracing::debug!(quality = ?quality, "Setting audio quality");
-
         self.audio_quality = Some(quality);
         self
     }
 
     /// Sets the preferred video codec.
+    ///
+    /// # Arguments
+    ///
+    /// * `codec` - The preferred video codec
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn video_codec(mut self, codec: VideoCodecPreference) -> Self {
-        tracing::debug!(codec = ?codec, "Setting video codec preference");
-
         self.video_codec = Some(codec);
         self
     }
 
     /// Sets the preferred audio codec.
+    ///
+    /// # Arguments
+    ///
+    /// * `codec` - The preferred audio codec
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn audio_codec(mut self, codec: AudioCodecPreference) -> Self {
-        tracing::debug!(codec = ?codec, "Setting audio codec preference");
-
         self.audio_codec = Some(codec);
         self
     }
 
     /// Sets the desired storyboard quality.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired storyboard quality level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn storyboard_quality(mut self, quality: StoryboardQuality) -> Self {
-        tracing::debug!(quality = ?quality, "Setting storyboard quality");
-
         self.storyboard_quality = Some(quality);
         self
     }
 
     /// Sets the desired thumbnail quality.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired thumbnail quality level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn thumbnail_quality(mut self, quality: ThumbnailQuality) -> Self {
-        tracing::debug!(quality = ?quality, "Setting thumbnail quality");
-
         self.thumbnail_quality = Some(quality);
         self
     }
 
     /// Sets the download priority.
+    ///
+    /// # Arguments
+    ///
+    /// * `priority` - The download priority level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn priority(mut self, priority: DownloadPriority) -> Self {
-        tracing::debug!(priority = ?priority, "Setting download priority");
-
         self.priority = priority;
         self
     }
@@ -141,9 +183,11 @@ impl<'a> DownloadBuilder<'a> {
     /// # Arguments
     ///
     /// * `range` - The partial range to download (time range or chapter range)
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
     pub fn partial(mut self, range: PartialRange) -> Self {
-        tracing::debug!(range = ?range, "Setting partial download range");
-
         self.partial_range = Some(range);
         self
     }
@@ -226,7 +270,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "Executing download"
+            "⬇️ Executing download"
         );
 
         // Select video format based on quality and codec preferences
@@ -246,7 +290,7 @@ impl<'a> DownloadBuilder<'a> {
             audio_format_id = %audio_format.format_id,
             video_ext = ?video_format.download_info.ext,
             audio_ext = ?audio_format.download_info.ext,
-            "Selected video and audio formats"
+            "⬇️ Selected video and audio formats"
         );
 
         // Generate temporary filenames for video and audio
@@ -364,7 +408,7 @@ impl<'a> DownloadBuilder<'a> {
         tracing::debug!(
             video_download_id = video_download_id,
             audio_download_id = audio_download_id,
-            "Waiting for downloads to complete"
+            "⬇️ Waiting for downloads to complete"
         );
 
         let video_status = self.downloader.wait_for_download(video_download_id).await;
@@ -375,7 +419,7 @@ impl<'a> DownloadBuilder<'a> {
             (Some(DownloadStatus::Completed), Some(DownloadStatus::Completed)) => {
                 tracing::debug!(
                     output = ?self.output,
-                    "Both downloads completed, combining audio and video"
+                    "✅ Both downloads completed, combining audio and video"
                 );
 
                 // Both downloads completed successfully, combine them
@@ -442,7 +486,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "Executing video stream download"
+            "⬇️ Executing video stream download"
         );
 
         let video_format = self
@@ -489,7 +533,7 @@ impl<'a> DownloadBuilder<'a> {
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
             has_partial_range = self.partial_range.is_some(),
-            "Executing audio stream download"
+            "⬇️ Executing audio stream download"
         );
 
         let audio_format = self
@@ -533,7 +577,7 @@ impl<'a> DownloadBuilder<'a> {
             quality = ?quality,
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
-            "Executing storyboard download"
+            "⬇️ Executing storyboard download"
         );
 
         let format = self
@@ -601,7 +645,6 @@ impl<'a> DownloadBuilder<'a> {
             download_ids.push(id);
         }
 
-        use crate::download::DownloadStatus;
         for id in download_ids {
             match self.downloader.wait_for_download(id).await {
                 Some(DownloadStatus::Completed) => continue,
@@ -644,11 +687,13 @@ impl<'a> DownloadBuilder<'a> {
             quality = ?quality,
             priority = ?self.priority,
             has_progress_callback = self.progress_callback.is_some(),
-            "Executing thumbnail download"
+            "⬇️ Executing thumbnail download"
         );
 
         let thumbnail = self.video.select_thumbnail(quality).ok_or_else(|| {
-            crate::error::Error::NoThumbnail { video_id: self.video.id.clone() }
+            crate::error::Error::NoThumbnail {
+                video_id: self.video.id.clone(),
+            }
         })?;
 
         let http_headers =
@@ -682,6 +727,14 @@ impl<'a> DownloadBuilder<'a> {
         http_headers: Option<crate::model::format::HttpHeaders>,
         progress_callback: Option<Box<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> u64 {
+        tracing::debug!(
+            output_path = ?output_path,
+            priority = ?priority,
+            has_headers = http_headers.is_some(),
+            has_progress = progress_callback.is_some(),
+            "⬇️ Enqueueing download"
+        );
+
         if let Some(cb) = progress_callback {
             downloader
                 .download_manager
@@ -710,6 +763,13 @@ impl<'a> DownloadBuilder<'a> {
         url: &str,
         http_headers: Option<crate::model::format::HttpHeaders>,
     ) -> Result<PathBuf> {
+        tracing::debug!(
+            output = ?output,
+            priority = ?priority,
+            format_type = format_type_name,
+            "⬇️ Executing stream download"
+        );
+
         let path = if output.is_absolute() {
             output.to_path_buf()
         } else {

@@ -17,26 +17,54 @@ pub struct Chapter {
 
 impl Chapter {
     /// Returns the duration of the chapter in seconds.
+    ///
+    /// # Returns
+    ///
+    /// The duration in seconds (end_time - start_time)
     pub fn duration(&self) -> f64 {
         self.end_time - self.start_time
     }
 
     /// Returns the duration in minutes.
+    ///
+    /// # Returns
+    ///
+    /// The duration in minutes
     pub fn duration_minutes(&self) -> f64 {
         self.duration() / 60.0
     }
 
     /// Checks if a given timestamp (in seconds) is within this chapter.
+    ///
+    /// # Arguments
+    ///
+    /// * `timestamp` - The timestamp in seconds to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the timestamp falls within this chapter's time range, `false` otherwise
     pub fn contains_timestamp(&self, timestamp: f64) -> bool {
         timestamp >= self.start_time && timestamp < self.end_time
     }
 
     /// Checks if the chapter has a title.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the chapter has a title, `false` otherwise
     pub fn has_title(&self) -> bool {
         self.title.is_some()
     }
 
     /// Gets the chapter title or a default value.
+    ///
+    /// # Arguments
+    ///
+    /// * `default` - The default value to return if the chapter has no title
+    ///
+    /// # Returns
+    ///
+    /// The chapter title, or the provided default if no title is set
     pub fn title_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.title.as_deref().unwrap_or(default)
     }
@@ -342,7 +370,7 @@ impl<'a> ChapterList<'a> {
 }
 
 /// Result of chapter validation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChapterValidation {
     /// Whether the chapters are valid (no errors)
     pub is_valid: bool,
@@ -398,6 +426,18 @@ impl fmt::Display for Chapter {
             self.start_time,
             self.end_time,
             self.title.as_deref().unwrap_or("untitled")
+        )
+    }
+}
+
+impl fmt::Display for ChapterValidation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ChapterValidation(valid={}, errors={}, warnings={})",
+            self.is_valid,
+            self.errors.len(),
+            self.warnings.len()
         )
     }
 }

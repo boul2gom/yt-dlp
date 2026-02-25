@@ -51,11 +51,9 @@ impl MetadataManager {
                 has_playlist = playlist.is_some(),
                 playlist_title = ?playlist_title,
                 playlist_index = ?playlist_index,
-                "Adding metadata to MP3 file"
+                "🏷️ Adding metadata to MP3 file"
             );
         }
-
-        tracing::debug!(file_path = ?file_path, "Adding metadata to MP3 file");
 
         // Prepare data for the blocking thread (to avoid cloning the whole Video struct)
         let metadata = Self::extract_basic_metadata(video)
@@ -92,13 +90,7 @@ impl MetadataManager {
                             tag.set_year(year)
                         }
                     }
-                    _ => {
-                        tracing::debug!(
-                            key = key.as_str(),
-                            value = value.as_str(),
-                            "Skipping ID3 metadata"
-                        );
-                    }
+                    _ => {}
                 }
             }
 
@@ -140,7 +132,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?file_path,
             video_id = %video.id,
-            "Metadata added successfully to MP3 file"
+            "✅ Metadata added successfully to MP3 file"
         );
 
         Ok(())
@@ -165,7 +157,7 @@ impl MetadataManager {
         tracing::debug!(
             file_path = ?file_path,
             thumbnail_path = ?thumbnail_path,
-            "Adding thumbnail to MP3 file"
+            "🏷️ Adding thumbnail to MP3 file"
         );
 
         // Read thumbnail content
@@ -180,7 +172,7 @@ impl MetadataManager {
             thumbnail_path = ?thumbnail_path,
             mime_type = %mime_type,
             image_size_bytes = image_data.len(),
-            "Thumbnail loaded with MIME type"
+            "⚙️ Thumbnail loaded"
         );
 
         let file_path_clone = file_path.clone();
@@ -213,7 +205,7 @@ impl MetadataManager {
 
         tracing::debug!(
             file_path = ?file_path,
-            "Thumbnail added successfully to MP3 file"
+            "✅ Thumbnail added successfully to MP3 file"
         );
 
         Ok(())

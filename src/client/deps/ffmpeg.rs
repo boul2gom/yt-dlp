@@ -69,7 +69,7 @@ impl BuildFetcher {
         tracing::debug!(
             platform = ?Platform::detect(),
             architecture = ?Architecture::detect(),
-            "Fetching ffmpeg binary for current platform"
+            "📦 Fetching ffmpeg binary for current platform"
         );
 
         let platform = Platform::detect();
@@ -93,7 +93,7 @@ impl BuildFetcher {
             platform = ?platform,
             architecture = ?architecture,
             repo = "boul2gom/ffmpeg-builds",
-            "Fetching ffmpeg binary from GitHub"
+            "📦 Fetching ffmpeg binary from GitHub"
         );
 
         match platform {
@@ -105,8 +105,8 @@ impl BuildFetcher {
                         architecture,
                         None,
                         |release, platform, architecture| {
-                            let os_str = platform.to_string();
-                            let arch_str = architecture.to_string();
+                            let os_str = platform.as_str();
+                            let arch_str = architecture.as_str();
 
                             let target_name = format!("ffmpeg-{}-{}.zip", os_str, arch_str);
 
@@ -135,7 +135,7 @@ impl BuildFetcher {
             archive = ?archive,
             platform = ?Platform::detect(),
             architecture = ?Architecture::detect(),
-            "Extracting ffmpeg binary from archive"
+            "⚙️ Extracting ffmpeg binary from archive"
         );
 
         let platform = Platform::detect();
@@ -165,7 +165,7 @@ impl BuildFetcher {
             archive = ?archive,
             platform = ?platform,
             architecture = ?architecture,
-            "Extracting ffmpeg binary for specified platform"
+            "⚙️ Extracting ffmpeg binary for specified platform"
         );
 
         let archive_path = archive.clone();
@@ -198,11 +198,6 @@ impl BuildFetcher {
         platform: &Platform,
         architecture: &Architecture,
     ) -> Option<Extraction> {
-        tracing::debug!(
-            platform = ?platform,
-            architecture = ?architecture,
-            "Getting extraction info for platform"
-        );
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg.exe"),
@@ -251,7 +246,7 @@ impl BuildFetcher {
             destination = ?destination,
             executable_path = ?extraction_info.executable_path,
             platform = ?platform,
-            "Extracting archive and locating ffmpeg binary"
+            "⚙️ Extracting archive and locating ffmpeg binary"
         );
 
         fs::extract_zip(&archive, &destination).await?;

@@ -3,14 +3,14 @@
 //! This module provides a high-level API for caching video metadata,
 //! using pluggable backend implementations.
 
-use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::cache::backend::{VideoBackend, VideoBackendEnum};
+use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::error::Result;
 use crate::model::Video;
+use crate::model::utils;
 use crate::utils::current_timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::model::utils;
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,6 +54,12 @@ impl From<(String, Video)> for CachedVideo {
             video_json,
             cached_at: current_timestamp(),
         }
+    }
+}
+
+impl std::fmt::Display for CachedVideo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CachedVideo(id={}, title={})", self.id, self.title)
     }
 }
 
@@ -102,19 +108,27 @@ impl CachedFile {
         video_codec: Option<VideoCodecPreference>,
         audio_codec: Option<AudioCodecPreference>,
     ) -> bool {
-        if video_quality.is_some() && self.video_quality != utils::serde::serialize_json_opt(video_quality) {
+        if video_quality.is_some()
+            && self.video_quality != utils::serde::serialize_json_opt(video_quality)
+        {
             return false;
         }
 
-        if audio_quality.is_some() && self.audio_quality != utils::serde::serialize_json_opt(audio_quality) {
+        if audio_quality.is_some()
+            && self.audio_quality != utils::serde::serialize_json_opt(audio_quality)
+        {
             return false;
         }
 
-        if video_codec.is_some() && self.video_codec != utils::serde::serialize_json_opt(video_codec) {
+        if video_codec.is_some()
+            && self.video_codec != utils::serde::serialize_json_opt(video_codec)
+        {
             return false;
         }
 
-        if audio_codec.is_some() && self.audio_codec != utils::serde::serialize_json_opt(audio_codec) {
+        if audio_codec.is_some()
+            && self.audio_codec != utils::serde::serialize_json_opt(audio_codec)
+        {
             return false;
         }
 
@@ -122,8 +136,18 @@ impl CachedFile {
     }
 }
 
+impl std::fmt::Display for CachedFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CachedFile(id={}, filename={}, size={})",
+            self.id, self.filename, self.filesize
+        )
+    }
+}
+
 /// Enum representing the type of cached file
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CachedType {
     /// A video or audio format
     Format,
@@ -133,6 +157,17 @@ pub enum CachedType {
     Subtitle,
     /// Any other type of file
     Other,
+}
+
+impl std::fmt::Display for CachedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Format => f.write_str("Format"),
+            Self::Thumbnail => f.write_str("Thumbnail"),
+            Self::Subtitle => f.write_str("Subtitle"),
+            Self::Other => f.write_str("Other"),
+        }
+    }
 }
 
 /// Structure for storing thumbnail metadata in cache.
@@ -157,6 +192,16 @@ pub struct CachedThumbnail {
     pub height: Option<i32>,
     /// The cache timestamp (Unix timestamp).
     pub cached_at: i64,
+}
+
+impl std::fmt::Display for CachedThumbnail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CachedThumbnail(id={}, video_id={})",
+            self.id, self.video_id
+        )
+    }
 }
 
 /// Video cache manager using pluggable backend.
@@ -186,7 +231,7 @@ impl VideoCache {
         tracing::debug!(
             cache_dir = ?cache_dir,
             ttl = ?ttl,
-            "Creating video cache"
+            "⚙️ Creating video cache"
         );
 
         let backend = VideoBackendEnum::new(cache_dir, ttl).await?;
@@ -207,15 +252,13 @@ impl VideoCache {
     ///
     /// Returns an error if the backend query fails.
     pub async fn get(&self, url: &str) -> Result<Option<Video>> {
-        tracing::debug!(url = url, "Retrieving video from cache by URL");
+        tracing::debug!(url = url, "🔍 Looking up video by URL");
 
         let result = self.backend.get(url).await;
 
-        tracing::debug!(
-            url = url,
-            found = result.as_ref().map(|r| r.is_some()).unwrap_or(false),
-            "Video cache lookup by URL completed"
-        );
+        if let Ok(Some(_)) = &result {
+            tracing::debug!(url = url, "✅ Video cache hit by URL");
+        }
 
         result
     }
@@ -236,21 +279,13 @@ impl VideoCache {
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, video: Video) -> Result<()> {
         tracing::debug!(
-            url = %url,
-            video_id = %video.id,
-            video_title = %video.title,
-            "Putting video in cache"
+            url = url,
+            video_id = video.id,
+            video_title = video.title,
+            "⚙️ Storing video in cache"
         );
 
-        let result = self.backend.put(url.clone(), video).await;
-
-        if result.is_ok() {
-            tracing::debug!(url = %url, "Successfully cached video");
-        } else {
-            tracing::debug!(url = %url, "Failed to cache video");
-        }
-
-        result
+        self.backend.put(url, video).await
     }
 
     /// Removes a video from the cache.
@@ -267,17 +302,9 @@ impl VideoCache {
     ///
     /// Returns an error if the backend remove operation fails.
     pub async fn remove(&self, url: &str) -> Result<()> {
-        tracing::debug!(url = url, "Removing video from cache");
+        tracing::debug!(url = url, "⚙️ Removing video from cache");
 
-        let result = self.backend.remove(url).await;
-
-        if result.is_ok() {
-            tracing::debug!(url = url, "Successfully removed video from cache");
-        } else {
-            tracing::debug!(url = url, "Failed to remove video from cache");
-        }
-
-        result
+        self.backend.remove(url).await
     }
 
     /// Cleans the cache by removing expired entries.
@@ -290,17 +317,9 @@ impl VideoCache {
     ///
     /// Returns an error if the backend clean operation fails.
     pub async fn clean(&self) -> Result<()> {
-        tracing::debug!("Cleaning video cache");
+        tracing::debug!("⚙️ Cleaning video cache");
 
-        let result = self.backend.clean().await;
-
-        if result.is_ok() {
-            tracing::debug!("Successfully cleaned video cache");
-        } else {
-            tracing::debug!("Failed to clean video cache");
-        }
-
-        result
+        self.backend.clean().await
     }
 
     /// Retrieves a video from the cache by its ID.
@@ -317,14 +336,12 @@ impl VideoCache {
     ///
     /// Returns an error if the video is not found, expired, or the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        tracing::debug!(video_id = id, "Retrieving video from cache by ID");
+        tracing::debug!(video_id = id, "🔍 Looking up video by ID");
 
         let result = self.backend.get_by_id(id).await;
 
         if result.is_ok() {
-            tracing::debug!(video_id = id, "Found video in cache by ID");
-        } else {
-            tracing::debug!(video_id = id, "Video not found in cache by ID");
+            tracing::debug!(video_id = id, "✅ Video cache hit by ID");
         }
 
         result

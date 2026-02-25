@@ -102,7 +102,7 @@ pub struct DownloadSnapshot {
 }
 
 /// Terminal outcome of a single completed download.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, serde::Serialize)]
 pub enum DownloadOutcomeSnapshot {
     /// Download finished successfully.
     Completed,
@@ -155,4 +155,84 @@ pub struct PlaylistStats {
     pub items_failed: u64,
     /// Ratio of successful items to total items, or `None` if no items attempted.
     pub item_success_rate: Option<f64>,
+}
+
+impl std::fmt::Display for GlobalSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GlobalSnapshot(active={}, downloads={}, fetches={}, playlists={})",
+            self.active_count, self.downloads, self.fetches, self.playlists
+        )
+    }
+}
+
+impl std::fmt::Display for DownloadStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DownloadStats(attempted={}, completed={}, failed={})",
+            self.attempted, self.completed, self.failed
+        )
+    }
+}
+
+impl std::fmt::Display for ActiveDownloadSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ActiveDownloadSnapshot(id={}, downloaded={}, total={})",
+            self.download_id, self.downloaded_bytes, self.total_bytes
+        )
+    }
+}
+
+impl std::fmt::Display for DownloadSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DownloadSnapshot(id={}, outcome={}, bytes={})",
+            self.download_id, self.outcome, self.bytes
+        )
+    }
+}
+
+impl std::fmt::Display for DownloadOutcomeSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Completed => f.write_str("Completed"),
+            Self::Failed => f.write_str("Failed"),
+            Self::Canceled => f.write_str("Canceled"),
+        }
+    }
+}
+
+impl std::fmt::Display for FetchStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FetchStats(attempted={}, succeeded={}, failed={})",
+            self.attempted, self.succeeded, self.failed
+        )
+    }
+}
+
+impl std::fmt::Display for PostProcessStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PostProcessStats(attempted={}, succeeded={}, failed={})",
+            self.attempted, self.succeeded, self.failed
+        )
+    }
+}
+
+impl std::fmt::Display for PlaylistStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PlaylistStats(fetched={}, items_ok={}, items_failed={})",
+            self.playlists_fetched, self.items_successful, self.items_failed
+        )
+    }
 }

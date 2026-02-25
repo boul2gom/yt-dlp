@@ -9,6 +9,7 @@ Key Principles
 - Use expressive variable names that convey intent (e.g., `is_ready`, `has_data`).
 - Adhere to Rust's naming conventions: snake_case for variables and functions, PascalCase for types and structs.
 - Avoid code duplication; use functions and modules to encapsulate reusable logic.
+- All `use` imports must be at the top of the file (module-level), never inside function bodies. Use `#[cfg(...)]` on the import when it is platform-specific. The only exception is inside `macro_rules!` definitions where `$crate::` paths require local imports.
 - Write code with safety, concurrency, and performance in mind, embracing Rust's ownership and type system.
 
 Async Programming
@@ -47,10 +48,96 @@ Performance Optimization
 - Use `tokio::time::sleep` and `tokio::time::interval` for efficient time-based operations.
 - Use Cow when possible, and optimized types in functions parameters, according to the operations applied in the function (borrowing vs owned required, String vs str, Path vs Pathbuf for example). The most optimized types should be used everytime.
 
+Tracing & Logging Guidelines
+- Tracing is an unconditional dependency (no feature flag). Every important function must have tracing.
+- Always use fully-qualified macros: `tracing::debug!(...)`, `tracing::info!(...)`, etc. Never import the macros. Never use `#[instrument]`.
+- Always use structured fields, never format!()-style interpolation in messages:
+  - GOOD: `tracing::debug!(url = %url, timeout = ?timeout, "⬇️ Starting download")`
+  - BAD: `tracing::debug!("Starting download for {}", url)`
+- Field syntax: `key = value` for Display, `key = ?value` for Debug, `key = %value` for explicit Display.
+
+Log Level Rules:
+- `trace`: Hot paths, comparisons, pure data transforms (should be rare — prefer deleting over trace)
+- `debug`: Function entry/exit, parameters, config steps, internal operations
+- `info`: Key workflow milestones only (download start/end, fetch, install, combine, postprocess, playlist, shutdown)
+- `warn`: Recoverable failures, retries, fallbacks — NO emoji prefix on warn
+- `error`: Unrecoverable per-item failures — NO emoji prefix on error
+
+Emoji Prefixes (mandatory on all trace/debug/info messages):
+Every tracing message string must start with one domain emoji followed by a space:
+| Emoji | Domain                        |
+|-------|-------------------------------|
+| 📦    | Install / dependencies        |
+| 📡    | Fetch / extract               |
+| ⬇️    | Download                      |
+| 🎬    | Combine / mux                 |
+| ✂️    | Postprocess / ffmpeg          |
+| 🏷️    | Metadata                      |
+| 💬    | Subtitle                      |
+| 🖼️    | Thumbnail                     |
+| 📋    | Playlist                      |
+| ✅    | Success / completion          |
+| 🔄    | Retry / update                |
+| 🔧    | Config / setup / builder      |
+| 🔍    | Cache / lookup                |
+| ⚙️    | Internal / utility            |
+| 📊    | Statistics                    |
+| 🔔    | Events                        |
+| 🧩    | Format selection              |
+| 🛑    | Shutdown                      |
+
+What NOT to trace (delete tracing from these):
+- Trivial getters/setters that just return or set a field
+- Pure transforms (e.g., `to_ffmpeg_name`, `is_empty`, enum-to-string conversions)
+- Simple constant lookups / match on enum returning a value
+
+Rustdoc Guidelines
+Every public function, method, and trait method must have a rustdoc comment following this format:
+
+```rust
+/// Brief one-line description of what the function does.
+///
+/// Optional extended description with more details, context, or behavior notes.
+///
+/// # Arguments
+///
+/// * `param_name` - Description of the parameter
+/// * `other_param` - Description of the other parameter
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created or written.
+///
+/// # Returns
+///
+/// Description of the return value.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use yt_dlp::prelude::*;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let downloader = Downloader::new("yt-dlp", "ffmpeg").await?;
+/// let result = downloader.some_method().await?;
+/// # Ok(())
+/// # }
+/// ```
+```
+
+Section rules:
+- `# Arguments` — Include only when the function has parameters beyond `&self`/`&mut self`. List each parameter with `* \`name\` - description`.
+- `# Errors` — Include only when the function returns `Result`. Describe what conditions cause errors.
+- `# Returns` — Include only when the function returns a value (not `-> ()` or no return type). Describe what is returned, including `None`/`Ok`/`Err` semantics.
+- `# Examples` — Include on main public API entry points (the functions users call first: `Downloader::new`, `download`, `fetch`, `combine`, `pipeline`, `postprocess`, etc.). Use `no_run` or `ignore` for examples requiring network/binaries. Follow the patterns in `lib.rs` and `README.md`.
+- Trait method declarations must have full rustdoc in the trait definition. Implementations may add a brief clarifying comment but should not duplicate the trait docs.
+- Simple getters/setters still need at minimum a one-liner description + `# Returns` (for getters) or `# Arguments` (for setters with params).
+- Builder methods need at minimum a one-liner + `# Arguments` for their parameter.
+
 Key Conventions
 1. Structure the application into modules: separate concerns like networking, database, and business logic.
 2. Use environment variables for configuration management (e.g., `dotenv` crate).
-3. Ensure code is well-documented with inline comments and Rustdoc, in a consistent way (Args, errors, returns, examples for main functions, etc). Tracing debug should be present in every important function, if the feature is enabled, and the tracing debug should be as detailed as possible, and consistent across the codebase. Parameters should be given to tracing, to provide context.
+3. Ensure code is well-documented with inline comments and Rustdoc following the Rustdoc Guidelines above.
 
 Async Ecosystem
 - Use `tokio` for async runtime and task management.

@@ -47,6 +47,18 @@ pub struct Executor {
     args: Vec<String>,
 }
 
+impl std::fmt::Display for Executor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Executor(path={}, args={}, timeout={}s)",
+            self.executable_path.display(),
+            self.args.len(),
+            self.timeout.as_secs()
+        )
+    }
+}
+
 impl Executor {
     /// Creates a new Executor.
     ///
@@ -71,7 +83,7 @@ impl Executor {
             executable = ?executable_path,
             arg_count = args.len(),
             timeout_secs = timeout.as_secs(),
-            "Creating new Executor"
+            "🔧 Creating new Executor"
         );
 
         Self {
@@ -122,7 +134,7 @@ impl Executor {
             executable = ?self.executable_path,
             arg_count = self.args.len(),
             timeout_secs = self.timeout.as_secs(),
-            "Executing command"
+            "⚙️ Executing command"
         );
 
         let result = execute_command(&self.executable_path, &self.args, self.timeout).await;
@@ -133,12 +145,12 @@ impl Executor {
                 exit_code = output.code,
                 stdout_len = output.stdout.len(),
                 stderr_len = output.stderr.len(),
-                "Command execution completed successfully"
+                "✅ Command execution completed"
             ),
             Err(e) => tracing::warn!(
                 executable = ?self.executable_path,
                 error = %e,
-                "Command execution failed"
+                "⚙️ Command execution failed"
             ),
         }
 
@@ -167,7 +179,7 @@ impl Executor {
             arg_count = self.args.len(),
             output_path = ?output_path,
             timeout_secs = self.timeout.as_secs(),
-            "Executing command to file"
+            "⚙️ Executing command to file"
         );
 
         let result = process::execute_command_to_file(
@@ -184,13 +196,13 @@ impl Executor {
                 output_path = ?output_path,
                 exit_code = output.code,
                 stderr_len = output.stderr.len(),
-                "Command execution to file completed successfully"
+                "✅ Command execution to file completed"
             ),
             Err(e) => tracing::warn!(
                 executable = ?self.executable_path,
                 output_path = ?output_path,
                 error = %e,
-                "Command execution to file failed"
+                "⚙️ Command execution to file failed"
             ),
         }
 

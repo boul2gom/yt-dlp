@@ -19,7 +19,7 @@ impl EventFilter {
     ///
     /// An EventFilter that matches all events
     pub fn all() -> Self {
-        tracing::debug!("Creating EventFilter that accepts all events");
+        tracing::debug!("⚙️ Creating EventFilter that accepts all events");
 
         Self {
             predicates: Vec::new(),
@@ -36,10 +36,7 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches events with the given download ID
     pub fn download_id(id: u64) -> Self {
-        tracing::debug!(
-            download_id = id,
-            "Creating EventFilter for specific download ID"
-        );
+        tracing::debug!(download_id = id, "⚙️ Creating EventFilter for download ID");
 
         let mut filter = Self::all();
         filter
@@ -54,7 +51,7 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches terminal events
     pub fn only_terminal() -> Self {
-        tracing::debug!("Creating EventFilter for terminal events only");
+        tracing::debug!("⚙️ Creating EventFilter for terminal events");
 
         let mut filter = Self::all();
         filter
@@ -69,7 +66,7 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches completed download events
     pub fn only_completed() -> Self {
-        tracing::debug!("Creating EventFilter for completed downloads only");
+        tracing::debug!("⚙️ Creating EventFilter for completed downloads");
 
         let mut filter = Self::all();
         filter.predicates.push(Arc::new(|event| {
@@ -84,7 +81,7 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches failed download events
     pub fn only_failed() -> Self {
-        tracing::debug!("Creating EventFilter for failed downloads only");
+        tracing::debug!("⚙️ Creating EventFilter for failed downloads");
 
         let mut filter = Self::all();
         filter.predicates.push(Arc::new(|event| {
@@ -99,7 +96,7 @@ impl EventFilter {
     ///
     /// An EventFilter that only matches progress events
     pub fn only_progress() -> Self {
-        tracing::debug!("Creating EventFilter for progress events only");
+        tracing::debug!("⚙️ Creating EventFilter for progress events");
 
         let mut filter = Self::all();
         filter
@@ -110,6 +107,11 @@ impl EventFilter {
 
     /// Creates a filter for specific event types
     pub fn event_types(types: Vec<&'static str>) -> Self {
+        tracing::debug!(
+            type_count = types.len(),
+            "⚙️ Creating EventFilter for specific event types"
+        );
+
         let mut filter = Self::all();
         filter
             .predicates
@@ -130,18 +132,7 @@ impl EventFilter {
     where
         F: Fn(&DownloadEvent) -> bool + Send + Sync + 'static,
     {
-        tracing::debug!(
-            predicate_count_before = self.predicates.len(),
-            "Adding custom predicate to filter"
-        );
-
         self.predicates.push(Arc::new(predicate));
-
-        tracing::debug!(
-            predicate_count_after = self.predicates.len(),
-            "Custom predicate added to filter"
-        );
-
         self
     }
 
@@ -162,7 +153,7 @@ impl EventFilter {
             download_id = event.download_id(),
             matches = result,
             predicate_count = self.predicates.len(),
-            "Event filter match test"
+            "🔔 Event filter match test"
         );
 
         result
@@ -221,5 +212,11 @@ impl std::fmt::Debug for EventFilter {
         f.debug_struct("EventFilter")
             .field("predicate_count", &self.predicates.len())
             .finish()
+    }
+}
+
+impl std::fmt::Display for EventFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EventFilter(predicates={})", self.predicates.len())
     }
 }

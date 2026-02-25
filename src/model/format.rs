@@ -3,6 +3,7 @@
 use crate::model::DrmStatus;
 use crate::model::utils::serde::json_none;
 use ordered_float::OrderedFloat;
+use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
@@ -90,6 +91,10 @@ impl Format {
 
     /// Gets the type of the format.
     /// It can be audio, video, both of them, a manifest, or a storyboard.
+    ///
+    /// # Returns
+    ///
+    /// The [`FormatType`] determined from the codec and manifest information.
     pub fn format_type(&self) -> FormatType {
         if self.download_info.manifest_url.is_some() {
             return FormatType::Manifest;
@@ -112,15 +117,22 @@ impl Format {
 
     /// Returns the decrypted URL for this format.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Error::FormatNoUrl`](crate::error::Error::FormatNoUrl) if the format has no URL.
+    ///
     /// # Returns
     ///
-    /// The format URL, or an error if none is available.
+    /// A reference to the format URL string.
     pub fn url(&self) -> Result<&String, crate::error::Error> {
         self.download_info
             .url
             .as_ref()
             .ok_or_else(|| crate::error::Error::FormatNoUrl {
-                video_id: self.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                video_id: self
+                    .video_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 format_id: self.format_id.clone(),
             })
     }
@@ -210,11 +222,11 @@ pub struct DownloadInfo {
 
 impl fmt::Display for DownloadInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(url) = &self.url {
-            write!(f, "DownloadInfo(url={})", url)
-        } else {
-            write!(f, "DownloadInfo(no_url)")
-        }
+        write!(
+            f,
+            "DownloadInfo(url={})",
+            self.url.as_deref().unwrap_or("none")
+        )
     }
 }
 
@@ -232,7 +244,7 @@ impl fmt::Display for QualityInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "QualityInfo(quality = {})",
+            "QualityInfo(quality={})",
             self.quality
                 .map(|q| q.to_string())
                 .unwrap_or_else(|| "unknown".to_string())
@@ -307,8 +319,8 @@ pub struct StoryboardInfo {
 impl fmt::Display for StoryboardInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (self.rows, self.columns) {
-            (Some(r), Some(c)) => write!(f, "StoryboardInfo {{ rows: {}, columns: {} }}", r, c),
-            _ => write!(f, "StoryboardInfo {{ unknown }}"),
+            (Some(r), Some(c)) => write!(f, "StoryboardInfo(rows={}, columns={})", r, c),
+            _ => write!(f, "StoryboardInfo(unknown)"),
         }
     }
 }
@@ -324,11 +336,7 @@ pub struct Fragment {
 
 impl fmt::Display for Fragment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Fragment(url = {}, duration = {})",
-            self.url, self.duration
-        )
+        write!(f, "Fragment(url={}, duration={})", self.url, self.duration)
     }
 }
 
@@ -341,11 +349,7 @@ pub struct DownloaderOptions {
 
 impl fmt::Display for DownloaderOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "DownloaderOptions(chunk_size = {})",
-            self.http_chunk_size
-        )
+        write!(f, "DownloaderOptions(chunk_size={})", self.http_chunk_size)
     }
 }
 
@@ -366,14 +370,53 @@ pub struct HttpHeaders {
     pub sec_fetch_mode: String,
 }
 
+impl HttpHeaders {
+    /// Creates default browser-like headers for the given user agent.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_agent` - The user agent string to use.
+    ///
+    /// # Returns
+    ///
+    /// An `HttpHeaders` with sensible browser defaults.
+    pub fn browser_defaults(user_agent: String) -> Self {
+        Self {
+            user_agent,
+            accept: "*/*".to_string(),
+            accept_language: "en-US,en".to_string(),
+            sec_fetch_mode: "navigate".to_string(),
+        }
+    }
+
+    /// Converts these headers into a `reqwest::header::HeaderMap`.
+    ///
+    /// # Returns
+    ///
+    /// A `HeaderMap` with Accept, Accept-Language, and Sec-Fetch-Mode set.
+    pub fn to_header_map(&self) -> reqwest::header::HeaderMap {
+        let mut map = HeaderMap::new();
+        if let Ok(hv) = HeaderValue::from_str(&self.accept) {
+            map.insert(header::ACCEPT, hv);
+        }
+        if let Ok(hv) = HeaderValue::from_str(&self.accept_language) {
+            map.insert(header::ACCEPT_LANGUAGE, hv);
+        }
+        if let Ok(hv) = HeaderValue::from_bytes(self.sec_fetch_mode.as_bytes()) {
+            map.insert("Sec-Fetch-Mode", hv);
+        }
+        map
+    }
+}
+
 impl fmt::Display for HttpHeaders {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HttpHeaders(user_agent = {})", self.user_agent)
+        write!(f, "HttpHeaders(user_agent={})", self.user_agent)
     }
 }
 
 /// The available extensions of a format.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Extension {
     /// The M4A extension.
@@ -401,6 +444,10 @@ pub enum Extension {
 impl Extension {
     /// Returns the lowercase file extension string for this variant.
     /// Unknown/None variants return `"bin"` as a safe fallback.
+    ///
+    /// # Returns
+    ///
+    /// A static string slice with the file extension (e.g. `"mp4"`, `"webm"`).
     pub fn as_str(&self) -> &'static str {
         match self {
             Extension::M4A => "m4a",
@@ -415,7 +462,15 @@ impl Extension {
 
 impl fmt::Display for Extension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Extension({})", self.as_str())
+        match self {
+            Extension::M4A => f.write_str("M4A"),
+            Extension::Mp3 => f.write_str("Mp3"),
+            Extension::Mp4 => f.write_str("Mp4"),
+            Extension::Webm => f.write_str("Webm"),
+            Extension::Mhtml => f.write_str("Mhtml"),
+            Extension::None => f.write_str("None"),
+            Extension::Unknown => f.write_str("Unknown"),
+        }
     }
 }
 
@@ -436,7 +491,7 @@ impl FromStr for Extension {
 }
 
 /// The available containers extensions of a format.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Container {
     /// The Webm container.
@@ -457,21 +512,17 @@ pub enum Container {
 
 impl fmt::Display for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Container({})",
-            match self {
-                Container::Mp4 => "mp4",
-                Container::Webm => "webm",
-                Container::M4A => "m4a",
-                Container::Unknown => "unknown",
-            }
-        )
+        match self {
+            Container::Mp4 => f.write_str("Mp4"),
+            Container::Webm => f.write_str("Webm"),
+            Container::M4A => f.write_str("M4A"),
+            Container::Unknown => f.write_str("Unknown"),
+        }
     }
 }
 
 /// The available protocols of a format.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Protocol {
     /// The HTTP protocol, used for audio and video formats.
@@ -490,21 +541,17 @@ pub enum Protocol {
 
 impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Protocol({})",
-            match self {
-                Protocol::Https => "https",
-                Protocol::M3U8Native => "hls",
-                Protocol::Mhtml => "mhtml",
-                Protocol::Unknown => "unknown",
-            }
-        )
+        match self {
+            Protocol::Https => f.write_str("Https"),
+            Protocol::M3U8Native => f.write_str("HLS"),
+            Protocol::Mhtml => f.write_str("Mhtml"),
+            Protocol::Unknown => f.write_str("Unknown"),
+        }
     }
 }
 
 /// The available dynamic ranges of a format.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DynamicRange {
     /// The SDR dynamic range.
     SDR,
@@ -519,21 +566,17 @@ pub enum DynamicRange {
 
 impl fmt::Display for DynamicRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "DynamicRange({})",
-            match self {
-                DynamicRange::SDR => "SDR",
-                DynamicRange::HDR => "HDR",
-                DynamicRange::Unknown => "Unknown",
-            }
-        )
+        match self {
+            DynamicRange::SDR => f.write_str("SDR"),
+            DynamicRange::HDR => f.write_str("HDR"),
+            DynamicRange::Unknown => f.write_str("Unknown"),
+        }
     }
 }
 
 /// The available format types.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FormatType {
     /// The format contains only audio.
     Audio,
@@ -554,21 +597,37 @@ pub enum FormatType {
 
 impl FormatType {
     /// Checks if the format is an audio and video format.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the format type is [`FormatType::AudioVideo`].
     pub fn is_audio_and_video(&self) -> bool {
         matches!(self, FormatType::AudioVideo)
     }
 
     /// Checks if the format is a video format.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the format type is [`FormatType::Video`].
     pub fn is_video(&self) -> bool {
         matches!(self, FormatType::Video)
     }
 
     /// Checks if the format is an audio format.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the format type is [`FormatType::Audio`].
     pub fn is_audio(&self) -> bool {
         matches!(self, FormatType::Audio)
     }
 
     /// Checks if the format is a storyboard format.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the format type is [`FormatType::Storyboard`].
     pub fn is_storyboard(&self) -> bool {
         matches!(self, FormatType::Storyboard)
     }
@@ -581,17 +640,13 @@ impl FormatType {
 
 impl fmt::Display for FormatType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "FormatType({})",
-            match self {
-                FormatType::Audio => "Audio",
-                FormatType::Video => "Video",
-                FormatType::AudioVideo => "AudioVideo",
-                FormatType::Manifest => "Manifest",
-                FormatType::Storyboard => "Storyboard",
-                FormatType::Unknown => "Unknown",
-            }
-        )
+        match self {
+            FormatType::Audio => f.write_str("Audio"),
+            FormatType::Video => f.write_str("Video"),
+            FormatType::AudioVideo => f.write_str("AudioVideo"),
+            FormatType::Manifest => f.write_str("Manifest"),
+            FormatType::Storyboard => f.write_str("Storyboard"),
+            FormatType::Unknown => f.write_str("Unknown"),
+        }
     }
 }

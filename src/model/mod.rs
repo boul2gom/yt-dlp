@@ -31,11 +31,22 @@ pub use video::FORMAT_URL_LIFETIME;
 pub use utils::{AllTraits, CommonTraits};
 
 /// DRM status of a video or format
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize)]
 pub enum DrmStatus {
     Yes,
+    #[default]
     No,
     Maybe,
+}
+
+impl fmt::Display for DrmStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DrmStatus::Yes => f.write_str("Yes"),
+            DrmStatus::No => f.write_str("No"),
+            DrmStatus::Maybe => f.write_str("Maybe"),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for DrmStatus {

@@ -14,13 +14,12 @@ use crate::model::format::HttpHeaders;
 use crate::utils::fs;
 use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
 use futures_util::{StreamExt, stream};
-use reqwest::header::{self, HeaderMap, HeaderValue, RANGE};
+use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use std::cmp::min;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
@@ -54,6 +53,29 @@ pub struct Fetcher {
     speed_profile: SpeedProfile,
 }
 
+impl fmt::Debug for Fetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Fetcher")
+            .field("url", &self.url)
+            .field("parallel_segments", &self.parallel_segments)
+            .field("segment_size", &self.segment_size)
+            .field("retry_attempts", &self.retry_attempts)
+            .field("speed_profile", &self.speed_profile)
+            .field("has_callback", &self.progress_callback.is_some())
+            .finish()
+    }
+}
+
+impl fmt::Display for Fetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Fetcher(url={}, segments={}, profile={})",
+            self.url, self.parallel_segments, self.speed_profile
+        )
+    }
+}
+
 impl Fetcher {
     /// Creates a new fetcher for the given URL.
     ///
@@ -70,25 +92,20 @@ impl Fetcher {
         proxy: Option<&ProxyConfig>,
         http_headers: Option<HttpHeaders>,
     ) -> Result<Self> {
-        let mut default_headers = None;
-        let mut user_agent = None;
+        tracing::debug!(
+            url = %url.as_ref(),
+            has_proxy = proxy.is_some(),
+            has_headers = http_headers.is_some(),
+            "⚙️ Creating fetcher"
+        );
 
-        if let Some(headers) = &http_headers {
-            user_agent = Some(headers.user_agent.clone());
-            let mut header_map = reqwest::header::HeaderMap::new();
-
-            if let Ok(hv) = HeaderValue::from_str(&headers.accept) {
-                header_map.insert(header::ACCEPT, hv);
-            }
-            if let Ok(hv) = HeaderValue::from_str(&headers.accept_language) {
-                header_map.insert(header::ACCEPT_LANGUAGE, hv);
-            }
-            if let Ok(hv) = HeaderValue::from_bytes(headers.sec_fetch_mode.as_bytes()) {
-                header_map.insert("Sec-Fetch-Mode", hv);
-            }
-
-            default_headers = Some(header_map);
-        }
+        let (user_agent, default_headers) = match &http_headers {
+            Some(headers) => (
+                Some(headers.user_agent.clone()),
+                Some(headers.to_header_map()),
+            ),
+            None => (None, None),
+        };
 
         let client = crate::utils::http::build_http_client(crate::utils::http::HttpClientConfig {
             proxy,
@@ -98,21 +115,35 @@ impl Fetcher {
             ..Default::default()
         })?;
 
-        Ok(Self {
+        Ok(Self::with_client(url, client))
+    }
+
+    /// Creates a new fetcher reusing an existing HTTP client.
+    ///
+    /// This avoids the cost of building a new connection pool, TLS session cache,
+    /// and DNS resolver for every download. Prefer this over [`Fetcher::new`] when
+    /// a shared client is available.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL from which to download the data.
+    /// * `client` - A shared HTTP client with connection pooling.
+    pub fn with_client(url: impl AsRef<str>, client: Arc<reqwest::Client>) -> Self {
+        tracing::debug!(
+            url = %url.as_ref(),
+            "⚙️ Creating fetcher with custom client"
+        );
+
+        Self {
             url: url.as_ref().to_string(),
             parallel_segments: DEFAULT_PARALLEL_SEGMENTS,
             segment_size: DEFAULT_SEGMENT_SIZE,
             retry_attempts: DEFAULT_RETRY_ATTEMPTS,
-            retry_policy: RetryPolicy::builder()
-                .max_attempts(DEFAULT_RETRY_ATTEMPTS as u32)
-                .initial_delay(Duration::from_millis(500))
-                .max_delay(Duration::from_secs(30))
-                .backoff_factor(2.0)
-                .build(),
+            retry_policy: RetryPolicy::default(),
             client,
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
-        })
+        }
     }
 
     /// Configures the number of parallel segments for downloading.
@@ -128,7 +159,7 @@ impl Fetcher {
         tracing::debug!(
             segments = segments,
             url = %self.url,
-            "Configuring parallel segments for fetcher"
+            "⚙️ Configuring parallel segments for fetcher"
         );
 
         self.parallel_segments = segments;
@@ -216,7 +247,7 @@ impl Fetcher {
         tracing::debug!(
             url = %self.url,
             has_token = auth_token.is_some(),
-            "Fetching data"
+            "⬇️ Fetching data"
         );
 
         let mut headers = HeaderMap::new();
@@ -257,7 +288,7 @@ impl Fetcher {
             destination = ?destination,
             parallel_segments = self.parallel_segments,
             segment_size = self.segment_size,
-            "Fetching asset to file"
+            "⬇️ Fetching asset to file"
         );
 
         // Ensure the destination directory exists
@@ -297,7 +328,7 @@ impl Fetcher {
         if !head_response.headers().contains_key("accept-ranges") {
             tracing::debug!(
                 url = %self.url,
-                "Server does not support range requests, falling back to simple download"
+                "⚙️ Server does not support range requests, falling back to simple download"
             );
             return self.fetch_asset_simple(destination).await;
         }
@@ -305,15 +336,19 @@ impl Fetcher {
         // Get the total file size
         let content_length = match head_response.headers().get("content-length") {
             Some(length) => {
-                let length_str = length.to_str().map_err(|e| Error::Unknown(format!("Invalid Content-Length header: {e}")))?;
-                length_str
-                    .parse::<u64>()
-                    .map_err(|e| Error::Unknown(format!("Failed to parse Content-Length '{length_str}': {e}")))?
+                let length_str = length
+                    .to_str()
+                    .map_err(|e| Error::Unknown(format!("Invalid Content-Length header: {e}")))?;
+                length_str.parse::<u64>().map_err(|e| {
+                    Error::Unknown(format!(
+                        "Failed to parse Content-Length '{length_str}': {e}"
+                    ))
+                })?
             }
             None => {
                 tracing::debug!(
                     url = %self.url,
-                    "Content-Length header not found, falling back to simple download"
+                    "⚙️ Content-Length header not found, falling back to simple download"
                 );
                 return self.fetch_asset_simple(destination).await;
             }
@@ -326,7 +361,7 @@ impl Fetcher {
             tracing::debug!(
                 destination = ?destination,
                 size = content_length,
-                "File already exists with correct size, skipping download"
+                "✅ File already exists with correct size, skipping download"
             );
             return Ok(());
         }
@@ -338,7 +373,7 @@ impl Fetcher {
                 destination = ?destination,
                 existing_size = file_size.unwrap_or(0),
                 total_size = content_length,
-                "Resuming download of existing file"
+                "🔄 Resuming download of existing file"
             );
 
             let file = tokio::fs::OpenOptions::new()
@@ -355,7 +390,7 @@ impl Fetcher {
             tracing::debug!(
                 destination = ?destination,
                 total_size = content_length,
-                "Creating new file for download"
+                "⬇️ Creating new file for download"
             );
 
             fs::create_parent_dir(&destination).await?;
@@ -377,7 +412,7 @@ impl Fetcher {
             segment_size = self.segment_size,
             total_size = content_length,
             optimal_segments = optimal_segments,
-            "Calculated parallel download segments"
+            "⚙️ Calculated parallel download segments"
         );
 
         // Calculate ranges for each segment
@@ -443,9 +478,9 @@ impl Fetcher {
             .collect();
 
         tracing::debug!(
-            "Resuming download: {} of {} segments already downloaded",
-            downloaded_segments.iter().filter(|&&x| x).count(),
-            ranges.len()
+            completed = downloaded_segments.iter().filter(|&&x| x).count(),
+            total = ranges.len(),
+            "🔄 Resuming download"
         );
 
         // Limit the number of parallel tasks
@@ -517,11 +552,7 @@ impl Fetcher {
                                 return Ok(());
                             }
                             Err(error) if attempt < self.retry_attempts - 1 => {
-                                tracing::warn!(
-                                    "Segment download failed (attempt {}): {}",
-                                    attempt + 1,
-                                    error
-                                );
+                                tracing::warn!(attempt = attempt + 1, error = %error, "🔄 Segment download failed");
                                 // Consume the error
                                 let _ = error;
 
@@ -609,14 +640,14 @@ impl Fetcher {
             tracing::debug!(
                 segment_start = start,
                 segment_end = end,
-                "Segment already downloaded (verified), skipping"
+                "✅ Segment already downloaded (verified), skipping"
             );
             return Ok(());
         } else if start_has_data {
             tracing::warn!(
-                "Segment {}-{} has data at start but not at end. Assuming partial write and re-downloading.",
-                start,
-                end
+                segment_start = start,
+                segment_end = end,
+                "🔄 Segment has data at start but not at end, re-downloading"
             );
         }
 
@@ -690,7 +721,7 @@ impl Fetcher {
         tracing::debug!(
             url = %self.url,
             destination = ?destination,
-            "Using simple download (no parallel segments)"
+            "⬇️ Using simple download (no parallel segments)"
         );
 
         // Ensure the destination directory exists
@@ -817,15 +848,5 @@ impl Fetcher {
         }
 
         Ok(())
-    }
-}
-
-impl fmt::Display for Fetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Fetcher(url={}, segments={})",
-            self.url, self.parallel_segments
-        )
     }
 }

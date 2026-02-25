@@ -43,6 +43,16 @@ pub struct LibraryInstaller {
     pub destination: PathBuf,
 }
 
+impl fmt::Display for LibraryInstaller {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "LibraryInstaller(destination={})",
+            self.destination.display()
+        )
+    }
+}
+
 /// The installed libraries.
 ///
 /// # Examples
@@ -67,6 +77,17 @@ pub struct Libraries {
     pub youtube: PathBuf,
     /// The path to the installed ffmpeg binary.
     pub ffmpeg: PathBuf,
+}
+
+impl fmt::Display for Libraries {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Libraries(youtube={}, ffmpeg={})",
+            self.youtube.display(),
+            self.ffmpeg.display()
+        )
+    }
 }
 
 impl LibraryInstaller {
@@ -103,7 +124,7 @@ impl LibraryInstaller {
             repo = %repo,
             custom_name = ?custom_name,
             destination = ?self.destination,
-            "Installing yt-dlp from repository"
+            "📦 Installing yt-dlp from repository"
         );
 
         fs::create_dir(self.destination.clone()).await?;
@@ -128,7 +149,7 @@ impl LibraryInstaller {
         tracing::debug!(
             custom_name = ?custom_name,
             destination = ?self.destination,
-            "Installing ffmpeg from static builds"
+            "📦 Installing ffmpeg from static builds"
         );
 
         fs::create_dir(self.destination.clone()).await?;
@@ -154,10 +175,10 @@ impl LibraryInstaller {
 impl Libraries {
     /// Install the required dependencies.
     pub async fn install_dependencies(&self) -> Result<Self> {
-        tracing::debug!(
+        tracing::info!(
             youtube_path = ?self.youtube,
             ffmpeg_path = ?self.ffmpeg,
-            "Installing required dependencies"
+            "📦 Installing required dependencies"
         );
 
         let youtube = self.install_youtube().await?;
@@ -175,11 +196,11 @@ impl Libraries {
         &self,
         auth_token: impl Into<String>,
     ) -> Result<Self> {
-        tracing::debug!(
+        tracing::info!(
             youtube_path = ?self.youtube,
             ffmpeg_path = ?self.ffmpeg,
             has_token = true,
-            "Installing required dependencies with authentication token"
+            "📦 Installing required dependencies with authentication token"
         );
 
         let token = auth_token.into();
@@ -206,7 +227,7 @@ impl Libraries {
         tracing::debug!(
             youtube_path = ?self.youtube,
             has_token = auth_token.is_some(),
-            "Installing yt-dlp binary"
+            "📦 Installing yt-dlp binary"
         );
 
         let parent = fs::try_parent(self.youtube.clone())?;
@@ -241,7 +262,7 @@ impl Libraries {
     async fn install_ffmpeg_internal(&self, _auth_token: Option<String>) -> Result<PathBuf> {
         tracing::debug!(
             ffmpeg_path = ?self.ffmpeg,
-            "Installing ffmpeg binary"
+            "📦 Installing ffmpeg binary"
         );
 
         let parent = fs::try_parent(self.ffmpeg.clone())?;
@@ -272,7 +293,7 @@ impl fmt::Display for Release {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Release: tag={}, assets={};",
+            "Release(tag={}, assets={})",
             self.tag_name,
             self.assets.len()
         )
@@ -293,7 +314,7 @@ pub struct Asset {
 
 impl fmt::Display for Asset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Asset: name={}, url={};", self.name, self.download_url)
+        write!(f, "Asset(name={}, url={})", self.name, self.download_url)
     }
 }
 
@@ -312,8 +333,10 @@ impl fmt::Display for WantedRelease {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "WantedRelease: asset={}, url={}, checksum={:?};",
-            self.name, self.url, self.checksum
+            "WantedRelease(asset={}, url={}, checksum={})",
+            self.name,
+            self.url,
+            self.checksum.as_deref().unwrap_or("none")
         )
     }
 }
@@ -336,7 +359,7 @@ impl WantedRelease {
             destination = ?destination,
             asset_name = %self.name,
             has_checksum = self.checksum.is_some(),
-            "Downloading release asset"
+            "📦 Downloading release asset"
         );
 
         let fetcher = Fetcher::new(&self.url, None, None)?;
@@ -346,7 +369,7 @@ impl WantedRelease {
             tracing::debug!(
                 destination = ?destination,
                 expected_checksum = %expected_checksum,
-                "Verifying asset checksum"
+                "⚙️ Verifying asset checksum"
             );
 
             let dest_path = destination.clone();
@@ -387,14 +410,16 @@ impl WantedRelease {
                 let _ = tokio::fs::remove_file(&destination).await;
                 return Err(crate::error::Error::Unknown(format!(
                     "Checksum verification failed for '{}'. Expected: {}, Actual: {}",
-                    destination.display(), expected_checksum, actual_checksum
+                    destination.display(),
+                    expected_checksum,
+                    actual_checksum
                 )));
             }
 
             tracing::debug!(
                 expected = %expected_checksum,
                 actual = %actual_checksum,
-                "Checksum verification passed"
+                "✅ Checksum verification passed"
             );
         }
 

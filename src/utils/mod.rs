@@ -33,11 +33,6 @@ pub use url_expiry::{ExpiryConfig, UrlStatus, check_download_error, should_refre
 ///
 /// A vector of owned strings
 pub fn to_owned(vec: Vec<impl AsRef<str>>) -> Vec<String> {
-    tracing::trace!(
-        input_count = vec.len(),
-        "Converting vector of string slices to owned strings"
-    );
-
     vec.into_iter().map(|s| s.as_ref().to_owned()).collect()
 }
 
@@ -54,24 +49,10 @@ pub fn find_executable(name: impl AsRef<str>) -> String {
     let platform = Platform::detect();
     let name_str = name.as_ref();
 
-    tracing::trace!(
-        name = name_str,
-        platform = %platform,
-        "Finding executable name for platform"
-    );
-
-    let executable = match platform {
+    match platform {
         Platform::Windows => format!("{}.exe", name_str),
         _ => name_str.to_string(),
-    };
-
-    tracing::trace!(
-        name = name_str,
-        executable = %executable,
-        "Executable name resolved"
-    );
-
-    executable
+    }
 }
 
 /// Awaits two futures and returns a tuple of their results.
@@ -85,14 +66,14 @@ pub async fn await_two<T: std::fmt::Debug>(
     first: JoinHandle<Result<T>>,
     second: JoinHandle<Result<T>>,
 ) -> Result<(T, T)> {
-    tracing::debug!("Awaiting two futures");
+    tracing::debug!("⚙️ Awaiting two futures");
 
     let (first_result, second_result) = tokio::try_join!(first, second)?;
 
     let first = first_result?;
     let second = second_result?;
 
-    tracing::debug!("Both futures completed successfully");
+    tracing::debug!("✅ Both futures completed successfully");
 
     Ok((first, second))
 }
@@ -116,7 +97,7 @@ where
     I: IntoIterator<Item = JoinHandle<Result<T>>> + std::fmt::Debug,
     T: Send + 'static,
 {
-    tracing::debug!("Awaiting multiple futures");
+    tracing::debug!("⚙️ Awaiting multiple futures");
 
     let results = futures_util::future::try_join_all(handles).await?;
 
@@ -125,7 +106,7 @@ where
     if let Ok(ref vec) = result_vec {
         tracing::debug!(
             completed_count = vec.len(),
-            "All futures completed successfully"
+            "✅ All futures completed successfully"
         );
     }
 
@@ -138,14 +119,10 @@ where
 ///
 /// Unix timestamp in seconds as i64.
 pub fn current_timestamp() -> i64 {
-    let timestamp = SystemTime::now()
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64;
-
-    tracing::debug!(timestamp = timestamp, "Retrieved current timestamp");
-
-    timestamp
+        .as_secs() as i64
 }
 
 /// Checks if a timestamp is expired given a TTL.
@@ -160,15 +137,5 @@ pub fn current_timestamp() -> i64 {
 /// `true` if the cached item has expired, `false` otherwise.
 pub fn is_expired(cached_at: i64, ttl: u64) -> bool {
     let now = current_timestamp();
-    let expired = (now - cached_at) > ttl as i64;
-
-    tracing::debug!(
-        cached_at = cached_at,
-        ttl = ttl,
-        now = now,
-        expired = expired,
-        "Checking cache expiration"
-    );
-
-    expired
+    (now - cached_at) > ttl as i64
 }

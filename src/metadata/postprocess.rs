@@ -42,13 +42,13 @@ pub async fn apply_postprocess(
         output_path = ?output_path,
         is_empty = config.is_empty(),
         timeout_secs = timeout.as_secs(),
-        "Applying post-processing to video file"
+        "✂️ Applying post-processing to video file"
     );
 
     if config.is_empty() {
         tracing::debug!(
             input_path = ?input_path,
-            "No post-processing needed, returning input path"
+            "✂️ No post-processing needed, returning input path"
         );
         // No processing needed, just copy or return input
         return Ok(input_path);
@@ -70,23 +70,17 @@ pub async fn apply_postprocess(
         input_path = ?input_path,
         output_path = ?output_path,
         arg_count = args.len(),
-        "Executing FFmpeg post-processing command"
+        "✂️ Executing FFmpeg post-processing command"
     );
 
     let executor = Executor::new(libraries.ffmpeg.clone(), args, timeout);
-
-    tracing::trace!(
-        ffmpeg_path = ?libraries.ffmpeg,
-        timeout_secs = timeout.as_secs(),
-        "Executing FFmpeg for post-processing"
-    );
 
     let result = executor.execute().await;
 
     match &result {
         Ok(_) => tracing::debug!(
             output_path = ?output_path,
-            "Post-processing completed successfully"
+            "✅ Post-processing completed successfully"
         ),
         Err(e) => tracing::warn!(
             input_path = ?input_path,
@@ -131,7 +125,7 @@ pub fn build_ffmpeg_command(
         has_preset = config.preset.is_some(),
         has_resolution = config.resolution.is_some(),
         filter_count = config.filters.len(),
-        "Building FFmpeg command for post-processing"
+        "✂️ Building FFmpeg command for post-processing"
     );
 
     let mut builder = crate::executor::FfmpegArgs::new().input(input);
@@ -140,7 +134,7 @@ pub fn build_ffmpeg_command(
     if let Some(ref video_codec) = config.video_codec {
         tracing::trace!(
             video_codec = %video_codec.to_ffmpeg_name(),
-            "Adding video codec to FFmpeg command"
+            "⚙️ Adding video codec"
         );
         builder = builder.args(["-c:v", video_codec.to_ffmpeg_name()]);
     }
@@ -149,7 +143,7 @@ pub fn build_ffmpeg_command(
     if let Some(ref audio_codec) = config.audio_codec {
         tracing::trace!(
             audio_codec = %audio_codec.to_ffmpeg_name(),
-            "Adding audio codec to FFmpeg command"
+            "⚙️ Adding audio codec"
         );
         builder = builder.args(["-c:a", audio_codec.to_ffmpeg_name()]);
     }
@@ -183,7 +177,7 @@ pub fn build_ffmpeg_command(
         tracing::trace!(
             resolution = ?resolution,
             scale_filter = %scale_filter,
-            "Adding resolution filter"
+            "⚙️ Adding resolution filter"
         );
         filter_chain.push(scale_filter);
     }
@@ -193,7 +187,7 @@ pub fn build_ffmpeg_command(
         let filter_str = filter.to_ffmpeg_string();
         tracing::trace!(
             filter = %filter_str,
-            "Adding custom filter"
+            "⚙️ Adding custom filter"
         );
         filter_chain.push(filter_str);
     }
@@ -204,14 +198,14 @@ pub fn build_ffmpeg_command(
         tracing::trace!(
             filter_count = filter_chain.len(),
             filter_chain = %joined,
-            "Adding video filter chain to FFmpeg command"
+            "⚙️ Adding video filter chain"
         );
         builder = builder.args(["-vf".to_string(), joined]);
     }
 
     let args = builder.output(output).build();
 
-    tracing::debug!(arg_count = args.len(), "FFmpeg command built successfully");
+    tracing::debug!(arg_count = args.len(), "✅ FFmpeg command built");
 
     Ok(args)
 }

@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 
 /// Progress information for a download
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgressInfo {
     /// Downloaded bytes
     pub downloaded: u64,
@@ -43,6 +43,18 @@ impl ProgressInfo {
     }
 }
 
+impl std::fmt::Display for ProgressInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ProgressInfo(downloaded={}, total={}, percent={:.1}%)",
+            self.downloaded,
+            self.total,
+            self.percentage() * 100.0
+        )
+    }
+}
+
 /// Progress tracker for downloads
 #[derive(Debug)]
 pub struct ProgressTracker {
@@ -58,7 +70,7 @@ impl ProgressTracker {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
 
-        tracing::debug!("Created new progress tracker");
+        tracing::debug!(capacity = 100, "⚙️ Created new progress tracker");
 
         Self { tx }
     }
@@ -70,11 +82,17 @@ impl ProgressTracker {
     /// * `downloaded` - Number of bytes downloaded
     /// * `total` - Total number of bytes
     pub fn update(&self, downloaded: u64, total: u64) {
+        let percentage = if total > 0 {
+            (downloaded as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
         tracing::debug!(
             downloaded = downloaded,
             total = total,
-            percentage = format!("{:.2}%", (downloaded as f64 / total as f64) * 100.0),
-            "Progress updated"
+            percentage = percentage,
+            "⬇️ Progress updated"
         );
 
         let _ = self.tx.send(ProgressInfo::new(downloaded, total));
@@ -86,7 +104,7 @@ impl ProgressTracker {
     ///
     /// A BroadcastStream that receives progress updates
     pub fn stream(&self) -> BroadcastStream<ProgressInfo> {
-        tracing::debug!("Creating progress stream");
+        tracing::debug!("⬇️ Creating progress stream");
 
         BroadcastStream::new(self.tx.subscribe())
     }
@@ -97,7 +115,7 @@ impl ProgressTracker {
     ///
     /// A callback function that can be used to update progress
     pub fn callback(&self) -> impl Fn(u64, u64) + Send + Sync + 'static {
-        tracing::debug!("Creating progress callback");
+        tracing::debug!("⚙️ Creating progress callback");
 
         let tx = self.tx.clone();
         move |downloaded, total| {

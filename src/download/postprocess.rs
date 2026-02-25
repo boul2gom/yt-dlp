@@ -6,7 +6,7 @@
 use std::fmt;
 
 /// Video codec options for encoding
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum VideoCodec {
     /// H.264/AVC codec (libx264)
     H264,
@@ -17,6 +17,7 @@ pub enum VideoCodec {
     /// AV1 codec (libaom-av1)
     AV1,
     /// Copy video stream without re-encoding
+    #[default]
     Copy,
 }
 
@@ -27,28 +28,32 @@ impl VideoCodec {
     ///
     /// The FFmpeg codec name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        let result = match self {
+        match self {
             Self::H264 => "libx264",
             Self::H265 => "libx265",
             Self::VP9 => "libvpx-vp9",
             Self::AV1 => "libaom-av1",
             Self::Copy => "copy",
-        };
+        }
+    }
+}
 
-        tracing::debug!(
-            codec = ?self,
-            ffmpeg_name = result,
-            "Converted video codec to FFmpeg name"
-        );
-
-        result
+impl fmt::Display for VideoCodec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::H264 => f.write_str("H264"),
+            Self::H265 => f.write_str("H265"),
+            Self::VP9 => f.write_str("VP9"),
+            Self::AV1 => f.write_str("AV1"),
+            Self::Copy => f.write_str("Copy"),
+        }
     }
 }
 
 /// Audio codec options for encoding
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum AudioCodec {
-    /// AAC codec
+    /// AAC codec    
     AAC,
     /// MP3 codec (libmp3lame)
     MP3,
@@ -57,6 +62,7 @@ pub enum AudioCodec {
     /// Vorbis codec
     Vorbis,
     /// Copy audio stream without re-encoding
+    #[default]
     Copy,
 }
 
@@ -67,26 +73,30 @@ impl AudioCodec {
     ///
     /// The FFmpeg codec name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        let result = match self {
+        match self {
             Self::AAC => "aac",
             Self::MP3 => "libmp3lame",
             Self::Opus => "libopus",
             Self::Vorbis => "libvorbis",
             Self::Copy => "copy",
-        };
+        }
+    }
+}
 
-        tracing::debug!(
-            codec = ?self,
-            ffmpeg_name = result,
-            "Converted audio codec to FFmpeg name"
-        );
-
-        result
+impl fmt::Display for AudioCodec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AAC => f.write_str("AAC"),
+            Self::MP3 => f.write_str("MP3"),
+            Self::Opus => f.write_str("Opus"),
+            Self::Vorbis => f.write_str("Vorbis"),
+            Self::Copy => f.write_str("Copy"),
+        }
     }
 }
 
 /// Video resolution preset
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Resolution {
     /// 7680x4320 (8K)
     UHD8K,
@@ -132,22 +142,29 @@ impl Resolution {
     /// FFmpeg scale filter string (e.g., "1920:1080")
     pub fn to_ffmpeg_scale(&self) -> String {
         let (width, height) = self.dimensions();
-        let result = format!("{}:{}", width, height);
+        format!("{}:{}", width, height)
+    }
+}
 
-        tracing::debug!(
-            resolution = ?self,
-            width = width,
-            height = height,
-            ffmpeg_scale = %result,
-            "Converted resolution to FFmpeg scale filter"
-        );
-
-        result
+impl fmt::Display for Resolution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UHD8K => f.write_str("UHD8K"),
+            Self::UHD4K => f.write_str("UHD4K"),
+            Self::QHD => f.write_str("QHD"),
+            Self::FullHD => f.write_str("FullHD"),
+            Self::HD => f.write_str("HD"),
+            Self::SD => f.write_str("SD"),
+            Self::Low => f.write_str("Low"),
+            Self::Custom { width, height } => {
+                write!(f, "Custom(width={}, height={})", width, height)
+            }
+        }
     }
 }
 
 /// Encoding preset for quality/speed trade-off
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum EncodingPreset {
     /// Ultra fast encoding (lowest quality)
     UltraFast,
@@ -158,6 +175,7 @@ pub enum EncodingPreset {
     /// Fast encoding
     Fast,
     /// Medium encoding (balanced)
+    #[default]
     Medium,
     /// Slow encoding (better quality)
     Slow,
@@ -174,7 +192,7 @@ impl EncodingPreset {
     ///
     /// The FFmpeg preset name string
     pub fn to_ffmpeg_name(&self) -> &str {
-        let result = match self {
+        match self {
             Self::UltraFast => "ultrafast",
             Self::SuperFast => "superfast",
             Self::VeryFast => "veryfast",
@@ -183,20 +201,27 @@ impl EncodingPreset {
             Self::Slow => "slow",
             Self::Slower => "slower",
             Self::VerySlow => "veryslow",
-        };
+        }
+    }
+}
 
-        tracing::debug!(
-            preset = ?self,
-            ffmpeg_name = result,
-            "Converted encoding preset to FFmpeg name"
-        );
-
-        result
+impl fmt::Display for EncodingPreset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UltraFast => f.write_str("UltraFast"),
+            Self::SuperFast => f.write_str("SuperFast"),
+            Self::VeryFast => f.write_str("VeryFast"),
+            Self::Fast => f.write_str("Fast"),
+            Self::Medium => f.write_str("Medium"),
+            Self::Slow => f.write_str("Slow"),
+            Self::Slower => f.write_str("Slower"),
+            Self::VerySlow => f.write_str("VerySlow"),
+        }
     }
 }
 
 /// Watermark position on the video
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum WatermarkPosition {
     /// Top left corner
     TopLeft,
@@ -222,6 +247,19 @@ impl WatermarkPosition {
             Self::BottomRight => "x=W-w-10:y=H-h-10".to_string(),
             Self::Center => "x=(W-w)/2:y=(H-h)/2".to_string(),
             Self::Custom { x, y } => format!("x={}:y={}", x, y),
+        }
+    }
+}
+
+impl fmt::Display for WatermarkPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TopLeft => f.write_str("TopLeft"),
+            Self::TopRight => f.write_str("TopRight"),
+            Self::BottomLeft => f.write_str("BottomLeft"),
+            Self::BottomRight => f.write_str("BottomRight"),
+            Self::Center => f.write_str("Center"),
+            Self::Custom { x, y } => write!(f, "Custom(x={}, y={})", x, y),
         }
     }
 }
@@ -270,12 +308,7 @@ impl FfmpegFilter {
     ///
     /// The FFmpeg filter string
     pub fn to_ffmpeg_string(&self) -> String {
-        tracing::debug!(
-            filter = ?self,
-            "Converting FFmpeg filter to string"
-        );
-
-        let result = match self {
+        match self {
             Self::Crop {
                 width,
                 height,
@@ -305,20 +338,42 @@ impl FfmpegFilter {
             Self::Denoise => "hqdn3d".to_string(),
             Self::Sharpen => "unsharp=5:5:1.0:5:5:0.0".to_string(),
             Self::Custom { filter } => filter.clone(),
-        };
+        }
+    }
+}
 
-        tracing::debug!(
-            filter = ?self,
-            ffmpeg_string = %result,
-            "Converted FFmpeg filter to string"
-        );
-
-        result
+impl fmt::Display for FfmpegFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Crop {
+                width,
+                height,
+                x,
+                y,
+            } => {
+                write!(
+                    f,
+                    "Crop(width={}, height={}, x={}, y={})",
+                    width, height, x, y
+                )
+            }
+            Self::Rotate { angle } => write!(f, "Rotate(angle={})", angle),
+            Self::Watermark { position, .. } => write!(f, "Watermark(position={})", position),
+            Self::Brightness { value } => write!(f, "Brightness(value={})", value),
+            Self::Contrast { value } => write!(f, "Contrast(value={})", value),
+            Self::Saturation { value } => write!(f, "Saturation(value={})", value),
+            Self::Blur { radius } => write!(f, "Blur(radius={})", radius),
+            Self::FlipHorizontal => f.write_str("FlipHorizontal"),
+            Self::FlipVertical => f.write_str("FlipVertical"),
+            Self::Denoise => f.write_str("Denoise"),
+            Self::Sharpen => f.write_str("Sharpen"),
+            Self::Custom { filter } => write!(f, "Custom(filter={})", filter),
+        }
     }
 }
 
 /// Comprehensive post-processing configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PostProcessConfig {
     /// Video codec to use for encoding
     pub video_codec: Option<VideoCodec>,
@@ -345,7 +400,7 @@ impl PostProcessConfig {
     ///
     /// An empty PostProcessConfig with all options set to None
     pub fn new() -> Self {
-        tracing::debug!("Created new post-processing configuration");
+        tracing::debug!("✂️ Created new post-processing configuration");
 
         Self {
             video_codec: None,
@@ -369,8 +424,6 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn with_video_codec(mut self, codec: VideoCodec) -> Self {
-        tracing::debug!(codec = ?codec, "Setting video codec");
-
         self.video_codec = Some(codec);
         self
     }
@@ -385,8 +438,6 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn with_audio_codec(mut self, codec: AudioCodec) -> Self {
-        tracing::debug!(codec = ?codec, "Setting audio codec");
-
         self.audio_codec = Some(codec);
         self
     }
@@ -431,7 +482,7 @@ impl PostProcessConfig {
     ///
     /// Self for method chaining
     pub fn add_filter(mut self, filter: FfmpegFilter) -> Self {
-        tracing::debug!(filter = ?filter, "Adding FFmpeg filter to post-processing config");
+        tracing::debug!(filter = ?filter, "✂️ Adding FFmpeg filter to post-processing config");
 
         self.filters.push(filter);
         self
@@ -443,22 +494,14 @@ impl PostProcessConfig {
     ///
     /// true if no post-processing options are set, false otherwise
     pub fn is_empty(&self) -> bool {
-        let result = self.video_codec.is_none()
+        self.video_codec.is_none()
             && self.audio_codec.is_none()
             && self.video_bitrate.is_none()
             && self.audio_bitrate.is_none()
             && self.resolution.is_none()
             && self.framerate.is_none()
             && self.preset.is_none()
-            && self.filters.is_empty();
-
-        tracing::debug!(
-            is_empty = result,
-            filter_count = self.filters.len(),
-            "Checked if post-processing config is empty"
-        );
-
-        result
+            && self.filters.is_empty()
     }
 }
 
@@ -470,11 +513,19 @@ impl Default for PostProcessConfig {
 
 impl fmt::Display for PostProcessConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let video = self
+            .video_codec
+            .as_ref()
+            .map_or("None".to_string(), |c| c.to_string());
+        let audio = self
+            .audio_codec
+            .as_ref()
+            .map_or("None".to_string(), |c| c.to_string());
         write!(
             f,
-            "PostProcessConfig(video_codec={:?}, audio_codec={:?}, filters={})",
-            self.video_codec,
-            self.audio_codec,
+            "PostProcessConfig(video_codec={}, audio_codec={}, filters={})",
+            video,
+            audio,
             self.filters.len()
         )
     }
