@@ -66,16 +66,6 @@ pub enum SpeedProfile {
     Aggressive,
 }
 
-impl fmt::Display for SpeedProfile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Conservative => write!(f, "Conservative"),
-            Self::Balanced => write!(f, "Balanced"),
-            Self::Aggressive => write!(f, "Aggressive"),
-        }
-    }
-}
-
 impl SpeedProfile {
     /// Get the maximum number of concurrent downloads for this profile
     ///
@@ -248,6 +238,16 @@ impl SpeedProfile {
             Self::Conservative => 2,
             Self::Balanced => 3,
             Self::Aggressive => 5,
+        }
+    }
+}
+
+impl fmt::Display for SpeedProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Conservative => write!(f, "Conservative"),
+            Self::Balanced => write!(f, "Balanced"),
+            Self::Aggressive => write!(f, "Aggressive"),
         }
     }
 }

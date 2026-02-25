@@ -4,8 +4,6 @@
 //! backend (JSON or SQLite) to store files and metadata.
 
 use crate::cache::backend::{FileBackend, FileBackendEnum};
-
-use crate::cache::current_timestamp;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedType};
 use crate::error::Result;
 use crate::model::format::Format;
@@ -14,6 +12,7 @@ use crate::model::selector::{
 };
 use crate::model::thumbnail::Thumbnail;
 use crate::model::utils::serde::{serialize_json, serialize_json_opt};
+use crate::utils::current_timestamp;
 use crate::utils::validation::sanitize_filename;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -90,76 +89,6 @@ impl DownloadCache {
         );
 
         Ok(hash_str)
-    }
-
-    /// Determines the MIME type of a file based on its extension.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - Path to the file.
-    ///
-    /// # Returns
-    ///
-    /// The MIME type as a string.
-    fn determine_mime_type(file_path: impl Into<PathBuf>) -> String {
-        let file_path: PathBuf = file_path.into();
-        let extension = file_path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
-
-        let mime_type = match extension.to_lowercase().as_str() {
-            "mp4" => "video/mp4".to_string(),
-            "webm" => "video/webm".to_string(),
-            "mp3" => "audio/mpeg".to_string(),
-            "m4a" => "audio/mp4".to_string(),
-            "jpg" | "jpeg" => "image/jpeg".to_string(),
-            "png" => "image/png".to_string(),
-            "vtt" => "text/vtt".to_string(),
-            "srt" => "application/x-subrip".to_string(),
-            "ass" | "ssa" => "text/x-ssa".to_string(),
-            _ => "application/octet-stream".to_string(),
-        };
-
-        tracing::debug!(
-            file_path = ?file_path,
-            extension = extension,
-            mime_type = %mime_type,
-            "Determined MIME type"
-        );
-
-        mime_type
-    }
-
-    /// Collects basic file info needed for caching: hash, filesize, mime_type, extension.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_path` - Path to the source file.
-    /// * `filename` - The (possibly sanitized) filename used to derive the extension.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(hash, filesize, mime_type, extension)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the hash calculation or metadata retrieval fails.
-    async fn collect_file_info(
-        source_path: &Path,
-        filename: &str,
-    ) -> Result<(String, i64, String, String)> {
-        let file_hash = Self::calculate_file_hash(source_path).await?;
-        let metadata = tokio::fs::metadata(source_path).await?;
-        let filesize = metadata.len() as i64;
-        let mime_type = Self::determine_mime_type(source_path);
-        let extension = Path::new(filename)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok((file_hash, filesize, mime_type, extension))
     }
 
     /// Cleans the cache by removing expired entries.
@@ -615,5 +544,44 @@ impl DownloadCache {
         self.backend.put(cached_file.clone(), &source_path).await?;
 
         Ok(cached_file)
+    }
+
+    /// Determines the MIME type of a file based on its extension.
+    ///
+    /// Delegates to [`crate::utils::fs::determine_mime_type`].
+    fn determine_mime_type(file_path: impl Into<PathBuf>) -> String {
+        let file_path: PathBuf = file_path.into();
+        crate::utils::fs::determine_mime_type(&file_path)
+    }
+
+    /// Collects basic file info needed for caching: hash, filesize, mime_type, extension.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Path to the source file.
+    /// * `filename` - The (possibly sanitized) filename used to derive the extension.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(hash, filesize, mime_type, extension)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hash calculation or metadata retrieval fails.
+    async fn collect_file_info(
+        source_path: &Path,
+        filename: &str,
+    ) -> Result<(String, i64, String, String)> {
+        let file_hash = Self::calculate_file_hash(source_path).await?;
+        let metadata = tokio::fs::metadata(source_path).await?;
+        let filesize = metadata.len() as i64;
+        let mime_type = Self::determine_mime_type(source_path);
+        let extension = Path::new(filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        Ok((file_hash, filesize, mime_type, extension))
     }
 }

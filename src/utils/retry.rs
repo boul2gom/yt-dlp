@@ -35,48 +35,10 @@ pub struct RetryPolicy {
     jitter: bool,
 }
 
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(500),
-            max_delay: Duration::from_secs(60),
-            backoff_factor: 2.0,
-            jitter: true,
-        }
-    }
-}
-
 impl RetryPolicy {
     /// Create a new retry policy with default values.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Calculate the delay for a specific retry attempt.
-    ///
-    /// # Arguments
-    ///
-    /// * `attempt` - The retry attempt number (0-based)
-    fn calculate_delay(&self, attempt: u32) -> Duration {
-        // Calculate exponential backoff: initial_delay * (backoff_factor ^ attempt)
-        let base_delay =
-            self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
-
-        // Cap at max_delay
-        let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);
-
-        // Add jitter if enabled (random value between 0% and 20% of delay)
-        let final_delay_ms = if self.jitter {
-            use rand::prelude::*;
-            let mut rng = rand::rng();
-            let jitter_factor: f64 = rng.random_range(0.8..=1.0);
-            delay_ms * jitter_factor
-        } else {
-            delay_ms
-        };
-
-        Duration::from_millis(final_delay_ms as u64)
     }
 
     /// Execute an async operation with retry logic.
@@ -103,51 +65,13 @@ impl RetryPolicy {
     /// # Ok(result)
     /// # }
     /// ```
-    pub async fn execute<F, Fut, T, E>(&self, mut operation: F) -> Result<T, E>
+    pub async fn execute<F, Fut, T, E>(&self, operation: F) -> Result<T, E>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
-        let mut last_error = None;
-
-        for attempt in 0..self.max_attempts {
-            if attempt > 0 {
-                tracing::debug!("Retry attempt {}/{}", attempt + 1, self.max_attempts);
-            }
-
-            match operation().await {
-                Ok(result) => {
-                    if attempt > 0 {
-                        tracing::info!("Operation succeeded after {} retry attempts", attempt);
-                    }
-                    return Ok(result);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Operation failed (attempt {}/{}): {}",
-                        attempt + 1,
-                        self.max_attempts,
-                        e
-                    );
-
-                    last_error = Some(e);
-
-                    // Don't sleep after the last attempt
-                    if attempt + 1 < self.max_attempts {
-                        let delay = self.calculate_delay(attempt);
-
-                        tracing::debug!("Waiting {:?} before retry", delay);
-
-                        sleep(delay).await;
-                    }
-                }
-            }
-        }
-
-        // All retries failed, return the last error
-        Err(last_error
-            .unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
+        self.execute_with_condition(operation, |_| true).await
     }
 
     /// Execute an async operation with retry logic and a condition for retryable errors.
@@ -241,6 +165,44 @@ impl RetryPolicy {
     /// Check if jitter is enabled.
     pub fn has_jitter(&self) -> bool {
         self.jitter
+    }
+
+    /// Calculate the delay for a specific retry attempt.
+    ///
+    /// # Arguments
+    ///
+    /// * `attempt` - The retry attempt number (0-based)
+    fn calculate_delay(&self, attempt: u32) -> Duration {
+        // Calculate exponential backoff: initial_delay * (backoff_factor ^ attempt)
+        let base_delay =
+            self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
+
+        // Cap at max_delay
+        let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);
+
+        // Add jitter if enabled (random value between 0% and 20% of delay)
+        let final_delay_ms = if self.jitter {
+            use rand::prelude::*;
+            let mut rng = rand::rng();
+            let jitter_factor: f64 = rng.random_range(0.8..=1.0);
+            delay_ms * jitter_factor
+        } else {
+            delay_ms
+        };
+
+        Duration::from_millis(final_delay_ms as u64)
+    }
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_delay: Duration::from_millis(500),
+            max_delay: Duration::from_secs(60),
+            backoff_factor: 2.0,
+            jitter: true,
+        }
     }
 }
 

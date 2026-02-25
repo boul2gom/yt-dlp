@@ -3,12 +3,14 @@
 //! This module provides a high-level API for caching video metadata,
 //! using pluggable backend implementations.
 
+use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::cache::backend::{VideoBackend, VideoBackendEnum};
-use crate::cache::current_timestamp;
 use crate::error::Result;
 use crate::model::Video;
+use crate::utils::current_timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use crate::model::utils;
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,8 +39,7 @@ impl CachedVideo {
     ///
     /// Returns an error if JSON deserialization fails.
     pub fn video(&self) -> Result<Video> {
-        serde_json::from_str(&self.video_json)
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to parse video: {}", e)))
+        Ok(serde_json::from_str(&self.video_json)?)
     }
 }
 
@@ -90,6 +91,35 @@ pub struct CachedFile {
     pub mime_type: String,
     /// The cache timestamp (Unix timestamp).
     pub cached_at: i64,
+}
+
+impl CachedFile {
+    /// Checks if this cached file matches the given preferences.
+    pub fn matches_preferences(
+        &self,
+        video_quality: Option<VideoQuality>,
+        audio_quality: Option<AudioQuality>,
+        video_codec: Option<VideoCodecPreference>,
+        audio_codec: Option<AudioCodecPreference>,
+    ) -> bool {
+        if video_quality.is_some() && self.video_quality != utils::serde::serialize_json_opt(video_quality) {
+            return false;
+        }
+
+        if audio_quality.is_some() && self.audio_quality != utils::serde::serialize_json_opt(audio_quality) {
+            return false;
+        }
+
+        if video_codec.is_some() && self.video_codec != utils::serde::serialize_json_opt(video_codec) {
+            return false;
+        }
+
+        if audio_codec.is_some() && self.audio_codec != utils::serde::serialize_json_opt(audio_codec) {
+            return false;
+        }
+
+        true
+    }
 }
 
 /// Enum representing the type of cached file

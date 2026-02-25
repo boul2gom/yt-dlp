@@ -1,12 +1,105 @@
 //! Tools for working with the file system.
 
 use crate::error::{Error, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 use tokio::fs::{File, OpenOptions};
 use uuid::Uuid;
 use xz2::read::XzDecoder;
 use zip::ZipArchive;
+
+/// Converts a path to a UTF-8 string reference.
+///
+/// # Arguments
+///
+/// * `path` - The path to convert
+///
+/// # Returns
+///
+/// The path as a UTF-8 string slice
+///
+/// # Errors
+///
+/// Returns `Error::PathValidation` if the path contains invalid UTF-8
+pub fn try_path_str(path: &Path) -> Result<&str> {
+    path.to_str()
+        .ok_or_else(|| Error::path_validation(path, "Path contains invalid UTF-8"))
+}
+
+/// Gets the file extension from a path, lowercased.
+///
+/// # Arguments
+///
+/// * `path` - The path to extract the extension from
+///
+/// # Returns
+///
+/// Lowercase file extension string
+///
+/// # Errors
+///
+/// Returns `Error::PathValidation` if the file has no extension or contains invalid characters
+pub fn try_extension(path: &Path) -> Result<String> {
+    let ext = path
+        .extension()
+        .ok_or_else(|| Error::path_validation(path, "File has no extension"))?
+        .to_str()
+        .ok_or_else(|| Error::path_validation(path, "Invalid characters in file extension"))?
+        .to_lowercase();
+
+    Ok(ext)
+}
+
+/// Creates a temporary output path for file processing.
+///
+/// # Arguments
+///
+/// * `file_path` - Original file path
+/// * `file_format` - File extension for the temporary file
+///
+/// # Returns
+///
+/// `PathBuf` to a unique temporary file in the same directory
+pub fn create_temp_path(file_path: &Path, file_format: &str) -> PathBuf {
+    let parent_dir = file_path.parent().unwrap_or_else(|| Path::new(""));
+    let uuid = Uuid::new_v4();
+
+    if let Some(file_stem) = file_path.file_stem().and_then(|s| s.to_str()) {
+        parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format))
+    } else {
+        parent_dir.join(format!("output_{}_temp.{}", uuid, file_format))
+    }
+}
+
+/// Determines the MIME type of a file based on its extension.
+///
+/// # Arguments
+///
+/// * `path` - Path to the file
+///
+/// # Returns
+///
+/// The MIME type as a string
+pub fn determine_mime_type(path: &Path) -> String {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
+
+    match extension.to_lowercase().as_str() {
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "vtt" => "text/vtt",
+        "srt" => "application/x-subrip",
+        "ass" | "ssa" => "text/x-ssa",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
 
 /// Returns the name of the given path.
 ///
@@ -31,10 +124,10 @@ pub fn try_name(path: impl Into<PathBuf>) -> Result<String> {
 
     let name = path
         .file_name()
-        .ok_or(Error::Unknown("Failed to get name".to_string()))?;
+        .ok_or_else(|| Error::path_validation(&path, "Path has no file name"))?;
     let name = name
         .to_str()
-        .ok_or(Error::Unknown("Failed to convert name".to_string()))?;
+        .ok_or_else(|| Error::path_validation(&path, "File name contains invalid UTF-8"))?;
 
     tracing::trace!(
         path = ?path,
@@ -68,10 +161,10 @@ pub fn try_without_extension(path: impl Into<PathBuf>) -> Result<String> {
 
     let name = path
         .file_stem()
-        .ok_or(Error::Unknown("Failed to get file stem".to_string()))?;
-    let name = name.to_str().ok_or(Error::Unknown(
-        "Failed to convert file stem to string".to_string(),
-    ))?;
+        .ok_or_else(|| Error::path_validation(&path, "Path has no file stem"))?;
+    let name = name
+        .to_str()
+        .ok_or_else(|| Error::path_validation(&path, "File stem contains invalid UTF-8"))?;
 
     tracing::trace!(
         path = ?path,
@@ -105,7 +198,7 @@ pub fn try_parent(path: impl Into<PathBuf>) -> Result<PathBuf> {
 
     let parent = path
         .parent()
-        .ok_or(Error::Unknown("Failed to get parent".to_string()))?;
+        .ok_or_else(|| Error::path_validation(&path, "Path has no parent directory"))?;
 
     let parent_buf = parent.to_path_buf();
 
@@ -261,19 +354,19 @@ pub async fn extract_zip(
         let file = std::fs::File::open(&zip_path)
             .map_err(|e| Error::io_with_path("open zip file", &zip_path, e))?;
 
-        let mut archive = ZipArchive::new(file)
-            .map_err(|e| Error::Unknown(format!("Failed to read zip archive: {}", e)))?;
+        let mut archive = ZipArchive::new(file)?;
 
         for i in 0..archive.len() {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| Error::Unknown(format!("Failed to read zip entry {}: {}", i, e)))?;
+            let mut file = archive.by_index(i)?;
 
             let file_name = file
                 .enclosed_name()
-                .ok_or(Error::Unknown(
-                    "Failed to get file name from zip entry".to_string(),
-                ))?
+                .ok_or_else(|| {
+                    Error::path_validation(
+                        PathBuf::from(format!("zip entry {}", i)),
+                        "Zip entry has no valid file name",
+                    )
+                })?
                 .to_path_buf();
 
             let dest_path = destination.join(file_name);
@@ -312,7 +405,7 @@ pub async fn extract_zip(
         Ok::<_, Error>(())
     })
     .await
-    .map_err(|e| Error::Unknown(e.to_string()))??;
+    .map_err(|e| Error::runtime("extract zip archive", e))??;
 
     tracing::debug!(
         zip_path = ?zip_path_for_tracing,
@@ -359,7 +452,7 @@ pub async fn extract_tar_xz(
         Ok::<_, Error>(())
     })
     .await
-    .map_err(|e| Error::Unknown(e.to_string()))??;
+    .map_err(|e| Error::runtime("extract tar.xz archive", e))??;
 
     tracing::debug!(
         tar_path = ?tar_path_for_tracing,

@@ -134,7 +134,7 @@ pub fn build_ffmpeg_command(
         "Building FFmpeg command for post-processing"
     );
 
-    let mut args = vec!["-i".to_string(), input.to_string()];
+    let mut builder = crate::executor::FfmpegArgs::new().input(input);
 
     // Add video codec
     if let Some(ref video_codec) = config.video_codec {
@@ -142,8 +142,7 @@ pub fn build_ffmpeg_command(
             video_codec = %video_codec.to_ffmpeg_name(),
             "Adding video codec to FFmpeg command"
         );
-        args.push("-c:v".to_string());
-        args.push(video_codec.to_ffmpeg_name().to_string());
+        builder = builder.args(["-c:v", video_codec.to_ffmpeg_name()]);
     }
 
     // Add audio codec
@@ -152,32 +151,27 @@ pub fn build_ffmpeg_command(
             audio_codec = %audio_codec.to_ffmpeg_name(),
             "Adding audio codec to FFmpeg command"
         );
-        args.push("-c:a".to_string());
-        args.push(audio_codec.to_ffmpeg_name().to_string());
+        builder = builder.args(["-c:a", audio_codec.to_ffmpeg_name()]);
     }
 
     // Add video bitrate
     if let Some(ref bitrate) = config.video_bitrate {
-        args.push("-b:v".to_string());
-        args.push(bitrate.clone());
+        builder = builder.args(["-b:v", bitrate]);
     }
 
     // Add audio bitrate
     if let Some(ref bitrate) = config.audio_bitrate {
-        args.push("-b:a".to_string());
-        args.push(bitrate.clone());
+        builder = builder.args(["-b:a", bitrate]);
     }
 
     // Add framerate
     if let Some(fps) = config.framerate {
-        args.push("-r".to_string());
-        args.push(fps.to_string());
+        builder = builder.args(["-r", &fps.to_string()]);
     }
 
     // Add preset
     if let Some(ref preset) = config.preset {
-        args.push("-preset".to_string());
-        args.push(preset.to_ffmpeg_name().to_string());
+        builder = builder.args(["-preset", preset.to_ffmpeg_name()]);
     }
 
     // Build video filter chain
@@ -206,17 +200,16 @@ pub fn build_ffmpeg_command(
 
     // Add filter chain to args
     if !filter_chain.is_empty() {
+        let joined = filter_chain.join(",");
         tracing::trace!(
             filter_count = filter_chain.len(),
-            filter_chain = %filter_chain.join(","),
+            filter_chain = %joined,
             "Adding video filter chain to FFmpeg command"
         );
-        args.push("-vf".to_string());
-        args.push(filter_chain.join(","));
+        builder = builder.args(["-vf".to_string(), joined]);
     }
 
-    // Add output file
-    args.push(output.to_string());
+    let args = builder.output(output).build();
 
     tracing::debug!(arg_count = args.len(), "FFmpeg command built successfully");
 

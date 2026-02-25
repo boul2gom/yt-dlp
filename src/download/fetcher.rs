@@ -7,6 +7,7 @@
 //! - Progress tracking
 
 use crate::client::proxy::ProxyConfig;
+use crate::download::segment::SegmentContext;
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::{Error, Result};
 use crate::model::format::HttpHeaders;
@@ -28,20 +29,6 @@ const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
 const DEFAULT_SEGMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
 const DEFAULT_RETRY_ATTEMPTS: usize = 3;
 const SEGMENT_CHECK_BUFFER_SIZE: usize = 1024; // 1 KB buffer for checking empty segments
-const REQUEST_TIMEOUT_SECS: u64 = 60;
-
-// HTTP connection pool configuration
-const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
-const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 32;
-const HTTP_TCP_KEEPALIVE_SECS: u64 = 60;
-
-/// Context for segment download operations
-struct SegmentContext {
-    file: Arc<Mutex<tokio::fs::File>>,
-    downloaded_bytes: Arc<AtomicU64>,
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    total_bytes: u64,
-}
 
 /// The fetcher is responsible for downloading data from a URL.
 /// This optimized implementation uses parallel downloads, download resumption,
@@ -67,16 +54,6 @@ pub struct Fetcher {
     speed_profile: SpeedProfile,
 }
 
-impl fmt::Display for Fetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Fetcher(url={}, segments={})",
-            self.url, self.parallel_segments
-        )
-    }
-}
-
 impl Fetcher {
     /// Creates a new fetcher for the given URL.
     ///
@@ -93,43 +70,33 @@ impl Fetcher {
         proxy: Option<&ProxyConfig>,
         http_headers: Option<HttpHeaders>,
     ) -> Result<Self> {
-        // Create a shared HTTP client with optimized connection pooling and HTTP/2 support
-        let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
-            .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
-            .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
-            .http2_adaptive_window(true);
+        let mut default_headers = None;
+        let mut user_agent = None;
 
         if let Some(headers) = &http_headers {
-            builder = builder.user_agent(&headers.user_agent);
-            let mut default_headers = reqwest::header::HeaderMap::new();
+            user_agent = Some(headers.user_agent.clone());
+            let mut header_map = reqwest::header::HeaderMap::new();
 
             if let Ok(hv) = HeaderValue::from_str(&headers.accept) {
-                default_headers.insert(header::ACCEPT, hv);
+                header_map.insert(header::ACCEPT, hv);
             }
             if let Ok(hv) = HeaderValue::from_str(&headers.accept_language) {
-                default_headers.insert(header::ACCEPT_LANGUAGE, hv);
+                header_map.insert(header::ACCEPT_LANGUAGE, hv);
             }
             if let Ok(hv) = HeaderValue::from_bytes(headers.sec_fetch_mode.as_bytes()) {
-                default_headers.insert("Sec-Fetch-Mode", hv);
+                header_map.insert("Sec-Fetch-Mode", hv);
             }
 
-            builder = builder.default_headers(default_headers);
-        } else {
-            builder = builder.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+            default_headers = Some(header_map);
         }
 
-        // Add proxy if configured
-        if let Some(proxy_config) = proxy
-            && let Ok(proxy) = proxy_config.to_reqwest_proxy()
-        {
-            builder = builder.proxy(proxy);
-        }
-
-        let client = builder
-            .build()
-            .map_err(|e| Error::Unknown(format!("Failed to build HTTP client: {}", e)))?;
+        let client = crate::utils::http::build_http_client(crate::utils::http::HttpClientConfig {
+            proxy,
+            user_agent,
+            default_headers,
+            http2_adaptive_window: true,
+            ..Default::default()
+        })?;
 
         Ok(Self {
             url: url.as_ref().to_string(),
@@ -142,7 +109,7 @@ impl Fetcher {
                 .max_delay(Duration::from_secs(30))
                 .backoff_factor(2.0)
                 .build(),
-            client: Arc::new(client),
+            client,
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
         })
@@ -214,34 +181,6 @@ impl Fetcher {
         self
     }
 
-    /// Fetch the data from the URL and return it as a reqwest response.
-    async fn fetch_internal(&self, auth_token: Option<String>) -> Result<reqwest::Response> {
-        tracing::debug!(
-            url = %self.url,
-            has_token = auth_token.is_some(),
-            "Fetching data"
-        );
-
-        let mut headers = HeaderMap::new();
-
-        if let Some(auth_token) = auth_token {
-            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .map_err(|e| Error::Unknown(e.to_string()))?;
-
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
-
-        let response = self
-            .client
-            .get(&self.url)
-            .headers(headers)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        Ok(response)
-    }
-
     /// Fetch the data from the URL and return it as Serde value.
     ///
     /// # Arguments
@@ -270,6 +209,34 @@ impl Fetcher {
         let response = self.fetch_internal(auth_token).await?;
         let text = response.text().await?;
         Ok(text)
+    }
+
+    /// Fetch the data from the URL and return it as a reqwest response.
+    async fn fetch_internal(&self, auth_token: Option<String>) -> Result<reqwest::Response> {
+        tracing::debug!(
+            url = %self.url,
+            has_token = auth_token.is_some(),
+            "Fetching data"
+        );
+
+        let mut headers = HeaderMap::new();
+
+        if let Some(auth_token) = auth_token {
+            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
+                .map_err(|e| Error::Unknown(format!("Invalid authorization header value: {e}")))?;
+
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+
+        let response = self
+            .client
+            .get(&self.url)
+            .headers(headers)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response)
     }
 
     /// Downloads the asset at the given URL and writes it to the given destination.
@@ -338,10 +305,10 @@ impl Fetcher {
         // Get the total file size
         let content_length = match head_response.headers().get("content-length") {
             Some(length) => {
-                let length_str = length.to_str().map_err(|e| Error::Unknown(e.to_string()))?;
+                let length_str = length.to_str().map_err(|e| Error::Unknown(format!("Invalid Content-Length header: {e}")))?;
                 length_str
                     .parse::<u64>()
-                    .map_err(|e| Error::Unknown(e.to_string()))?
+                    .map_err(|e| Error::Unknown(format!("Failed to parse Content-Length '{length_str}': {e}")))?
             }
             None => {
                 tracing::debug!(
@@ -569,8 +536,8 @@ impl Fetcher {
                     }
 
                     Err(Error::Unknown(format!(
-                        "Failed to download segment after {} attempts",
-                        self.retry_attempts
+                        "Failed to download segment after {} attempts for URL '{}'",
+                        self.retry_attempts, self.url
                     )))
                 }
             })
@@ -776,8 +743,8 @@ impl Fetcher {
         // Ensure the response is valid
         if !is_partial_content && !is_ok {
             return Err(Error::Unknown(format!(
-                "Unexpected status code: {}",
-                status
+                "Unexpected status code {status} for URL '{}'",
+                self.url
             )));
         }
 
@@ -850,5 +817,15 @@ impl Fetcher {
         }
 
         Ok(())
+    }
+}
+
+impl fmt::Display for Fetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Fetcher(url={}, segments={})",
+            self.url, self.parallel_segments
+        )
     }
 }

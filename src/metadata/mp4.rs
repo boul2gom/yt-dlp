@@ -64,7 +64,7 @@ impl MetadataManager {
             );
         }
 
-        Self::log_metadata_debug(format!("Adding metadata to M4A/MP4 file: {:?}", file_path));
+        tracing::debug!(file_path = ?file_path, "Adding metadata to M4A/MP4 file");
 
         // Prepare data for blocking thread
         let metadata = Self::extract_basic_metadata(video)
@@ -93,18 +93,19 @@ impl MetadataManager {
                         }
                     }
                     _ => {
-                        Self::log_metadata_debug(format!(
-                            "Skipping MP4 metadata: {} = {}",
-                            key, value
-                        ));
+                        tracing::debug!(
+                            key = key.as_str(),
+                            value = value.as_str(),
+                            "Skipping MP4 metadata"
+                        );
                     }
                 }
             }
 
             // MP4 format has limited metadata support compared to ID3
             if has_format_info {
-                Self::log_metadata_debug(
-                    "Format info available but MP4 tag has limited support for technical metadata",
+                tracing::debug!(
+                    "Format info available but MP4 tag has limited support for technical metadata"
                 );
             }
 
@@ -115,7 +116,7 @@ impl MetadataManager {
             Ok::<_, Error>(())
         })
         .await
-        .map_err(|e| Error::Unknown(e.to_string()))??;
+        .map_err(|e| Error::runtime("write M4A/MP4 metadata", e))??;
 
         tracing::debug!(
             file_path = ?file_path_for_tracing,
@@ -185,7 +186,7 @@ impl MetadataManager {
             Ok::<_, Error>(())
         })
         .await
-        .map_err(|e| Error::Unknown(e.to_string()))??;
+        .map_err(|e| Error::runtime("write M4A/MP4 thumbnail", e))??;
 
         tracing::debug!(
             file_path = ?file_path,

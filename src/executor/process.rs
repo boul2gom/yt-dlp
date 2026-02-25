@@ -125,7 +125,7 @@ async fn execute_command_internal(
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| Error::Unknown("Failed to capture stdout".to_string()))?;
+            .ok_or_else(|| Error::io("capture stdout", std::io::Error::other("stdout stream not available")))?;
 
         Some(tokio::spawn(read_stream(stdout)))
     } else {
@@ -135,7 +135,7 @@ async fn execute_command_internal(
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| Error::Unknown("Failed to capture stderr".to_string()))?;
+        .ok_or_else(|| Error::io("capture stderr", std::io::Error::other("stderr stream not available")))?;
 
     let stderr_task = tokio::spawn(read_stream(stderr));
 

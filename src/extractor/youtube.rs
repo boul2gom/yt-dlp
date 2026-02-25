@@ -7,11 +7,11 @@
 //! - Performance optimizations
 
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::extractor::VideoExtractor;
+use crate::extractor::{ExtractorBase, VideoExtractor, execute_and_parse_video, execute_and_parse_playlist};
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 
@@ -94,6 +94,20 @@ pub struct Youtube {
     format_preset: Option<FormatPreset>,
     args: Vec<String>,
     timeout: Duration,
+}
+
+impl super::ExtractorConfig for Youtube {
+    fn with_arg(&mut self, arg: String) -> &mut Self {
+        tracing::debug!(arg = %arg, "Adding custom argument");
+        self.args.push(arg);
+        self
+    }
+
+    fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
+        tracing::debug!(timeout_secs = timeout.as_secs(), "Setting timeout for extractor");
+        self.timeout = timeout;
+        self
+    }
 }
 
 impl Youtube {
@@ -184,90 +198,6 @@ impl Youtube {
         );
 
         self.format_preset = Some(preset);
-        self
-    }
-
-    /// Add custom yt-dlp argument.
-    ///
-    /// # Arguments
-    ///
-    /// * `arg` - The argument to add
-    ///
-    /// # Returns
-    ///
-    /// Self for method chaining
-    pub fn with_arg(&mut self, arg: String) -> &mut Self {
-        tracing::debug!(
-            arg = %arg,
-            "Adding custom argument"
-        );
-
-        self.args.push(arg);
-        self
-    }
-
-    /// Set timeout for yt-dlp operations.
-    ///
-    /// # Arguments
-    ///
-    /// * `timeout` - The timeout duration
-    ///
-    /// # Returns
-    ///
-    /// Self for method chaining
-    pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        tracing::debug!(
-            timeout_secs = timeout.as_secs(),
-            "Setting timeout for extractor"
-        );
-
-        self.timeout = timeout;
-        self
-    }
-
-    /// Use a Netscape cookie file for authentication.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the Netscape cookie file
-    ///
-    /// # Returns
-    ///
-    /// Self for method chaining
-    pub fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
-        let cookie_path = path.as_ref().display().to_string();
-        tracing::debug!(
-            cookie_file = cookie_path,
-            "Adding cookie file for authentication"
-        );
-        self.args.push(format!("--cookies={}", cookie_path));
-        self
-    }
-
-    /// Extract cookies from a browser for authentication.
-    ///
-    /// # Arguments
-    ///
-    /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
-    ///
-    /// # Returns
-    ///
-    /// Self for method chaining
-    pub fn with_cookies_from_browser(&mut self, browser: &str) -> &mut Self {
-        tracing::debug!(browser = browser, "Adding browser cookie extraction");
-        self.args
-            .push(format!("--cookies-from-browser={}", browser));
-        self
-    }
-
-    /// Use .netrc for authentication.
-    ///
-    /// # Returns
-    ///
-    /// Self for method chaining
-    pub fn with_netrc(&mut self) -> &mut Self {
-        tracing::debug!("Enabling .netrc authentication");
-        self.args.push("--netrc".to_string());
         self
     }
 
@@ -382,7 +312,7 @@ impl Youtube {
         let url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
         args.push(url);
 
-        self.execute_for_playlist(&args).await
+        execute_and_parse_playlist(self.executable_path(), &args, self.timeout()).await
     }
 
     /// Search YouTube videos.
@@ -442,10 +372,42 @@ impl Youtube {
         let mut args = self.build_base_args();
         args.push(url);
 
-        self.execute_for_video(&args).await
+        execute_and_parse_video(self.executable_path(), &args, self.timeout()).await
     }
 
-    // ========== Internal Helper Methods ==========
+    /// Check if URL is supported by YouTube extractor.
+    pub fn supports_url(url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+
+    let has_valid_domain = ["youtube.com", "youtu.be", "youtube-nocookie.com"]
+        .iter()
+        .any(|domain| url_lower.contains(domain));
+
+    if has_valid_domain {
+        return true;
+    }
+
+    let has_valid_prefix = ["ytsearch", "ytplaylist"]
+        .iter()
+        .any(|prefix| url_lower.starts_with(prefix));
+
+    if has_valid_prefix {
+        return true;
+    }
+
+    false
+    }
+}
+
+#[async_trait]
+impl ExtractorBase for Youtube {
+    fn executable_path(&self) -> PathBuf {
+        self.executable_path.clone()
+    }
+
+    fn timeout(&self) -> Duration {
+        self.timeout
+    }
 
     fn build_base_args(&self) -> Vec<String> {
         let mut args = vec!["--no-progress".to_string(), "--dump-json".to_string()];
@@ -473,32 +435,6 @@ impl Youtube {
 
         args
     }
-
-    async fn execute_for_video(&self, args: &[String]) -> Result<Video> {
-        super::execute_and_parse_video(self.executable_path.clone(), args, self.timeout).await
-    }
-
-    async fn execute_for_playlist(&self, args: &[String]) -> Result<Playlist> {
-        super::execute_and_parse_playlist(self.executable_path.clone(), args, self.timeout).await
-    }
-
-    /// Check if URL is supported by YouTube extractor.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The URL to check
-    ///
-    /// # Returns
-    ///
-    /// true if the URL is a YouTube URL, false otherwise
-    pub fn supports_url(url: &str) -> bool {
-        let url_lower = url.to_lowercase();
-        url_lower.contains("youtube.com")
-            || url_lower.contains("youtu.be")
-            || url_lower.contains("youtube-nocookie.com")
-            || url_lower.starts_with("ytsearch")
-            || url_lower.starts_with("ytplaylist")
-    }
 }
 
 #[async_trait]
@@ -512,10 +448,7 @@ impl VideoExtractor for Youtube {
             "Fetching video with Youtube extractor"
         );
 
-        let mut args = self.build_base_args();
-        args.push(url.to_string());
-
-        let result = self.execute_for_video(&args).await;
+        let result = self.fetch_video_metadata(url).await;
 
         match &result {
             Ok(video) => tracing::debug!(
@@ -542,11 +475,7 @@ impl VideoExtractor for Youtube {
             "Fetching playlist with Youtube extractor"
         );
 
-        let mut args = self.build_base_args();
-        args.push("--flat-playlist".to_string());
-        args.push(url.to_string());
-
-        let result = self.execute_for_playlist(&args).await;
+        let result = self.fetch_playlist_metadata(url).await;
 
         match &result {
             Ok(playlist) => tracing::debug!(

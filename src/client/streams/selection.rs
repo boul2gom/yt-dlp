@@ -1,14 +1,15 @@
 use crate::Downloader;
 use crate::model::Video;
-use crate::model::format::Format;
+use crate::model::format::{Format, FormatType};
 use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality, matches_audio_codec,
-    matches_video_codec,
+    AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference,
+    VideoQuality, matches_audio_codec, matches_video_codec,
 };
+use crate::model::thumbnail::Thumbnail;
 use ordered_float::OrderedFloat;
 use std::cmp::Ordering;
 
-/// Trait for selecting video and audio formats from a Video.
+/// Trait for selecting video, audio, and storyboard formats from a Video.
 pub trait VideoSelection {
     fn best_video_format(&self) -> Option<&Format>;
     fn best_audio_format(&self) -> Option<&Format>;
@@ -26,6 +27,11 @@ pub trait VideoSelection {
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Option<&Format>;
+    fn storyboard_formats(&self) -> Vec<&Format>;
+    fn best_storyboard_format(&self) -> Option<&Format>;
+    fn worst_storyboard_format(&self) -> Option<&Format>;
+    fn select_storyboard_format(&self, quality: StoryboardQuality) -> Option<&Format>;
+    fn select_thumbnail(&self, quality: ThumbnailQuality) -> Option<&Thumbnail>;
 }
 
 impl VideoSelection for Video {
@@ -289,6 +295,88 @@ impl VideoSelection for Video {
             }
         }
     }
+
+    /// Returns all storyboard formats for this video, ordered from best to worst quality.
+    ///
+    /// Best quality = highest fragment count × largest resolution (width × height).
+    fn storyboard_formats(&self) -> Vec<&Format> {
+        tracing::debug!(
+            video_id = %self.id,
+            format_count = self.formats.len(),
+            "Collecting storyboard formats"
+        );
+
+        let mut formats: Vec<&Format> = self
+            .formats
+            .iter()
+            .filter(|f| f.format_type() == FormatType::Storyboard)
+            .collect();
+
+        // Sort descending: most fragments first, then largest resolution
+        formats.sort_by(|a, b| {
+            let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, |v| v.len());
+            let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, |v| v.len());
+            let a_area = a.video_resolution.width.unwrap_or(0) as u64
+                * a.video_resolution.height.unwrap_or(0) as u64;
+            let b_area = b.video_resolution.width.unwrap_or(0) as u64
+                * b.video_resolution.height.unwrap_or(0) as u64;
+            b_frags.cmp(&a_frags).then_with(|| b_area.cmp(&a_area))
+        });
+
+        formats
+    }
+
+    /// Returns the best storyboard format (highest resolution and most fragments).
+    fn best_storyboard_format(&self) -> Option<&Format> {
+        tracing::debug!(
+            video_id = %self.id,
+            "Selecting best storyboard format"
+        );
+        self.storyboard_formats().into_iter().next()
+    }
+
+    /// Returns the worst storyboard format (lowest resolution and fewest fragments).
+    fn worst_storyboard_format(&self) -> Option<&Format> {
+        tracing::debug!(
+            video_id = %self.id,
+            "Selecting worst storyboard format"
+        );
+        self.storyboard_formats().into_iter().last()
+    }
+
+    /// Selects a storyboard format based on quality preference.
+    fn select_storyboard_format(&self, quality: StoryboardQuality) -> Option<&Format> {
+        match quality {
+            StoryboardQuality::Best => self.best_storyboard_format(),
+            StoryboardQuality::Worst => self.worst_storyboard_format(),
+        }
+    }
+
+    /// Selects a thumbnail based on quality preference.
+    fn select_thumbnail(
+        &self,
+        quality: ThumbnailQuality,
+    ) -> Option<&crate::model::thumbnail::Thumbnail> {
+        tracing::debug!(
+            video_id = %self.id,
+            quality = ?quality,
+            total_thumbnails = self.thumbnails.len(),
+            "Selecting thumbnail with preferences"
+        );
+
+        match quality {
+            ThumbnailQuality::Best => self.best_thumbnail(),
+            ThumbnailQuality::Worst => self
+                .thumbnails
+                .iter()
+                .filter(|t| t.width.is_some() && t.height.is_some())
+                .min_by_key(|t| (t.width.unwrap_or(0) * t.height.unwrap_or(0), t.preference))
+                .or_else(|| self.thumbnails.iter().min_by_key(|t| t.preference)),
+            ThumbnailQuality::MinimumResolution(width, height) => {
+                self.thumbnail_for_size(width, height)
+            }
+        }
+    }
 }
 
 /// Selects the video format with the closest height to the target
@@ -492,46 +580,57 @@ where
 }
 
 impl Downloader {
-    /// Lists all available subtitle languages for a video.
+    /// Lists all available subtitle and automatic caption languages for a video.
+    ///
+    /// Returns a deduplicated list of language codes from both `subtitles` and
+    /// `automatic_captions`. Languages present in both are listed only once.
     ///
     /// # Arguments
     ///
-    /// * `video` - The video to list subtitle languages for
+    /// * `video` - The video to list subtitle languages for.
     ///
     /// # Returns
     ///
-    /// A vector of language codes
+    /// A sorted vector of unique language codes.
     pub fn list_subtitle_languages(&self, video: &Video) -> Vec<String> {
-        let languages: Vec<String> = video.subtitles.keys().cloned().collect();
+        let mut languages: Vec<String> = video
+            .subtitles
+            .keys()
+            .chain(video.automatic_captions.keys())
+            .cloned()
+            .collect();
+        languages.sort();
+        languages.dedup();
 
         tracing::debug!(
             video_id = %video.id,
             language_count = languages.len(),
             languages = ?languages,
-            "Listing subtitle languages"
+            "Listing subtitle/caption languages"
         );
 
         languages
     }
 
-    /// Checks if a video has subtitles in a specific language.
+    /// Checks if a video has subtitles or automatic captions in a specific language.
     ///
     /// # Arguments
     ///
-    /// * `video` - The video to check
-    /// * `language_code` - The language code to check for
+    /// * `video` - The video to check.
+    /// * `language_code` - The language code to check for (e.g., "en", "fr").
     ///
     /// # Returns
     ///
-    /// `true` if subtitles are available in the specified language
+    /// `true` if subtitles or automatic captions are available in the specified language.
     pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
-        let has_language = video.subtitles.contains_key(language_code);
+        let has_language = video.subtitles.contains_key(language_code)
+            || video.automatic_captions.contains_key(language_code);
 
         tracing::debug!(
             video_id = %video.id,
             language_code = language_code,
             has_language = has_language,
-            "Checking for subtitle language"
+            "Checking for subtitle/caption language"
         );
 
         has_language

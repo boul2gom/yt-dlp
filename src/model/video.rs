@@ -5,7 +5,7 @@
 
 use crate::model::caption::{AutomaticCaption, Subtitle};
 use crate::model::chapter::Chapter;
-use crate::model::format::Format;
+use crate::model::format::{Format, FormatType};
 use crate::model::heatmap::Heatmap;
 
 use crate::model::thumbnail::Thumbnail;
@@ -14,6 +14,10 @@ use serde_with::{DefaultOnNull, serde_as};
 
 use std::collections::HashMap;
 use std::fmt;
+
+/// CDN lifetime for YouTube format stream URLs after their `available_at` timestamp.
+/// YouTube URLs typically expire approximately 6 hours after being fetched.
+pub const FORMAT_URL_LIFETIME: i64 = 6 * 3600;
 
 // Import DrmStatus from parent module
 use super::DrmStatus;
@@ -35,6 +39,24 @@ pub struct Video {
     /// The upload date of the video.
     #[serde(rename = "timestamp")]
     pub upload_date: Option<i64>,
+    /// The duration of the video in seconds.
+    pub duration: Option<i64>,
+    /// The duration of the video as a human-readable string, e.g. '41:21'.
+    pub duration_string: Option<String>,
+    /// The canonical webpage URL of the video.
+    pub webpage_url: Option<String>,
+    /// The primary language of the video, e.g. 'fr' or 'en'.
+    pub language: Option<String>,
+    /// The type of media: 'video', 'short', 'podcast', etc.
+    pub media_type: Option<String>,
+    /// Whether the video is currently a live stream.
+    pub is_live: Option<bool>,
+    /// Whether the video was originally a live stream.
+    pub was_live: Option<bool>,
+    /// Unix timestamp of a scheduled premiere or live start time.
+    pub release_timestamp: Option<i64>,
+    /// Release year, if different from the upload year.
+    pub release_year: Option<i64>,
 
     /// The number of views the video has.
     pub view_count: Option<i64>,
@@ -56,6 +78,10 @@ pub struct Video {
     pub uploader: Option<String>,
     /// The uploader ID.
     pub uploader_id: Option<String>,
+    /// The URL of the uploader's profile page.
+    pub uploader_url: Option<String>,
+    /// Whether the channel has a verified badge.
+    pub channel_is_verified: Option<bool>,
 
     /// The available formats of the video.
     pub formats: Vec<Format>,
@@ -169,6 +195,96 @@ impl Video {
     /// true if the video has heatmap data, false otherwise
     pub fn has_heatmap(&self) -> bool {
         self.heatmap.is_some()
+    }
+
+    /// Returns the earliest `available_at` timestamp across all downloadable formats.
+    ///
+    /// Excludes storyboard and manifest formats since their URLs do not have CDN expiry.
+    ///
+    /// # Returns
+    ///
+    /// The minimum `available_at` Unix timestamp, or `None` if no format carries this field.
+    pub fn formats_available_at(&self) -> Option<i64> {
+        self.formats
+            .iter()
+            .filter(|f| {
+                !matches!(
+                    f.format_type(),
+                    FormatType::Storyboard | FormatType::Manifest
+                )
+            })
+            .filter_map(|f| f.available_at)
+            .min()
+    }
+
+    /// Returns true if the format stream URLs are still within their CDN lifetime.
+    ///
+    /// YouTube CDN URLs expire approximately [`FORMAT_URL_LIFETIME`] seconds after the
+    /// `available_at` timestamp. Returns `true` when no `available_at` data is present
+    /// (falls back to the fixed TTL configured on the cache).
+    ///
+    /// # Returns
+    ///
+    /// `true` if format URLs are fresh or if expiry data is unavailable.
+    pub fn are_format_urls_fresh(&self) -> bool {
+        let Some(available_at) = self.formats_available_at() else {
+            return true;
+        };
+        let now = crate::utils::current_timestamp();
+        now < available_at + FORMAT_URL_LIFETIME
+    }
+
+    /// Returns the best thumbnail by resolution (width × height), breaking ties by preference.
+    ///
+    /// Falls back to the highest-preference thumbnail if none have resolution metadata.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the best `Thumbnail`, or `None` if the list is empty.
+    pub fn best_thumbnail(&self) -> Option<&Thumbnail> {
+        self.thumbnails
+            .iter()
+            .filter(|t| t.width.is_some() && t.height.is_some())
+            .max_by_key(|t| (t.width.unwrap_or(0) * t.height.unwrap_or(0), t.preference))
+            .or_else(|| self.thumbnails.iter().max_by_key(|t| t.preference))
+    }
+
+    /// Returns the smallest thumbnail that meets the given minimum dimensions.
+    ///
+    /// Useful when you need at least a certain resolution without over-fetching.
+    ///
+    /// # Arguments
+    ///
+    /// * `min_width` - Minimum width in pixels.
+    /// * `min_height` - Minimum height in pixels.
+    ///
+    /// # Returns
+    ///
+    /// The smallest `Thumbnail` satisfying the constraints, or `None` if none qualify.
+    pub fn thumbnail_for_size(&self, min_width: u32, min_height: u32) -> Option<&Thumbnail> {
+        self.thumbnails
+            .iter()
+            .filter(|t| {
+                t.width.is_some_and(|w| w >= min_width as i64)
+                    && t.height.is_some_and(|h| h >= min_height as i64)
+            })
+            .min_by_key(|t| t.width.unwrap_or(0) * t.height.unwrap_or(0))
+    }
+
+    /// Returns the best format that contains both audio and video.
+    ///
+    /// # Returns
+    ///
+    /// The best combined `Format`, or an error if none are available.
+    pub fn best_audio_video_format(&self) -> Result<&Format, crate::error::Error> {
+        self.formats
+            .iter()
+            .find(|f| f.format_type().is_audio_and_video())
+            .ok_or_else(|| crate::error::Error::FormatNotAvailable {
+                video_id: self.id.clone(),
+                format_type: FormatType::AudioVideo,
+                available_formats: self.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })
     }
 }
 

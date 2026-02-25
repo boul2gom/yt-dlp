@@ -17,12 +17,6 @@ pub struct YoutubeFetcher {
     fetcher: GitHubFetcher,
 }
 
-impl fmt::Display for YoutubeFetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "YoutubeFetcher({})", self.fetcher)
-    }
-}
-
 impl YoutubeFetcher {
     /// Create a new fetcher for the given GitHub repository.
     ///
@@ -122,5 +116,11 @@ impl YoutubeFetcher {
                 _ => false,
             }
         })
+    }
+}
+
+impl fmt::Display for YoutubeFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "YoutubeFetcher({})", self.fetcher)
     }
 }

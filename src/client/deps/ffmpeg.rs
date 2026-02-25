@@ -44,12 +44,6 @@ struct Extraction {
 #[derive(Clone, Debug, Default)]
 pub struct BuildFetcher;
 
-impl fmt::Display for BuildFetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BuildFetcher")
-    }
-}
-
 impl BuildFetcher {
     /// Create a new fetcher for ffmpeg.
     ///
@@ -124,50 +118,11 @@ impl BuildFetcher {
                     )
                     .await
             }
-            _ => Err(Error::Unknown(format!(
-                "Unsupported platform for FFmpeg: {:?}",
-                platform
-            ))),
-        }
-    }
-
-    /// Get extraction information for the given platform and architecture
-    ///
-    /// # Arguments
-    ///
-    /// * `platform` - The target platform
-    /// * `architecture` - The target architecture
-    ///
-    /// # Returns
-    ///
-    /// Extraction information if the platform is supported, None otherwise
-    fn get_extraction_info(
-        &self,
-        platform: &Platform,
-        architecture: &Architecture,
-    ) -> Option<Extraction> {
-        tracing::debug!(
-            platform = ?platform,
-            architecture = ?architecture,
-            "Getting extraction info for platform"
-        );
-        match (platform, architecture) {
-            (Platform::Windows, _) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg.exe"),
-                binary_extension: "exe".to_string(),
+            _ => Err(Error::NoBinaryRelease {
+                binary: "ffmpeg".to_string(),
+                platform,
+                architecture,
             }),
-
-            (Platform::Mac, _) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg"),
-                binary_extension: "".to_string(),
-            }),
-
-            (Platform::Linux, _) => Some(Extraction {
-                executable_path: PathBuf::from("ffmpeg"),
-                binary_extension: "".to_string(),
-            }),
-
-            _ => None,
         }
     }
 
@@ -228,6 +183,46 @@ impl BuildFetcher {
             .await
     }
 
+    /// Get extraction information for the given platform and architecture
+    ///
+    /// # Arguments
+    ///
+    /// * `platform` - The target platform
+    /// * `architecture` - The target architecture
+    ///
+    /// # Returns
+    ///
+    /// Extraction information if the platform is supported, None otherwise
+    fn get_extraction_info(
+        &self,
+        platform: &Platform,
+        architecture: &Architecture,
+    ) -> Option<Extraction> {
+        tracing::debug!(
+            platform = ?platform,
+            architecture = ?architecture,
+            "Getting extraction info for platform"
+        );
+        match (platform, architecture) {
+            (Platform::Windows, _) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg.exe"),
+                binary_extension: "exe".to_string(),
+            }),
+
+            (Platform::Mac, _) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                binary_extension: "".to_string(),
+            }),
+
+            (Platform::Linux, _) => Some(Extraction {
+                executable_path: PathBuf::from("ffmpeg"),
+                binary_extension: "".to_string(),
+            }),
+
+            _ => None,
+        }
+    }
+
     /// Extract the archive and move the binary to the correct location
     ///
     /// # Arguments
@@ -281,10 +276,10 @@ impl BuildFetcher {
         if !extracted_binary.exists() {
             // Fallback: list dir to see what's there (debugging purposes mostly, or slightly nested fallback)
             // But user insisted it's flat.
-            return Err(Error::Unknown(format!(
-                "Could not find ffmpeg binary at expected path: {:?}. Archive content might not be flat.",
-                extracted_binary
-            )));
+            return Err(Error::BinaryNotFound {
+                binary: "ffmpeg".to_string(),
+                path: extracted_binary,
+            });
         }
 
         // Copy the executable to the final location
@@ -300,5 +295,11 @@ impl BuildFetcher {
         }
 
         Ok(final_binary_path)
+    }
+}
+
+impl fmt::Display for BuildFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BuildFetcher")
     }
 }

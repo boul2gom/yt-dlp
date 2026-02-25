@@ -154,12 +154,6 @@ pub struct ManagerConfig {
     pub user_agent: Option<String>,
 }
 
-impl Default for ManagerConfig {
-    fn default() -> Self {
-        Self::from_speed_profile(SpeedProfile::default())
-    }
-}
-
 impl ManagerConfig {
     /// Create a ManagerConfig from a speed profile
     ///
@@ -194,6 +188,12 @@ impl ManagerConfig {
         self.max_buffer_size = profile.max_buffer_size();
         self.speed_profile = profile;
         self
+    }
+}
+
+impl Default for ManagerConfig {
+    fn default() -> Self {
+        Self::from_speed_profile(SpeedProfile::default())
     }
 }
 
@@ -261,24 +261,6 @@ pub struct DownloadManager {
     worker_started: Arc<AtomicBool>,
 }
 
-impl std::fmt::Debug for DownloadManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DownloadManager")
-            .field("config", &self.config)
-            .field(
-                "max_concurrent_downloads",
-                &self.config.max_concurrent_downloads,
-            )
-            .finish_non_exhaustive()
-    }
-}
-
-impl Default for DownloadManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DownloadManager {
     /// Returns the number of parallel segments configured for downloads.
     pub fn parallel_segments(&self) -> usize {
@@ -332,13 +314,6 @@ impl DownloadManager {
             progress_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             worker_notify: Arc::new(tokio::sync::Notify::new()),
             worker_started: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Emits an event if an event bus is configured
-    fn emit_event(&self, event: crate::events::DownloadEvent) {
-        if let Some(ref bus) = self.event_bus {
-            bus.emit(event);
         }
     }
 
@@ -461,76 +436,6 @@ impl DownloadManager {
             http_headers,
         )
         .await
-    }
-
-    async fn enqueue_internal(
-        &self,
-        url: String,
-        destination: PathBuf,
-        priority: DownloadPriority,
-        progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-        http_headers: Option<crate::model::format::HttpHeaders>,
-    ) -> u64 {
-        let mut id_guard = self.next_id.lock().await;
-        let id = *id_guard;
-        *id_guard += 1;
-        drop(id_guard);
-
-        let task = DownloadTask {
-            url: url.clone(),
-            destination: destination.clone(),
-            priority,
-            id,
-            progress_callback,
-            http_headers,
-        };
-
-        tracing::debug!(
-            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
-            id,
-            url,
-            destination,
-            priority
-        );
-
-        // Add the task to the queue
-        {
-            let mut queue = self.queue.lock().await;
-            queue.push(task);
-        }
-
-        // Update status
-        {
-            let mut statuses = self.statuses.lock().await;
-            statuses.insert(id, DownloadStatus::Queued);
-        }
-
-        // Emit DownloadQueued event
-        self.emit_event(crate::events::DownloadEvent::DownloadQueued {
-            download_id: id,
-            url,
-            priority,
-            output_path: destination,
-        });
-
-        // Wake the single worker
-        self.worker_notify.notify_one();
-        self.ensure_worker();
-
-        // Auto-cleanup if needed
-        if id % 100 == 0 {
-            // Check every 100 downloads to avoid locking too often
-            let status_count = {
-                let statuses = self.statuses.lock().await;
-                statuses.len()
-            };
-
-            if status_count > self.config.cleanup_threshold {
-                self.cleanup_finished().await;
-            }
-        }
-
-        id
     }
 
     /// Get the status of a download
@@ -814,6 +719,83 @@ impl DownloadManager {
         let rx = self.progress_tx.subscribe();
 
         BroadcastStream::new(rx).filter_map(|result| result.ok())
+    }
+
+    /// Emits an event if an event bus is configured
+    fn emit_event(&self, event: crate::events::DownloadEvent) {
+        if let Some(ref bus) = self.event_bus {
+            bus.emit(event);
+        }
+    }
+
+    async fn enqueue_internal(
+        &self,
+        url: String,
+        destination: PathBuf,
+        priority: DownloadPriority,
+        progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+        http_headers: Option<crate::model::format::HttpHeaders>,
+    ) -> u64 {
+        let mut id_guard = self.next_id.lock().await;
+        let id = *id_guard;
+        *id_guard += 1;
+        drop(id_guard);
+
+        let task = DownloadTask {
+            url: url.clone(),
+            destination: destination.clone(),
+            priority,
+            id,
+            progress_callback,
+            http_headers,
+        };
+
+        tracing::debug!(
+            "Enqueuing download {} for {} -> {:?} (priority: {:?})",
+            id,
+            url,
+            destination,
+            priority
+        );
+
+        // Add the task to the queue
+        {
+            let mut queue = self.queue.lock().await;
+            queue.push(task);
+        }
+
+        // Update status
+        {
+            let mut statuses = self.statuses.lock().await;
+            statuses.insert(id, DownloadStatus::Queued);
+        }
+
+        // Emit DownloadQueued event
+        self.emit_event(crate::events::DownloadEvent::DownloadQueued {
+            download_id: id,
+            url,
+            priority,
+            output_path: destination,
+        });
+
+        // Wake the single worker
+        self.worker_notify.notify_one();
+        self.ensure_worker();
+
+        // Auto-cleanup if needed
+        if id % 100 == 0 {
+            // Check every 100 downloads to avoid locking too often
+            let status_count = {
+                let statuses = self.statuses.lock().await;
+                statuses.len()
+            };
+
+            if status_count > self.config.cleanup_threshold {
+                self.cleanup_finished().await;
+            }
+        }
+
+        id
     }
 
     /// Ensures the single background worker task is running.
@@ -1121,5 +1103,23 @@ impl DownloadManager {
                 notify.notified().await;
             }
         });
+    }
+}
+
+impl std::fmt::Debug for DownloadManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DownloadManager")
+            .field("config", &self.config)
+            .field(
+                "max_concurrent_downloads",
+                &self.config.max_concurrent_downloads,
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for DownloadManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

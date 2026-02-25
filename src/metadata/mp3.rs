@@ -55,7 +55,7 @@ impl MetadataManager {
             );
         }
 
-        Self::log_metadata_debug(format!("Adding metadata to MP3 file: {:?}", file_path));
+        tracing::debug!(file_path = ?file_path, "Adding metadata to MP3 file");
 
         // Prepare data for the blocking thread (to avoid cloning the whole Video struct)
         let metadata = Self::extract_basic_metadata(video)
@@ -93,10 +93,11 @@ impl MetadataManager {
                         }
                     }
                     _ => {
-                        Self::log_metadata_debug(format!(
-                            "Skipping ID3 metadata: {} = {}",
-                            key, value
-                        ));
+                        tracing::debug!(
+                            key = key.as_str(),
+                            value = value.as_str(),
+                            "Skipping ID3 metadata"
+                        );
                     }
                 }
             }
@@ -134,7 +135,7 @@ impl MetadataManager {
             Ok::<_, Error>(())
         })
         .await
-        .map_err(|e| Error::Unknown(e.to_string()))??;
+        .map_err(|e| Error::runtime("write MP3 metadata", e))??;
 
         tracing::debug!(
             file_path = ?file_path,
@@ -173,12 +174,7 @@ impl MetadataManager {
             .map_err(|e| Error::io_with_path("read thumbnail", thumbnail_path, e))?;
 
         // Determine MIME type based on file extension
-        let mime_type = match thumbnail_path.extension().and_then(|ext| ext.to_str()) {
-            Some("jpg") | Some("jpeg") => "image/jpeg",
-            Some("png") => "image/png",
-            _ => "image/jpeg",
-        };
-        let mime_type = mime_type.to_string();
+        let mime_type = crate::utils::fs::determine_mime_type(thumbnail_path);
 
         tracing::trace!(
             thumbnail_path = ?thumbnail_path,
@@ -213,7 +209,7 @@ impl MetadataManager {
             Ok::<_, Error>(())
         })
         .await
-        .map_err(|e| Error::Unknown(e.to_string()))??;
+        .map_err(|e| Error::runtime("write MP3 thumbnail", e))??;
 
         tracing::debug!(
             file_path = ?file_path,

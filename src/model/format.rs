@@ -36,6 +36,14 @@ pub struct Format {
     #[serde(default)]
     pub container: Option<Container>,
 
+    /// The Unix timestamp when this format's stream URL became available (yt-dlp fetch time).
+    /// Used to detect CDN URL expiry: YouTube URLs typically last ~6 hours after this timestamp.
+    pub available_at: Option<i64>,
+    /// yt-dlp internal language preference score for this format.
+    pub language_preference: Option<i64>,
+    /// yt-dlp internal source preference score for this format.
+    pub source_preference: Option<i64>,
+
     /// All the codec-related information.
     #[serde(flatten)]
     pub codec_info: CodecInfo,
@@ -100,6 +108,21 @@ impl Format {
             (false, true) => FormatType::Video,
             _ => FormatType::Manifest,
         }
+    }
+
+    /// Returns the decrypted URL for this format.
+    ///
+    /// # Returns
+    ///
+    /// The format URL, or an error if none is available.
+    pub fn url(&self) -> Result<&String, crate::error::Error> {
+        self.download_info
+            .url
+            .as_ref()
+            .ok_or_else(|| crate::error::Error::FormatNoUrl {
+                video_id: self.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                format_id: self.format_id.clone(),
+            })
     }
 }
 
@@ -529,23 +552,6 @@ pub enum FormatType {
     Unknown,
 }
 
-impl fmt::Display for FormatType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "FormatType({})",
-            match self {
-                FormatType::Audio => "Audio",
-                FormatType::Video => "Video",
-                FormatType::AudioVideo => "AudioVideo",
-                FormatType::Manifest => "Manifest",
-                FormatType::Storyboard => "Storyboard",
-                FormatType::Unknown => "Unknown",
-            }
-        )
-    }
-}
-
 impl FormatType {
     /// Checks if the format is an audio and video format.
     pub fn is_audio_and_video(&self) -> bool {
@@ -570,5 +576,22 @@ impl FormatType {
     /// Checks if the format is a manifest format.
     pub fn is_manifest(&self) -> bool {
         matches!(self, FormatType::Manifest)
+    }
+}
+
+impl fmt::Display for FormatType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "FormatType({})",
+            match self {
+                FormatType::Audio => "Audio",
+                FormatType::Video => "Video",
+                FormatType::AudioVideo => "AudioVideo",
+                FormatType::Manifest => "Manifest",
+                FormatType::Storyboard => "Storyboard",
+                FormatType::Unknown => "Unknown",
+            }
+        )
     }
 }

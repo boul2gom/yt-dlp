@@ -1,0 +1,67 @@
+name: Github CI - Format
+
+on:
+  push:
+    branches: [ develop, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: 💄 Format code with Cargo formatter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: actions-rs/toolchain@v1.0.6
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt
+
+      - name: 💄 Format code with Cargo formatter
+        uses: actions-rs/cargo@v1.0.1
+        with:
+          command: fmt
+          args: --all
+
+      - name: 🔐 Import GPG Key and setup Git
+        uses: crazy-max/ghaction-import-gpg@v6.3.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          trust_level: 5
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_tag_gpgsign: true
+          git_config_global: true
+          git_committer_name: "boul2gom-bot"
+          git_committer_email: "actions-bot@boul2gom.com"
+
+      - name: 🤖 Commit formatted code
+        uses: stefanzweifel/git-auto-commit-action@v7.1.0
+        with:
+          commit_message: "💄 Format code with Cargo formatter [skip ci]"
+          commit_user_name: "boul2gom-bot"
+          commit_user_email: "actions-bot@boul2gom.com"
+          commit_author: "boul2gom-bot <actions-bot@boul2gom.com>"

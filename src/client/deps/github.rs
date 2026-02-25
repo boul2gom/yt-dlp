@@ -21,12 +21,6 @@ pub struct GitHubFetcher {
     repo: String,
 }
 
-impl fmt::Display for GitHubFetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "GitHubFetcher(owner={}, repo={})", self.owner, self.repo)
-    }
-}
-
 impl GitHubFetcher {
     /// Create a new fetcher for the given GitHub repository.
     ///
@@ -228,5 +222,11 @@ impl GitHubFetcher {
             "Checksum not found for asset"
         );
         Ok(None)
+    }
+}
+
+impl fmt::Display for GitHubFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GitHubFetcher(owner={}, repo={})", self.owner, self.repo)
     }
 }

@@ -68,6 +68,29 @@ pub enum AudioCodecPreference {
     Any,
 }
 
+/// Represents quality preferences for storyboard format selection.
+///
+/// A storyboard is a grid of video preview images embedded in MHTML fragments.
+/// Higher quality storyboards have more fragments and larger per-frame resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoryboardQuality {
+    /// Best available storyboard (highest resolution, most fragments).
+    Best,
+    /// Worst available storyboard (lowest resolution, fewest fragments).
+    Worst,
+}
+
+/// Represents quality preferences for thumbnail format selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThumbnailQuality {
+    /// Best available thumbnail (highest resolution)
+    Best,
+    /// Minimum resolution preference (minimum width, minimum height)
+    MinimumResolution(u32, u32),
+    /// Worst available thumbnail (lowest resolution)
+    Worst,
+}
+
 /// Case-insensitive substring check without allocation.
 fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
     if needle.len() > haystack.len() {

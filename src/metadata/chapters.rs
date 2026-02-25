@@ -17,6 +17,194 @@ use uuid::Uuid;
 use super::{BaseMetadata, MetadataManager};
 
 impl MetadataManager {
+    /// Add both regular metadata and chapters to a video file.
+    ///
+    /// This is a convenience method that combines `add_metadata_with_format` and
+    /// `add_chapters_metadata` in a single operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the video file
+    /// * `video` - The video metadata
+    /// * `video_format` - Optional video format for technical metadata
+    /// * `audio_format` - Optional audio format for technical metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata or chapters cannot be added
+    pub async fn add_metadata_with_chapters(
+        &self,
+        file_path: impl Into<PathBuf>,
+        video: &Video,
+        video_format: Option<&crate::model::format::Format>,
+        audio_format: Option<&crate::model::format::Format>,
+    ) -> Result<()> {
+        let path: PathBuf = file_path.into();
+
+        tracing::debug!(
+            file_path = ?path,
+            video_id = %video.id,
+            has_chapters = !video.chapters.is_empty(),
+            chapter_count = video.chapters.len(),
+            has_video_format = video_format.is_some(),
+            has_audio_format = audio_format.is_some(),
+            "Adding metadata with chapters"
+        );
+
+        // First add regular metadata
+        self.add_metadata_with_format(&path, video, video_format, audio_format)
+            .await?;
+
+        // Then add chapters if available
+        if !video.chapters.is_empty() {
+            self.add_chapters_metadata(&path, &video.chapters).await?;
+        }
+
+        tracing::debug!(
+            file_path = ?path,
+            video_id = %video.id,
+            "Metadata with chapters added successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Add chapters metadata to a video file using FFmpeg.
+    ///
+    /// This method embeds chapter markers into MP4/MKV/WebM files.
+    /// Chapters allow media players to navigate to specific sections of the video.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the video file
+    /// * `chapters` - The chapters to embed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if FFmpeg fails or if the file cannot be processed
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if chapters were successfully embedded
+    pub async fn add_chapters_metadata(
+        &self,
+        file_path: impl Into<PathBuf>,
+        chapters: &[Chapter],
+    ) -> Result<()> {
+        let path: PathBuf = file_path.into();
+
+        if chapters.is_empty() {
+            tracing::debug!(
+                file_path = ?path,
+                "No chapters to add, skipping"
+            );
+            return Ok(());
+        }
+
+        tracing::debug!(
+            file_path = ?path,
+            chapter_count = chapters.len(),
+            "Adding chapters to video file"
+        );
+
+        // Determine file extension
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+
+        tracing::trace!(
+            file_path = ?path,
+            extension = extension,
+            "Determined file extension for chapters"
+        );
+
+        // Create temporary metadata file
+        let temp_metadata_path =
+            std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
+
+        tracing::trace!(
+            temp_metadata_path = ?temp_metadata_path,
+            "Created temporary metadata file path"
+        );
+
+        let chapters_clone = chapters.to_vec();
+        let metadata_path_clone = temp_metadata_path.clone();
+
+        let metadata_file = tokio::task::spawn_blocking(move || {
+            Self::create_chapters_metadata_file(&chapters_clone, metadata_path_clone)
+        })
+        .await
+        .map_err(|e| Error::runtime("create chapters metadata file", e))??;
+
+        // Create temporary output file
+        let temp_output_path = Self::create_temp_output_path(&path, extension)?;
+
+        let input_str = path
+            .to_str()
+            .ok_or_else(|| Error::path_validation(&path, "Invalid input path"))?;
+        let output_str = temp_output_path
+            .to_str()
+            .ok_or_else(|| Error::path_validation(&temp_output_path, "Invalid output path"))?;
+        let metadata_str = metadata_file
+            .to_str()
+            .ok_or_else(|| Error::path_validation(&metadata_file, "Invalid metadata path"))?;
+
+        // Build FFmpeg command
+        let ffmpeg_args = crate::executor::FfmpegArgs::new()
+            .input(input_str)
+            .input(metadata_str)
+            .args(["-map_metadata", "1", "-map_chapters", "1"])
+            .codec_copy()
+            .output(output_str)
+            .build();
+
+        tracing::debug!(
+            file_path = ?path,
+            metadata_file = ?metadata_file,
+            arg_count = ffmpeg_args.len(),
+            "Running FFmpeg to embed chapters"
+        );
+
+        let executor = Executor::new(
+            self.ffmpeg_path.clone(),
+            ffmpeg_args,
+            Duration::from_secs(120),
+        );
+
+        let output = executor.execute().await;
+
+        if let Ok(ref result) = output {
+            tracing::trace!(exit_code = result.code, "FFmpeg chapters command executed");
+        }
+
+        // Clean up temporary metadata file
+        remove_temp_file(&metadata_file).await;
+
+        let output = output?;
+
+        if !output.code.eq(&0) {
+            if temp_output_path.exists() {
+                remove_temp_file(&temp_output_path).await;
+            }
+            return Err(Error::CommandFailed {
+                command: "ffmpeg".to_string(),
+                exit_code: output.code,
+                stderr: output.stderr,
+            });
+        }
+
+        // Replace original file with the one containing chapters
+        tokio::fs::rename(&temp_output_path, &path)
+            .await
+            .map_err(|e| Error::io_with_path("replace original file with chapters", &path, e))?;
+
+        tracing::debug!(
+            file_path = ?path,
+            chapter_count = chapters.len(),
+            "Chapters added successfully to video file"
+        );
+
+        Ok(())
+    }
+
     /// Creates a temporary FFMETADATA1 file containing both global metadata tags and chapters.
     ///
     /// The resulting file can be passed directly to `ffmpeg -i metadata.txt -map_metadata N
@@ -174,199 +362,5 @@ impl MetadataManager {
         );
 
         Ok(output_path)
-    }
-
-    /// Add chapters metadata to a video file using FFmpeg.
-    ///
-    /// This method embeds chapter markers into MP4/MKV/WebM files.
-    /// Chapters allow media players to navigate to specific sections of the video.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - Path to the video file
-    /// * `chapters` - The chapters to embed
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if FFmpeg fails or if the file cannot be processed
-    ///
-    /// # Returns
-    ///
-    /// Ok(()) if chapters were successfully embedded
-    pub async fn add_chapters_metadata(
-        &self,
-        file_path: impl Into<PathBuf>,
-        chapters: &[Chapter],
-    ) -> Result<()> {
-        let path: PathBuf = file_path.into();
-
-        if chapters.is_empty() {
-            tracing::debug!(
-                file_path = ?path,
-                "No chapters to add, skipping"
-            );
-            return Ok(());
-        }
-
-        tracing::debug!(
-            file_path = ?path,
-            chapter_count = chapters.len(),
-            "Adding chapters to video file"
-        );
-
-        // Determine file extension
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
-
-        tracing::trace!(
-            file_path = ?path,
-            extension = extension,
-            "Determined file extension for chapters"
-        );
-
-        // Create temporary metadata file
-        let temp_metadata_path =
-            std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
-
-        tracing::trace!(
-            temp_metadata_path = ?temp_metadata_path,
-            "Created temporary metadata file path"
-        );
-
-        let chapters_clone = chapters.to_vec();
-        let metadata_path_clone = temp_metadata_path.clone();
-
-        let metadata_file = tokio::task::spawn_blocking(move || {
-            Self::create_chapters_metadata_file(&chapters_clone, metadata_path_clone)
-        })
-        .await
-        .map_err(|e| Error::Unknown(e.to_string()))??;
-
-        // Create temporary output file
-        let temp_output_path = Self::create_temp_output_path(&path, extension)?;
-
-        let input_str = path
-            .to_str()
-            .ok_or_else(|| Error::Unknown("Failed to convert input path to string".to_string()))?;
-        let output_str = temp_output_path
-            .to_str()
-            .ok_or_else(|| Error::Unknown("Failed to convert output path to string".to_string()))?;
-        let metadata_str = metadata_file.to_str().ok_or_else(|| {
-            Error::Unknown("Failed to convert metadata path to string".to_string())
-        })?;
-
-        // Build FFmpeg command
-        let ffmpeg_args = vec![
-            "-i".to_string(),
-            input_str.to_string(),
-            "-i".to_string(),
-            metadata_str.to_string(),
-            "-map_metadata".to_string(),
-            "1".to_string(), // Map metadata from second input (chapters file)
-            "-map_chapters".to_string(),
-            "1".to_string(), // Map chapters from second input
-            "-c".to_string(),
-            "copy".to_string(), // Copy streams without re-encoding
-            output_str.to_string(),
-        ];
-
-        tracing::debug!(
-            file_path = ?path,
-            metadata_file = ?metadata_file,
-            arg_count = ffmpeg_args.len(),
-            "Running FFmpeg to embed chapters"
-        );
-
-        let executor = Executor::new(
-            self.ffmpeg_path.clone(),
-            ffmpeg_args,
-            Duration::from_secs(120),
-        );
-
-        let output = executor.execute().await;
-
-        if let Ok(ref result) = output {
-            tracing::trace!(exit_code = result.code, "FFmpeg chapters command executed");
-        }
-
-        // Clean up temporary metadata file
-        remove_temp_file(&metadata_file).await;
-
-        let output = output?;
-
-        if !output.code.eq(&0) {
-            if temp_output_path.exists() {
-                remove_temp_file(&temp_output_path).await;
-            }
-            return Err(Error::CommandFailed {
-                command: "ffmpeg".to_string(),
-                exit_code: output.code,
-                stderr: output.stderr,
-            });
-        }
-
-        // Replace original file with the one containing chapters
-        tokio::fs::rename(&temp_output_path, &path)
-            .await
-            .map_err(|e| Error::Unknown(format!("Failed to replace original file: {}", e)))?;
-
-        tracing::debug!(
-            file_path = ?path,
-            chapter_count = chapters.len(),
-            "Chapters added successfully to video file"
-        );
-
-        Ok(())
-    }
-
-    /// Add both regular metadata and chapters to a video file.
-    ///
-    /// This is a convenience method that combines `add_metadata_with_format` and
-    /// `add_chapters_metadata` in a single operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - Path to the video file
-    /// * `video` - The video metadata
-    /// * `video_format` - Optional video format for technical metadata
-    /// * `audio_format` - Optional audio format for technical metadata
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if metadata or chapters cannot be added
-    pub async fn add_metadata_with_chapters(
-        &self,
-        file_path: impl Into<PathBuf>,
-        video: &Video,
-        video_format: Option<&crate::model::format::Format>,
-        audio_format: Option<&crate::model::format::Format>,
-    ) -> Result<()> {
-        let path: PathBuf = file_path.into();
-
-        tracing::debug!(
-            file_path = ?path,
-            video_id = %video.id,
-            has_chapters = !video.chapters.is_empty(),
-            chapter_count = video.chapters.len(),
-            has_video_format = video_format.is_some(),
-            has_audio_format = audio_format.is_some(),
-            "Adding metadata with chapters"
-        );
-
-        // First add regular metadata
-        self.add_metadata_with_format(&path, video, video_format, audio_format)
-            .await?;
-
-        // Then add chapters if available
-        if !video.chapters.is_empty() {
-            self.add_chapters_metadata(&path, &video.chapters).await?;
-        }
-
-        tracing::debug!(
-            file_path = ?path,
-            video_id = %video.id,
-            "Metadata with chapters added successfully"
-        );
-
-        Ok(())
     }
 }

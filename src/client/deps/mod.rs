@@ -380,14 +380,14 @@ impl WantedRelease {
                 Ok::<_, crate::error::Error>(format!("{:x}", result))
             })
             .await
-            .map_err(|e| crate::error::Error::Unknown(e.to_string()))??;
+            .map_err(|e| crate::error::Error::runtime("checksum computation", e))??;
 
             if actual_checksum != *expected_checksum {
                 // Delete the invalid file
                 let _ = tokio::fs::remove_file(&destination).await;
                 return Err(crate::error::Error::Unknown(format!(
-                    "Checksum verification failed. Expected: {}, Actual: {}",
-                    expected_checksum, actual_checksum
+                    "Checksum verification failed for '{}'. Expected: {}, Actual: {}",
+                    destination.display(), expected_checksum, actual_checksum
                 )));
             }
 

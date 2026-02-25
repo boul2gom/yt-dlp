@@ -4,9 +4,9 @@
 //! using pluggable backend implementations.
 
 use crate::cache::backend::{PlaylistBackend, PlaylistBackendEnum};
-use crate::cache::current_timestamp;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::model::playlist::Playlist;
+use crate::utils::current_timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -29,8 +29,7 @@ pub struct CachedPlaylist {
 impl CachedPlaylist {
     /// Deserialize the cached playlist JSON into a Playlist struct.
     pub fn playlist(&self) -> Result<Playlist> {
-        serde_json::from_str(&self.playlist_json)
-            .map_err(|e| Error::Unknown(format!("Failed to parse playlist: {}", e)))
+        Ok(serde_json::from_str(&self.playlist_json)?)
     }
 }
 

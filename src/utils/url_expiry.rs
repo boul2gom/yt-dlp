@@ -138,18 +138,18 @@ pub struct ExpiryConfig {
     pub auto_refresh: bool,
 }
 
+impl ExpiryConfig {
+    /// Creates a new expiry configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for ExpiryConfig {
     fn default() -> Self {
         Self {
             max_refresh_attempts: 2,
             auto_refresh: true,
         }
-    }
-}
-
-impl ExpiryConfig {
-    /// Creates a new expiry configuration.
-    pub fn new() -> Self {
-        Self::default()
     }
 }

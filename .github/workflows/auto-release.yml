@@ -299,6 +299,11 @@ jobs:
                 console.log(`Skipping pre-release commit: ${message}`);
                 return;
               }
+
+              if (message.includes('Format code with Cargo formatter [skip ci]')) {
+                console.log(`Skipping formatting commit: ${message}`);
+                return;
+              }
               
               const author = commit.author ? commit.author.login : commit.commit.author.name;
               const sha = commit.sha.substring(0, 7);
@@ -308,8 +313,8 @@ jobs:
               const commit_entry = `${message} - by @${author}${pr_number ? ` in #${pr_number}` : ''} (${sha})`;
 
               const deps_tags = ["bump", "update", "dependencies", "dependency", "cargo.lock", "pinning", "📌", "🔌"]
-              const bug_tags = ["fix", "bug", "error", "patch", "hotfix", "🐛"]
-              const refactor_tags = ["refactor", "format", "lint", "cleanup", "rename", "restructure", "💄"]
+              const bug_tags = ["fix", "bug", "error", "patch", "hotfix", "🐛", "🚑"]
+              const refactor_tags = ["refactor", "format", "lint", "cleanup", "rename", "restructure", "💄", "🎨"]
               
               // Categorize based on message content
               const message_lower = message.toLowerCase();

@@ -1,4 +1,3 @@
-use crate::Downloader;
 use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
 use crate::error::Error;
@@ -8,9 +7,11 @@ use crate::model::Video;
 use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
+use crate::model::selector::ThumbnailQuality;
 #[cfg(feature = "cache-backend")]
 use crate::model::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::utils;
+use crate::{DownloadStatus, Downloader};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,15 +32,26 @@ impl Downloader {
             tracing::debug!(url = url, "Checking video cache");
 
             let cache = self.cache.as_ref()?;
-            let result = cache.get(url).await.ok().flatten();
+            let video = cache.get(url).await.ok().flatten()?;
+
+            // If format URLs have expired according to available_at, invalidate and force re-fetch
+            if !video.are_format_urls_fresh() {
+                tracing::debug!(
+                    url = url,
+                    video_id = %video.id,
+                    "Cached video has expired format URLs (available_at exceeded), invalidating"
+                );
+                let _ = cache.remove(url).await;
+                return None;
+            }
 
             tracing::debug!(
                 url = url,
-                cache_hit = result.is_some(),
-                "Video cache check completed"
+                video_id = %video.id,
+                "Video cache hit with fresh format URLs"
             );
 
-            result
+            Some(video)
         }
         #[cfg(not(feature = "cache-backend"))]
         {
@@ -139,59 +151,7 @@ impl Downloader {
             return Ok(video);
         }
 
-        tracing::debug!(url = url_str, "Cache miss, fetching from extractor");
-
-        let start = std::time::Instant::now();
-        let result = self.get_extractor(url_str).fetch_video(url_str).await;
-        let duration = start.elapsed();
-
-        let video = match result {
-            Ok(v) => {
-                tracing::debug!(
-                    url = url_str,
-                    video_id = %v.id,
-                    video_title = %v.title,
-                    format_count = v.formats.len(),
-                    duration = ?duration,
-                    "Video information fetched successfully"
-                );
-
-                self.emit_event(crate::events::DownloadEvent::VideoFetched {
-                    url: url_str.to_string(),
-                    video: v.clone(),
-                    duration,
-                })
-                .await;
-
-                v
-            }
-            Err(e) => {
-                tracing::debug!(
-                    url = url_str,
-                    error = %e,
-                    duration = ?duration,
-                    "Video information fetch failed"
-                );
-
-                self.emit_event(crate::events::DownloadEvent::VideoFetchFailed {
-                    url: url_str.to_string(),
-                    error: e.to_string(),
-                    duration,
-                })
-                .await;
-
-                return Err(e);
-            }
-        };
-
-        #[cfg(feature = "cache-backend")]
-        if let Some(cache) = &self.cache {
-            tracing::debug!(video_id = %video.id, "Storing video in cache");
-
-            let _ = cache.put(url_str.to_string(), video.clone()).await;
-        }
-
-        Ok(video)
+        self.fetch_video_infos_internal(url_str, "fetching from extractor").await
     }
 
     /// Fetch the video information from the given URL, bypassing the cache.
@@ -213,29 +173,36 @@ impl Downloader {
     ) -> crate::error::Result<Video> {
         let url_str = url.as_ref();
 
-        tracing::debug!(
-            url = url_str,
-            "Fetching fresh video information (bypassing cache)"
-        );
+        self.fetch_video_infos_internal(url_str, "fetching fresh video information (bypassing cache)")
+            .await
+    }
+
+    /// Internal helper to fetch video information, emit events, and update cache.
+    async fn fetch_video_infos_internal(
+        &self,
+        url: &str,
+        log_message: &str,
+    ) -> crate::error::Result<Video> {
+        tracing::debug!(url = url, log_message);
 
         let start = std::time::Instant::now();
-        let result = self.get_extractor(url_str).fetch_video(url_str).await;
+        let result = self.get_extractor(url).fetch_video(url).await;
         let duration = start.elapsed();
 
         let video = match result {
             Ok(v) => {
                 tracing::debug!(
-                    url = url_str,
+                    url = url,
                     video_id = %v.id,
                     video_title = %v.title,
                     format_count = v.formats.len(),
                     duration = ?duration,
-                    "Fresh video information fetched successfully"
+                    "Video information fetched successfully"
                 );
 
                 self.emit_event(crate::events::DownloadEvent::VideoFetched {
-                    url: url_str.to_string(),
-                    video: v.clone(),
+                    url: url.to_string(),
+                    video: Box::new(v.clone()),
                     duration,
                 })
                 .await;
@@ -244,14 +211,14 @@ impl Downloader {
             }
             Err(e) => {
                 tracing::debug!(
-                    url = url_str,
+                    url = url,
                     error = %e,
                     duration = ?duration,
-                    "Fresh video information fetch failed"
+                    "Video information fetch failed"
                 );
 
                 self.emit_event(crate::events::DownloadEvent::VideoFetchFailed {
-                    url: url_str.to_string(),
+                    url: url.to_string(),
                     error: e.to_string(),
                     duration,
                 })
@@ -263,9 +230,9 @@ impl Downloader {
 
         #[cfg(feature = "cache-backend")]
         if let Some(cache) = &self.cache {
-            tracing::debug!(video_id = %video.id, "Updating cache with fresh video data");
+            tracing::debug!(video_id = %video.id, "Updating cache with video data");
 
-            let _ = cache.put(url_str.to_string(), video.clone()).await;
+            let _ = cache.put(url.to_string(), video.clone()).await;
         }
 
         Ok(video)
@@ -507,6 +474,7 @@ impl Downloader {
     /// # Arguments
     ///
     /// * `video` - The `Video` metadata struct.
+    /// * `quality` - The requested thumbnail quality.
     /// * `output` - The path to save the thumbnail to.
     ///
     /// # Returns
@@ -515,30 +483,54 @@ impl Downloader {
     pub async fn download_thumbnail(
         &self,
         video: &Video,
+        quality: ThumbnailQuality,
         output: impl Into<PathBuf>,
     ) -> crate::error::Result<PathBuf> {
         let output: PathBuf = output.into();
-        tracing::debug!("Downloading thumbnail for {}", video.title);
+        tracing::debug!(
+            video_id = %video.id,
+            quality = ?quality,
+            "Downloading thumbnail for {}", video.title
+        );
 
-        if let Some(thumbnail_url) = &video.thumbnail {
-            let fetcher = Fetcher::new(
-                thumbnail_url,
-                self.proxy.as_ref(),
-                self.user_agent
-                    .clone()
-                    .map(|ua| crate::model::format::HttpHeaders {
-                        user_agent: ua,
-                        accept: "*/*".to_string(),
-                        accept_language: "en-US,en".to_string(),
-                        sec_fetch_mode: "navigate".to_string(),
-                    }),
-            )?;
-            fetcher.fetch_asset(&output).await?;
-            Ok(output)
-        } else {
-            Err(Error::Unknown(
-                "No thumbnail found for this video".to_string(),
-            ))
+        let thumbnail = video.select_thumbnail(quality).ok_or_else(|| {
+            crate::error::Error::NoThumbnail { video_id: video.id.clone() }
+        })?;
+
+        let http_headers = self
+            .user_agent
+            .clone()
+            .map(|ua| crate::model::format::HttpHeaders {
+                user_agent: ua,
+                accept: "*/*".to_string(),
+                accept_language: "en-US,en".to_string(),
+                sec_fetch_mode: "navigate".to_string(),
+            });
+
+        let id = self
+            .download_manager
+            .enqueue_with_headers(
+                &thumbnail.url,
+                output.clone(),
+                Some(crate::download::DownloadPriority::Normal),
+                http_headers,
+            )
+            .await;
+
+        use crate::download::DownloadStatus;
+        match self.wait_for_download(id).await {
+            Some(DownloadStatus::Completed) => Ok(output),
+            Some(DownloadStatus::Failed { reason }) => Err(crate::error::Error::download_failed(
+                id,
+                format!("Thumbnail download failed: {}", reason),
+            )),
+            Some(DownloadStatus::Canceled) => {
+                Err(crate::error::Error::DownloadCancelled { download_id: id })
+            }
+            _ => Err(crate::error::Error::download_failed(
+                id,
+                "Unexpected download status",
+            )),
         }
     }
 
@@ -769,6 +761,7 @@ impl Downloader {
         video: &Video,
         language_code: impl AsRef<str>,
         output: impl AsRef<str>,
+        fallback_to_automatic: bool,
     ) -> crate::error::Result<PathBuf> {
         let language_code = language_code.as_ref();
 
@@ -798,15 +791,36 @@ impl Downloader {
             return Ok(output_path);
         }
 
-        // Get subtitles for the language
-        let subtitles =
-            video
-                .subtitles
-                .get(language_code)
-                .ok_or_else(|| Error::SubtitleNotAvailable {
+        // Resolve subtitles for the language: prefer user-uploaded subtitles,
+        // then fall back to automatic captions (e.g. YouTube auto-generated).
+        let owned_fallback: Vec<crate::model::caption::Subtitle>;
+        let subtitles: &[crate::model::caption::Subtitle] =
+            if let Some(subs) = video.subtitles.get(language_code) {
+                subs.as_slice()
+            } else if fallback_to_automatic {
+                if let Some(captions) = video.automatic_captions.get(language_code) {
+                    owned_fallback = captions
+                        .iter()
+                        .map(|c| {
+                            crate::model::caption::Subtitle::from_automatic_caption(
+                                c,
+                                language_code.to_string(),
+                            )
+                        })
+                        .collect();
+                    owned_fallback.as_slice()
+                } else {
+                    return Err(Error::SubtitleNotAvailable {
+                        video_id: video.id.clone(),
+                        language: language_code.to_string(),
+                    });
+                }
+            } else {
+                return Err(Error::SubtitleNotAvailable {
                     video_id: video.id.clone(),
                     language: language_code.to_string(),
-                })?;
+                });
+            };
 
         // Prefer SRT format, then VTT, then any available format
         let subtitle = subtitles
@@ -864,12 +878,15 @@ impl Downloader {
         Ok(output_path)
     }
 
-    /// Downloads all available subtitles for a video.
+    /// Downloads all available subtitles and automatic captions for a video.
+    ///
+    /// Iterates over user-uploaded subtitles first, then merges automatic captions
+    /// for any language not already covered. Prefers SRT, then VTT, then any format.
     ///
     /// # Arguments
     ///
     /// * `video` - The `Video` metadata struct.
-    /// * `output_dir` - The directory to save the subtitles to.
+    /// * `output_dir` - The directory to save the subtitle files to.
     ///
     /// # Returns
     ///
@@ -878,40 +895,240 @@ impl Downloader {
         &self,
         video: &Video,
         output_dir: impl AsRef<Path>,
+        fallback_to_automatic: bool,
     ) -> crate::error::Result<Vec<PathBuf>> {
-        tracing::debug!("Downloading all subtitles for video {}", video.id);
+        tracing::debug!(
+            video_id = %video.id,
+            subtitle_langs = video.subtitles.len(),
+            caption_langs = video.automatic_captions.len(),
+            "Downloading all subtitles and automatic captions"
+        );
 
         let output_dir = output_dir.as_ref();
         let mut downloaded_files = Vec::new();
 
-        for (language_code, subtitles) in &video.subtitles {
-            if let Some(subtitle) = subtitles.first() {
-                let filename = format!(
-                    "{}.{}.{}",
-                    video.id,
-                    language_code,
-                    subtitle.file_extension()
-                );
-                let output_path = output_dir.join(&filename);
+        // Merge language sources: manual subtitles take priority over automatic captions
+        let mut all_languages: std::collections::HashMap<
+            &str,
+            Vec<crate::model::caption::Subtitle>,
+        > = std::collections::HashMap::new();
 
-                tracing::debug!(
-                    "Downloading subtitle for language {} from {}",
-                    language_code,
-                    subtitle.url
-                );
+        if fallback_to_automatic {
+            for (lang, captions) in &video.automatic_captions {
+                let subs: Vec<_> = captions
+                    .iter()
+                    .map(|c| {
+                        crate::model::caption::Subtitle::from_automatic_caption(c, lang.clone())
+                    })
+                    .collect();
+                all_languages.entry(lang.as_str()).or_insert(subs);
+            }
+        }
+        for (lang, subs) in &video.subtitles {
+            // Manual subtitles override automatic captions for the same language
+            all_languages.insert(lang.as_str(), subs.clone());
+        }
 
-                let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None)?;
-                fetcher.fetch_asset(&output_path).await?;
-                downloaded_files.push(output_path);
+        for (language_code, subtitles) in &all_languages {
+            // Prefer SRT → VTT → first available
+            let Some(subtitle) = subtitles
+                .iter()
+                .find(|s| s.is_format(&CaptionExtension::Srt))
+                .or_else(|| {
+                    subtitles
+                        .iter()
+                        .find(|s| s.is_format(&CaptionExtension::Vtt))
+                })
+                .or_else(|| subtitles.first())
+            else {
+                continue;
+            };
+
+            let filename = format!(
+                "{}.{}.{}",
+                video.id,
+                language_code,
+                subtitle.file_extension()
+            );
+            let output_path = output_dir.join(&filename);
+
+            tracing::debug!(
+                video_id = %video.id,
+                language_code = language_code,
+                url = %subtitle.url,
+                "Downloading subtitle/caption"
+            );
+
+            let fetcher = Fetcher::new(&subtitle.url, self.proxy.as_ref(), None)?;
+            fetcher.fetch_asset(&output_path).await?;
+            downloaded_files.push(output_path);
+        }
+
+        tracing::info!(
+            video_id = %video.id,
+            count = downloaded_files.len(),
+            "Successfully downloaded subtitle/caption files"
+        );
+
+        Ok(downloaded_files)
+    }
+
+    /// Downloads all MHTML fragments of a storyboard format.
+    ///
+    /// Each fragment is a grid of preview images for a contiguous time range.
+    /// Files are named `{video_id}_sb_{format_id}_{index}.mhtml` where `video_id` comes
+    /// from `format.video_id` when set (populated automatically when fetching via this library).
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - A storyboard `Format` obtained via [`VideoSelection::best_storyboard_format`].
+    /// * `output_dir` - Directory where fragment files will be written.
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded MHTML fragment files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the format is not a storyboard, if fragments are missing, or if any
+    /// fragment download fails.
+    pub async fn download_storyboard_format(
+        &self,
+        format: &Format,
+        output_dir: impl AsRef<Path>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        let output_dir = output_dir.as_ref();
+
+        if format.format_type() != FormatType::Storyboard {
+            return Err(Error::FormatNotAvailable {
+                video_id: format.video_id.clone().unwrap_or_default(),
+                format_type: FormatType::Storyboard,
+                available_formats: vec![format.format_id.clone()],
+            });
+        }
+
+        let fragments = format
+            .storyboard_info
+            .fragments
+            .as_deref()
+            .unwrap_or_default();
+
+        // Use video_id when available (set by the library), fall back to format_id
+        let prefix = format
+            .video_id
+            .as_deref()
+            .unwrap_or(format.format_id.as_str());
+
+        tracing::debug!(
+            video_id = prefix,
+            format_id = %format.format_id,
+            fragment_count = fragments.len(),
+            resolution = ?format.video_resolution.resolution,
+            "Downloading storyboard fragments"
+        );
+
+        let mut paths = Vec::with_capacity(fragments.len());
+        let mut download_ids = Vec::with_capacity(fragments.len());
+
+        for (index, fragment) in fragments.iter().enumerate() {
+            let filename = format!("{}_sb_{}_{:04}.mhtml", prefix, format.format_id, index);
+            let output_path = output_dir.join(&filename);
+
+            tracing::debug!(
+                index = index,
+                url = %fragment.url,
+                path = ?output_path,
+                "Enqueuing storyboard fragment for download"
+            );
+
+            let id = self
+                .download_manager
+                .enqueue(
+                    &fragment.url,
+                    output_path.clone(),
+                    Some(crate::download::DownloadPriority::Normal),
+                )
+                .await;
+
+            paths.push(output_path);
+            download_ids.push(id);
+        }
+
+        for id in download_ids {
+            match self.wait_for_download(id).await {
+                Some(DownloadStatus::Completed) => continue,
+                Some(DownloadStatus::Failed { reason }) => {
+                    return Err(crate::error::Error::download_failed(
+                        id,
+                        format!("Storyboard fragment download failed: {}", reason),
+                    ));
+                }
+                Some(DownloadStatus::Canceled) => {
+                    return Err(crate::error::Error::DownloadCancelled { download_id: id });
+                }
+                _ => {
+                    return Err(crate::error::Error::download_failed(
+                        id,
+                        "Unexpected download status",
+                    ));
+                }
             }
         }
 
         tracing::info!(
-            "Successfully downloaded {} subtitle files",
-            downloaded_files.len()
+            video_id = prefix,
+            format_id = %format.format_id,
+            downloaded = paths.len(),
+            "Storyboard fragments downloaded"
         );
 
-        Ok(downloaded_files)
+        Ok(paths)
+    }
+
+    /// Downloads the storyboard of the requested quality for a video.
+    ///
+    /// Selects the best or worst storyboard format via [`VideoSelection`] and delegates
+    /// to [`Downloader::download_storyboard_format`].
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The `Video` metadata struct.
+    /// * `quality` - [`StoryboardQuality::Best`] for highest resolution, [`StoryboardQuality::Worst`] for lowest.
+    /// * `output_dir` - Directory where fragment files will be written.
+    ///
+    /// # Returns
+    ///
+    /// A vector of paths to the downloaded MHTML fragment files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no storyboard formats are available or if a download fails.
+    pub async fn download_storyboard(
+        &self,
+        video: &Video,
+        quality: crate::model::selector::StoryboardQuality,
+        output_dir: impl AsRef<Path>,
+    ) -> crate::error::Result<Vec<PathBuf>> {
+        use crate::client::streams::selection::VideoSelection;
+        use crate::model::selector::StoryboardQuality;
+
+        tracing::debug!(
+            video_id = %video.id,
+            quality = ?quality,
+            "Selecting storyboard format for download"
+        );
+
+        let format = match quality {
+            StoryboardQuality::Best => video.best_storyboard_format(),
+            StoryboardQuality::Worst => video.worst_storyboard_format(),
+        }
+        .ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Storyboard,
+            available_formats: vec![],
+        })?;
+
+        self.download_storyboard_format(format, output_dir).await
     }
 
     /// Fetches playlist information from a URL.
@@ -1215,10 +1432,10 @@ impl Downloader {
                             });
                         }
 
-                        results.push(Err(Error::Unknown(format!(
-                            "Video {} is not available",
-                            entry.id
-                        ))));
+                        results.push(Err(Error::video_fetch(
+                            &entry.url,
+                            format!("Video {} is not available", entry.id),
+                        )));
                         continue;
                     }
 
@@ -1331,7 +1548,7 @@ impl Downloader {
                         results.push(download_result);
                     }
                     Err(e) => {
-                        results.push(Err(Error::Unknown(format!("Task join error: {}", e))));
+                        results.push(Err(Error::runtime("playlist download task", e)));
                     }
                 }
             }
@@ -1496,11 +1713,15 @@ impl Downloader {
             if !video.chapters.is_empty() {
                 range
                     .to_time_range(&video.chapters)
-                    .ok_or_else(|| Error::Unknown("Chapter index out of bounds".to_string()))?
+                    .ok_or_else(|| Error::VideoMissingField {
+                        video_id: video.id.clone(),
+                        field: "chapter at requested index".to_string(),
+                    })?
             } else {
-                return Err(Error::Unknown(
-                    "Video does not have chapter information".to_string(),
-                ));
+                return Err(Error::VideoMissingField {
+                    video_id: video.id.clone(),
+                    field: "chapters".to_string(),
+                });
             }
         } else {
             range.clone()
@@ -1573,7 +1794,7 @@ impl Downloader {
         // Get time range
         let (start_time, end_time) = range
             .get_times()
-            .ok_or_else(|| Error::Unknown("Cannot extract times from range".to_string()))?;
+            .ok_or_else(|| Error::Unknown("Cannot extract time boundaries from partial range".to_string()))?;
 
         // Download full video to temporary file
         let temp_filename = format!("temp_full_{}.mp4", utils::fs::random_filename(8));
@@ -1594,23 +1815,17 @@ impl Downloader {
         let duration = end_time - start_time;
         let duration_str = format!("{:.3}", duration);
 
-        let args = vec![
-            "-i",
-            temp_str,
-            "-ss",
-            &start_str,
-            "-t",
-            &duration_str,
-            "-c",
-            "copy",
-            "-avoid_negative_ts",
-            "1",
-            output_str,
-        ];
+        let args = crate::executor::FfmpegArgs::new()
+            .input(temp_str)
+            .args(["-ss", &start_str, "-t", &duration_str])
+            .codec_copy()
+            .args(["-avoid_negative_ts", "1"])
+            .output(output_str)
+            .build();
 
         let executor = Executor::new(
             self.libraries.ffmpeg.clone(),
-            utils::to_owned(args),
+            args,
             self.timeout,
         );
 

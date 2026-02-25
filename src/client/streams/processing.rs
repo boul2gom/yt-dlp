@@ -5,10 +5,156 @@ use crate::executor::Executor;
 use crate::metadata::MetadataManager;
 use crate::model::format::Format;
 
-use crate::utils;
 use std::path::PathBuf;
 
 impl Downloader {
+    /// Embeds subtitle files into a video file using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_paths` - Paths to subtitle files to embed
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
+    pub async fn embed_subtitles_in_video(
+        &self,
+        video_path: impl Into<PathBuf>,
+        subtitle_paths: &[PathBuf],
+        output: impl Into<PathBuf>,
+    ) -> crate::error::Result<PathBuf> {
+        self.embed_subtitles_with_languages(video_path, subtitle_paths, &[], output)
+            .await
+    }
+
+    /// Embeds a single subtitle file into a video file using ffmpeg.
+    ///
+    /// This is a convenience wrapper around `embed_subtitles_in_video`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_path` - Path to the subtitle file to embed
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitle
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
+    pub async fn embed_subtitles(
+        &self,
+        video_path: impl Into<PathBuf>,
+        subtitle_path: impl Into<PathBuf>,
+        output: impl Into<PathBuf>,
+    ) -> crate::error::Result<PathBuf> {
+        self.embed_subtitles_in_video(video_path, &[subtitle_path.into()], output)
+            .await
+    }
+
+    /// Embeds subtitle files into a video file with language metadata using ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_path` - Path to the input video file
+    /// * `subtitle_paths` - Paths to subtitle files to embed
+    /// * `language_codes` - Language codes for each subtitle (optional)
+    /// * `output` - Output filename (relative to output_dir)
+    ///
+    /// # Returns
+    ///
+    /// Path to the output file with embedded subtitles
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ffmpeg fails or paths are invalid
+    pub async fn embed_subtitles_with_languages(
+        &self,
+        video_path: impl Into<PathBuf>,
+        subtitle_paths: &[PathBuf],
+        language_codes: &[&str],
+        output: impl Into<PathBuf>,
+    ) -> crate::error::Result<PathBuf> {
+        let video_path: PathBuf = video_path.into();
+        let output: PathBuf = output.into();
+        let output_path = self.output_dir.join(&output);
+
+        tracing::debug!(
+            video_path = ?video_path,
+            subtitle_count = subtitle_paths.len(),
+            language_count = language_codes.len(),
+            output_path = ?output_path,
+            "Embedding subtitles into video"
+        );
+
+        // Build ffmpeg command
+        let mut builder = crate::executor::FfmpegArgs::new()
+            .input(video_path.to_string_lossy());
+
+        for subtitle_path in subtitle_paths {
+            builder = builder.input(subtitle_path.to_string_lossy());
+        }
+
+        builder = builder.args(["-map", "0:v", "-map", "0:a"]);
+
+        // Map subtitle streams
+        for i in 0..subtitle_paths.len() {
+            builder = builder.args(["-map".to_string(), format!("{}:s", i + 1)]);
+        }
+
+        // Add language metadata for each subtitle stream
+        for (i, &language_code) in language_codes.iter().enumerate() {
+            if i < subtitle_paths.len() {
+                builder = builder.args([
+                    format!("-metadata:s:s:{}", i),
+                    format!("language={}", language_code),
+                ]);
+
+                tracing::debug!(
+                    language = language_code,
+                    stream_index = i,
+                    subtitle_path = ?subtitle_paths.get(i),
+                    "Setting language metadata for subtitle stream"
+                );
+            }
+        }
+
+        let args = builder
+            .codec_copy()
+            .output(output_path.to_string_lossy())
+            .build();
+
+        tracing::debug!(
+            args = ?args,
+            arg_count = args.len(),
+            output_path = ?output_path,
+            "Running ffmpeg to embed subtitles"
+        );
+
+        let executor = Executor::new(
+            self.libraries.ffmpeg.clone(),
+            args,
+            self.timeout,
+        );
+
+        executor.execute().await?;
+
+        tracing::info!(
+            "Successfully embedded subtitles into video at {:?}",
+            output_path
+        );
+
+        Ok(output_path)
+    }
+
     /// Adds format metadata based on the format type (audio-only, video-only, or both)
     /// This function is extracted to avoid code duplication
     ///
@@ -99,159 +245,5 @@ impl Downloader {
         }
 
         Ok(())
-    }
-
-    /// Embeds subtitle files into a video file using ffmpeg.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_path` - Path to the input video file
-    /// * `subtitle_paths` - Paths to subtitle files to embed
-    /// * `output` - Output filename (relative to output_dir)
-    ///
-    /// # Returns
-    ///
-    /// Path to the output file with embedded subtitles
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if ffmpeg fails or paths are invalid
-    pub async fn embed_subtitles_in_video(
-        &self,
-        video_path: impl Into<PathBuf>,
-        subtitle_paths: &[PathBuf],
-        output: impl Into<PathBuf>,
-    ) -> crate::error::Result<PathBuf> {
-        self.embed_subtitles_with_languages(video_path, subtitle_paths, &[], output)
-            .await
-    }
-
-    /// Embeds a single subtitle file into a video file using ffmpeg.
-    ///
-    /// This is a convenience wrapper around `embed_subtitles_in_video`.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_path` - Path to the input video file
-    /// * `subtitle_path` - Path to the subtitle file to embed
-    /// * `output` - Output filename (relative to output_dir)
-    ///
-    /// # Returns
-    ///
-    /// Path to the output file with embedded subtitle
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if ffmpeg fails or paths are invalid
-    pub async fn embed_subtitles(
-        &self,
-        video_path: impl Into<PathBuf>,
-        subtitle_path: impl Into<PathBuf>,
-        output: impl Into<PathBuf>,
-    ) -> crate::error::Result<PathBuf> {
-        self.embed_subtitles_in_video(video_path, &[subtitle_path.into()], output)
-            .await
-    }
-
-    /// Embeds subtitle files into a video file with language metadata using ffmpeg.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_path` - Path to the input video file
-    /// * `subtitle_paths` - Paths to subtitle files to embed
-    /// * `language_codes` - Language codes for each subtitle (optional)
-    /// * `output` - Output filename (relative to output_dir)
-    ///
-    /// # Returns
-    ///
-    /// Path to the output file with embedded subtitles
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if ffmpeg fails or paths are invalid
-    pub async fn embed_subtitles_with_languages(
-        &self,
-        video_path: impl Into<PathBuf>,
-        subtitle_paths: &[PathBuf],
-        language_codes: &[&str],
-        output: impl Into<PathBuf>,
-    ) -> crate::error::Result<PathBuf> {
-        let video_path: PathBuf = video_path.into();
-        let output: PathBuf = output.into();
-        let output_path = self.output_dir.join(&output);
-
-        tracing::debug!(
-            video_path = ?video_path,
-            subtitle_count = subtitle_paths.len(),
-            language_count = language_codes.len(),
-            output_path = ?output_path,
-            "Embedding subtitles into video"
-        );
-
-        // Build ffmpeg command
-        let mut args = vec!["-i".to_string(), video_path.to_string_lossy().to_string()];
-
-        // Add each subtitle file as input
-        for subtitle_path in subtitle_paths {
-            args.push("-i".to_string());
-            args.push(subtitle_path.to_string_lossy().to_string());
-        }
-
-        // Map video and audio streams
-        args.push("-map".to_string());
-        args.push("0:v".to_string());
-        args.push("-map".to_string());
-        args.push("0:a".to_string());
-
-        // Map subtitle streams
-        for i in 0..subtitle_paths.len() {
-            args.push("-map".to_string());
-            args.push(format!("{}:s", i + 1));
-        }
-
-        // Add language metadata for each subtitle stream
-        for (i, &language_code) in language_codes.iter().enumerate() {
-            if i < subtitle_paths.len() {
-                // Set language metadata for subtitle stream
-                args.push(format!("-metadata:s:s:{}", i));
-                args.push(format!("language={}", language_code));
-
-                tracing::debug!(
-                    language = language_code,
-                    stream_index = i,
-                    subtitle_path = ?subtitle_paths.get(i),
-                    "Setting language metadata for subtitle stream"
-                );
-            }
-        }
-
-        // Copy codecs
-        args.push("-c".to_string());
-        args.push("copy".to_string());
-
-        // Output file
-        args.push(output_path.to_string_lossy().to_string());
-
-        tracing::debug!(
-            args = ?args,
-            arg_count = args.len(),
-            output_path = ?output_path,
-            "Running ffmpeg to embed subtitles"
-        );
-
-        let executor = Executor::new(
-            self.libraries.ffmpeg.clone(),
-            utils::to_owned(args),
-            self.timeout,
-        );
-
-        executor.execute().await?;
-
-        tracing::info!(
-            "Successfully embedded subtitles into video at {:?}",
-            output_path
-        );
-
-        Ok(output_path)
     }
 }

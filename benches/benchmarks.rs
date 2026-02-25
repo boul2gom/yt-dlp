@@ -12,7 +12,6 @@
 //! ```
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use ordered_float::OrderedFloat;
 use std::path::PathBuf;
 use yt_dlp::VideoSelection;
 use yt_dlp::download::SpeedProfile;
@@ -20,166 +19,13 @@ use yt_dlp::download::manager::ManagerConfig;
 use yt_dlp::download::postprocess::{AudioCodec, PostProcessConfig, VideoCodec};
 use yt_dlp::events::{DownloadEvent, EventFilter};
 use yt_dlp::model::chapter::Chapter;
-use yt_dlp::model::format::{
-    CodecInfo, DownloadInfo, Extension, FileInfo, Format, HttpHeaders, QualityInfo, RatesInfo,
-    StoryboardInfo, VideoResolution,
-};
 use yt_dlp::model::heatmap::{Heatmap, HeatmapPoint};
 use yt_dlp::model::playlist::{Playlist, PlaylistEntry};
 use yt_dlp::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
-use yt_dlp::model::video::{ExtractorInfo, Version};
 use yt_dlp::model::{ChapterList, Video};
 use yt_dlp::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
-
-fn make_format(
-    id: &str,
-    height: Option<u32>,
-    vcodec: Option<&str>,
-    acodec: Option<&str>,
-    vbr: Option<f64>,
-    abr: Option<f64>,
-) -> Format {
-    use yt_dlp::model::format::Protocol;
-
-    Format {
-        format: format!("{} - {}p", id, height.unwrap_or(0)),
-        format_id: id.to_string(),
-        format_note: None,
-        protocol: Protocol::Https,
-        language: None,
-        has_drm: None,
-        container: None,
-        codec_info: CodecInfo {
-            audio_codec: acodec.map(str::to_string),
-            video_codec: vcodec.map(str::to_string),
-            audio_ext: Extension::Unknown,
-            video_ext: Extension::Unknown,
-            audio_channels: acodec.map(|_| 2),
-            asr: acodec.map(|_| 48000),
-        },
-        video_resolution: VideoResolution {
-            width: height.map(|h| h * 16 / 9),
-            height,
-            resolution: height.map(|h| format!("{}x{}", h * 16 / 9, h)),
-            fps: height.map(|_| OrderedFloat(30.0)),
-            aspect_ratio: Some(OrderedFloat(16.0 / 9.0)),
-        },
-        download_info: DownloadInfo {
-            url: Some(format!("https://example.com/stream/{}", id)),
-            ext: Extension::Mp4,
-            http_headers: HttpHeaders {
-                user_agent: "Mozilla/5.0".to_string(),
-                accept: "*/*".to_string(),
-                accept_language: "en-US,en;q=0.9".to_string(),
-                sec_fetch_mode: "navigate".to_string(),
-            },
-            manifest_url: None,
-            downloader_options: None,
-        },
-        quality_info: QualityInfo {
-            quality: height.map(|h| OrderedFloat(h as f64)),
-            dynamic_range: None,
-        },
-        file_info: FileInfo {
-            filesize_approx: height.map(|h| (h as i64) * 100_000),
-            filesize: None,
-        },
-        storyboard_info: StoryboardInfo {
-            rows: None,
-            columns: None,
-            fragments: None,
-        },
-        rates_info: RatesInfo {
-            video_rate: vbr.map(OrderedFloat),
-            audio_rate: abr.map(OrderedFloat),
-            total_rate: Some(OrderedFloat(vbr.unwrap_or(0.0) + abr.unwrap_or(0.0))),
-        },
-        video_id: None,
-    }
-}
-
-fn make_video(n_formats: usize) -> Video {
-    let heights = [2160u32, 1440, 1080, 720, 480, 360, 240, 144];
-    let video_codecs = ["vp9", "avc1.42E01E", "av01.0.05M.08"];
-    let audio_codecs = ["opus", "mp4a.40.2"];
-
-    let mut formats = Vec::with_capacity(n_formats);
-    let mut idx = 0usize;
-
-    'outer: for &height in &heights {
-        for &vcodec in &video_codecs {
-            let vbr = height as f64 * 0.5;
-            formats.push(make_format(
-                &format!("{}-v{}", height, idx),
-                Some(height),
-                Some(vcodec),
-                None,
-                Some(vbr),
-                None,
-            ));
-            idx += 1;
-            if idx >= n_formats {
-                break 'outer;
-            }
-        }
-    }
-
-    let audio_count = n_formats.saturating_sub(idx);
-    for i in 0..audio_count {
-        let acodec = audio_codecs[i % audio_codecs.len()];
-        let abr = 128.0 + (i as f64) * 32.0;
-        formats.push(make_format(
-            &format!("a{}", i),
-            None,
-            None,
-            Some(acodec),
-            None,
-            Some(abr),
-        ));
-    }
-
-    Video {
-        id: "jNQXAC9IVRw".to_string(),
-        title: "Me at the zoo".to_string(),
-        thumbnail: None,
-        description: Some("The first YouTube video.".to_string()),
-        availability: Some("public".to_string()),
-        upload_date: Some(1113005569),
-        view_count: Some(300_000_000),
-        like_count: Some(10_000_000),
-        comment_count: Some(5_000_000),
-        channel: Some("jawed".to_string()),
-        channel_id: Some("UC4QobU6STFB0P71PMvkgx5g".to_string()),
-        channel_url: Some("https://www.youtube.com/channel/UC4QobU6STFB0P71PMvkgx5g".to_string()),
-        channel_follower_count: Some(1_000_000),
-        uploader: Some("jawed".to_string()),
-        uploader_id: Some("jawed".to_string()),
-        formats,
-        thumbnails: Vec::new(),
-        automatic_captions: std::collections::HashMap::new(),
-        subtitles: std::collections::HashMap::new(),
-        chapters: Vec::new(),
-        heatmap: None,
-        tags: vec!["zoo".to_string()],
-        categories: vec!["Pets & Animals".to_string()],
-        age_limit: 0,
-        has_drm: None,
-        live_status: "not_live".to_string(),
-        playable_in_embed: true,
-        extractor_info: ExtractorInfo {
-            extractor: "youtube".to_string(),
-            extractor_key: "Youtube".to_string(),
-        },
-        version: Version {
-            version: "2024.10.22".to_string(),
-            current_git_head: None,
-            release_git_head: None,
-            repository: "yt-dlp/yt-dlp".to_string(),
-        },
-    }
-}
 
 fn make_chapters(n: usize) -> Vec<Chapter> {
     (0..n)
@@ -238,45 +84,62 @@ fn make_playlist(n: usize) -> Playlist {
 fn bench_format_selection(c: &mut Criterion) {
     let mut group = c.benchmark_group("format_selection");
 
-    for &n_formats in &[10usize, 50, 100, 500] {
-        let video = make_video(n_formats);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let video = rt.block_on(async {
+        let libraries =
+            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let downloader = yt_dlp::Downloader::builder(libraries, "output")
+            .build()
+            .await
+            .expect("failed to build downloader");
+        downloader
+            .fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo")
+            .await
+            .expect("failed to fetch video")
+    });
 
-        group.bench_with_input(
-            BenchmarkId::new("best_video_format", n_formats),
-            &video,
-            |b, v| b.iter(|| v.best_video_format()),
-        );
+    // Test on the real video instead of synthetic loop
+    let n_formats = video.formats.len();
 
-        group.bench_with_input(
-            BenchmarkId::new("best_audio_format", n_formats),
-            &video,
-            |b, v| b.iter(|| v.best_audio_format()),
-        );
+    group.bench_with_input(
+        BenchmarkId::new("best_video_format", n_formats),
+        &video,
+        |b, v: &Video| b.iter(|| v.best_video_format()),
+    );
 
-        group.bench_with_input(
-            BenchmarkId::new("worst_video_format", n_formats),
-            &video,
-            |b, v| b.iter(|| v.worst_video_format()),
-        );
+    group.bench_with_input(
+        BenchmarkId::new("best_audio_format", n_formats),
+        &video,
+        |b, v: &Video| b.iter(|| v.best_audio_format()),
+    );
 
-        group.bench_with_input(
-            BenchmarkId::new("worst_audio_format", n_formats),
-            &video,
-            |b, v| b.iter(|| v.worst_audio_format()),
-        );
+    group.bench_with_input(
+        BenchmarkId::new("worst_video_format", n_formats),
+        &video,
+        |b, v: &Video| b.iter(|| v.worst_video_format()),
+    );
 
-        group.bench_with_input(
-            BenchmarkId::new("select_video_High_AVC1", n_formats),
-            &video,
-            |b, v| b.iter(|| v.select_video_format(VideoQuality::High, VideoCodecPreference::AVC1)),
-        );
+    group.bench_with_input(
+        BenchmarkId::new("worst_audio_format", n_formats),
+        &video,
+        |b, v: &Video| b.iter(|| v.worst_audio_format()),
+    );
 
-        group.bench_with_input(
-            BenchmarkId::new("select_audio_Best_Opus", n_formats),
-            &video,
-            |b, v| b.iter(|| v.select_audio_format(AudioQuality::Best, AudioCodecPreference::Opus)),
-        );
-    }
+    group.bench_with_input(
+        BenchmarkId::new("select_video_High_AVC1", n_formats),
+        &video,
+        |b, v: &Video| {
+            b.iter(|| v.select_video_format(VideoQuality::High, VideoCodecPreference::AVC1))
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("select_audio_Best_Opus", n_formats),
+        &video,
+        |b, v: &Video| {
+            b.iter(|| v.select_audio_format(AudioQuality::Best, AudioCodecPreference::Opus))
+        },
+    );
 
     group.finish();
 }
@@ -284,7 +147,7 @@ fn bench_format_selection(c: &mut Criterion) {
 fn bench_validation(c: &mut Criterion) {
     let mut group = c.benchmark_group("validation");
 
-    let valid_yt = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+    let valid_yt = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
     let valid_short = "https://youtu.be/jNQXAC9IVRw";
     let non_yt = "https://vimeo.com/12345";
     let invalid = "not-a-url";
@@ -324,7 +187,21 @@ fn bench_validation(c: &mut Criterion) {
 
 fn bench_model_ops(c: &mut Criterion) {
     let mut group = c.benchmark_group("model_operations");
-    let video = make_video(100);
+
+    // Fetch real video metadata for benchmarking
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let video = rt.block_on(async {
+        let libraries =
+            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let downloader = yt_dlp::Downloader::builder(libraries, "output")
+            .build()
+            .await
+            .expect("failed to build downloader");
+        downloader
+            .fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo")
+            .await
+            .expect("failed to fetch video")
+    });
 
     group.bench_function("has_chapters", |b| b.iter(|| video.has_chapters()));
     group.bench_function("get_chapters", |b| b.iter(|| video.get_chapters()));
@@ -416,19 +293,19 @@ fn bench_heatmap_ops(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("most_engaged_segment", n),
             &heatmap,
-            |b, h| b.iter(|| h.most_engaged_segment()),
+            |b, h: &Heatmap| b.iter(|| h.most_engaged_segment()),
         );
 
         group.bench_with_input(
             BenchmarkId::new("get_highly_engaged_segments_0_7", n),
             &heatmap,
-            |b, h| b.iter(|| h.get_highly_engaged_segments(0.7)),
+            |b, h: &Heatmap| b.iter(|| h.get_highly_engaged_segments(0.7)),
         );
 
         group.bench_with_input(
             BenchmarkId::new("get_point_at_time_42", n),
             &heatmap,
-            |b, h| b.iter(|| h.get_point_at_time(42.0)),
+            |b, h: &Heatmap| b.iter(|| h.get_point_at_time(42.0)),
         );
     }
 
@@ -444,19 +321,19 @@ fn bench_playlist_ops(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("available_entries", n),
             &playlist,
-            |b, p| b.iter(|| p.available_entries()),
+            |b, p: &Playlist| b.iter(|| p.available_entries()),
         );
 
         group.bench_with_input(
             BenchmarkId::new("search_entries_by_title", n),
             &playlist,
-            |b, p| b.iter(|| p.search_entries_by_title("Video")),
+            |b, p: &Playlist| b.iter(|| p.search_entries_by_title("Video")),
         );
 
         group.bench_with_input(
             BenchmarkId::new("filter_by_uploader", n),
             &playlist,
-            |b, p| b.iter(|| p.filter_by_uploader("uploader_a")),
+            |b, p: &Playlist| b.iter(|| p.filter_by_uploader("uploader_a")),
         );
     }
 
@@ -464,23 +341,87 @@ fn bench_playlist_ops(c: &mut Criterion) {
 }
 
 fn bench_format_type(c: &mut Criterion) {
+    use yt_dlp::model::format::{
+        CodecInfo, DownloadInfo, Extension, FileInfo, Format, HttpHeaders, QualityInfo, RatesInfo,
+        StoryboardInfo, VideoResolution,
+    };
+
     let mut group = c.benchmark_group("format_type");
 
-    // video-only: video_codec set, no audio_codec, no manifest_url
-    let video_only = make_format("v-only", Some(1080), Some("vp9"), None, Some(2000.0), None);
-    // audio-only: audio_codec set, no video_codec
-    let audio_only = make_format("a-only", None, None, Some("opus"), None, Some(128.0));
-    // muxed: both codecs set
-    let muxed = make_format(
-        "muxed",
-        Some(720),
-        Some("avc1"),
-        Some("mp4a.40.2"),
-        Some(1500.0),
-        Some(128.0),
-    );
-    // manifest: manifest_url set
-    let mut manifest = make_format("manifest", None, None, None, None, None);
+    let base_format = || Format {
+        format: "test".to_string(),
+        format_id: "test".to_string(),
+        format_note: None,
+        protocol: Default::default(),
+        language: None,
+        has_drm: None,
+        container: None,
+        available_at: None,
+        language_preference: None,
+        source_preference: None,
+        codec_info: CodecInfo {
+            audio_codec: None,
+            video_codec: None,
+            audio_ext: Extension::None,
+            video_ext: Extension::None,
+            audio_channels: None,
+            asr: None,
+        },
+        video_resolution: VideoResolution {
+            width: None,
+            height: None,
+            resolution: None,
+            fps: None,
+            aspect_ratio: None,
+        },
+        download_info: DownloadInfo {
+            url: None,
+            ext: Extension::None,
+            http_headers: HttpHeaders {
+                user_agent: String::new(),
+                accept: String::new(),
+                accept_language: String::new(),
+                sec_fetch_mode: String::new(),
+            },
+            manifest_url: None,
+            downloader_options: None,
+        },
+        quality_info: QualityInfo {
+            quality: None,
+            dynamic_range: None,
+        },
+        file_info: FileInfo {
+            filesize_approx: None,
+            filesize: None,
+        },
+        storyboard_info: StoryboardInfo {
+            rows: None,
+            columns: None,
+            fragments: None,
+        },
+        rates_info: RatesInfo {
+            video_rate: None,
+            audio_rate: None,
+            total_rate: None,
+        },
+        video_id: None,
+    };
+
+    // video-only
+    let mut video_only = base_format();
+    video_only.codec_info.video_codec = Some("vp9".to_string());
+
+    // audio-only
+    let mut audio_only = base_format();
+    audio_only.codec_info.audio_codec = Some("opus".to_string());
+
+    // muxed
+    let mut muxed = base_format();
+    muxed.codec_info.video_codec = Some("avc1".to_string());
+    muxed.codec_info.audio_codec = Some("mp4a.40.2".to_string());
+
+    // manifest
+    let mut manifest = base_format();
     manifest.download_info.manifest_url = Some("https://example.com/manifest.m3u8".to_string());
 
     group.bench_function("format_type_video", |b| b.iter(|| video_only.format_type()));
@@ -584,9 +525,19 @@ fn bench_cache_ops(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("cache_ops");
 
-    let video = make_video(10);
-
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime failed");
+    let video = rt.block_on(async {
+        let libraries =
+            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let downloader = yt_dlp::Downloader::builder(libraries, "output")
+            .build()
+            .await
+            .expect("failed to build downloader");
+        downloader
+            .fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo")
+            .await
+            .expect("failed to fetch video")
+    });
 
     group.bench_function("cache_put_single", |b| {
         b.to_async(&rt).iter_with_setup(
@@ -649,14 +600,14 @@ fn bench_cache_ops(c: &mut Criterion) {
         b.to_async(&rt).iter_with_setup(
             || {
                 let dir = tempfile::TempDir::new().expect("tempdir failed");
-                dir.path().to_path_buf()
+                (dir.path().to_path_buf(), video.clone())
             },
-            |path| async move {
+            |(path, base_video)| async move {
                 let cache = VideoCache::new(path, None)
                     .await
                     .expect("cache init failed");
                 for i in 0..500usize {
-                    let mut v = make_video(5);
+                    let mut v = base_video.clone();
                     v.id = format!("bench-{}", i);
                     cache
                         .put(format!("https://example.com/bench-{}", i), v)

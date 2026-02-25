@@ -123,7 +123,10 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
             "Missing extractor field in yt-dlp output"
         );
 
-        crate::error::Error::Unknown("Missing extractor field in yt-dlp output".to_string())
+        crate::error::Error::VideoMissingField {
+            video_id: url.to_string(),
+            field: "extractor".to_string(),
+        }
     })?;
 
     tracing::debug!(

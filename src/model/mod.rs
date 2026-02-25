@@ -22,7 +22,10 @@ pub use video::Video;
 pub use chapter::{ChapterList, ChapterValidation};
 
 // Re-export selector types
-pub use selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+pub use selector::{
+    AudioCodecPreference, AudioQuality, StoryboardQuality, VideoCodecPreference, VideoQuality,
+};
+pub use video::FORMAT_URL_LIFETIME;
 
 // Re-export utility traits
 pub use utils::{AllTraits, CommonTraits};

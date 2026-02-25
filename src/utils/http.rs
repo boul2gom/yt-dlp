@@ -5,6 +5,7 @@
 
 use crate::client::proxy::ProxyConfig;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +15,81 @@ const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 32;
 const HTTP_TCP_KEEPALIVE_SECS: u64 = 60;
 const REQUEST_TIMEOUT_SECS: u64 = 60;
 
-/// Creates a new HTTP client with optimal pooling configuration
+const DEFAULT_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+/// Configuration for building an HTTP client.
+#[derive(Debug, Clone, Default)]
+pub struct HttpClientConfig<'a> {
+    pub proxy: Option<&'a ProxyConfig>,
+    pub timeout: Option<Duration>,
+    pub user_agent: Option<String>,
+    pub default_headers: Option<HeaderMap>,
+    pub http2_adaptive_window: bool,
+}
+
+/// Creates a new HTTP client with optimal pooling configuration.
+///
+/// # Arguments
+///
+/// * `config` - Client configuration (proxy, timeout, headers, etc.)
+///
+/// # Returns
+///
+/// An Arc-wrapped HTTP client configured with connection pooling
+///
+/// # Errors
+///
+/// Returns an error if the HTTP client cannot be built
+pub fn build_http_client(config: HttpClientConfig) -> crate::error::Result<Arc<Client>> {
+    let timeout = config
+        .timeout
+        .unwrap_or(Duration::from_secs(REQUEST_TIMEOUT_SECS));
+
+    tracing::debug!(
+        has_proxy = config.proxy.is_some(),
+        timeout_secs = timeout.as_secs(),
+        pool_idle_timeout_secs = HTTP_POOL_IDLE_TIMEOUT_SECS,
+        max_idle_per_host = HTTP_POOL_MAX_IDLE_PER_HOST,
+        http2 = config.http2_adaptive_window,
+        "Creating HTTP client with connection pooling"
+    );
+
+    let mut builder = Client::builder()
+        .timeout(timeout)
+        .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
+        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+        .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
+        .user_agent(
+            config
+                .user_agent
+                .as_deref()
+                .unwrap_or(DEFAULT_USER_AGENT),
+        );
+
+    if config.http2_adaptive_window {
+        builder = builder.http2_adaptive_window(true);
+    }
+
+    if let Some(headers) = config.default_headers {
+        builder = builder.default_headers(headers);
+    }
+
+    if let Some(proxy_config) = config.proxy
+        && let Ok(proxy) = proxy_config.to_reqwest_proxy()
+    {
+        tracing::debug!("Adding proxy configuration to HTTP client");
+        builder = builder.proxy(proxy);
+    }
+
+    let client = builder.build()?;
+
+    tracing::debug!("HTTP client created successfully");
+
+    Ok(Arc::new(client))
+}
+
+/// Creates a new HTTP client with optimal pooling configuration (simple API).
 ///
 /// # Arguments
 ///
@@ -28,34 +103,8 @@ const REQUEST_TIMEOUT_SECS: u64 = 60;
 ///
 /// Returns an error if the HTTP client cannot be built
 pub fn create_http_client(proxy: Option<&ProxyConfig>) -> crate::error::Result<Arc<Client>> {
-    tracing::debug!(
-        has_proxy = proxy.is_some(),
-        timeout_secs = REQUEST_TIMEOUT_SECS,
-        pool_idle_timeout_secs = HTTP_POOL_IDLE_TIMEOUT_SECS,
-        max_idle_per_host = HTTP_POOL_MAX_IDLE_PER_HOST,
-        "Creating HTTP client with connection pooling"
-    );
-
-    let mut builder = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
-        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
-        .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-
-    // Add proxy if configured
-    if let Some(proxy_config) = proxy
-        && let Ok(proxy) = proxy_config.to_reqwest_proxy()
-    {
-        tracing::debug!("Adding proxy configuration to HTTP client");
-        builder = builder.proxy(proxy);
-    }
-
-    let client = builder
-        .build()
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to build HTTP client: {}", e)))?;
-
-    tracing::debug!("HTTP client created successfully");
-
-    Ok(Arc::new(client))
+    build_http_client(HttpClientConfig {
+        proxy,
+        ..Default::default()
+    })
 }

@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use crate::client::deps::{Libraries, LibraryInstaller};
+use crate::extractor::ExtractorConfig;
 use crate::download::PostProcessConfig;
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
@@ -45,7 +46,6 @@ pub mod prelude;
 
 // Re-export of common traits to facilitate their use
 use crate::model::Video;
-#[cfg(feature = "cache-backend")]
 use crate::model::format::Format;
 use crate::model::format::FormatType;
 use crate::model::selector::{
@@ -198,52 +198,6 @@ pub struct Downloader {
     /// Statistics tracker (feature: statistics).
     #[cfg(feature = "statistics")]
     pub(crate) statistics: Arc<stats::StatisticsTracker>,
-}
-
-impl Clone for Downloader {
-    fn clone(&self) -> Self {
-        // Create extractors with the same library paths
-        let youtube_extractor = extractor::Youtube::new(self.libraries.youtube.clone());
-        let generic_extractor = extractor::Generic::new(self.libraries.youtube.clone());
-
-        Self {
-            youtube_extractor,
-            generic_extractor,
-            libraries: self.libraries.clone(),
-            output_dir: self.output_dir.clone(),
-            args: self.args.clone(),
-            user_agent: self.user_agent.clone(),
-            timeout: self.timeout,
-            proxy: self.proxy.clone(),
-            #[cfg(feature = "cache-backend")]
-            cache: self.cache.clone(),
-            #[cfg(feature = "cache-backend")]
-            download_cache: self.download_cache.clone(),
-            #[cfg(feature = "cache-backend")]
-            playlist_cache: self.playlist_cache.clone(),
-            download_manager: self.download_manager.clone(),
-            cancellation_token: self.cancellation_token.clone(),
-            event_bus: self.event_bus.clone(),
-            #[cfg(feature = "hooks")]
-            hook_registry: self.hook_registry.clone(),
-            #[cfg(feature = "webhooks")]
-            webhook_delivery: self.webhook_delivery.clone(),
-            #[cfg(feature = "statistics")]
-            statistics: self.statistics.clone(),
-        }
-    }
-}
-
-impl Display for Downloader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Downloader: output_dir={:?}, args={:?}, proxy={}",
-            self.output_dir,
-            self.args,
-            self.proxy.is_some()
-        )
-    }
 }
 
 /// Returns the appropriate FFmpeg audio codec argument for muxing based on container compatibility.
@@ -854,13 +808,22 @@ impl Downloader {
     ) -> Result<()> {
         let audio = audio_path
             .to_str()
-            .ok_or(Error::Unknown("Invalid audio path".to_string()))?;
+            .ok_or_else(|| Error::PathValidation {
+                path: audio_path.to_path_buf(),
+                reason: "Non-UTF8 audio path".to_string(),
+            })?;
         let video = video_path
             .to_str()
-            .ok_or(Error::Unknown("Invalid video path".to_string()))?;
+            .ok_or_else(|| Error::PathValidation {
+                path: video_path.to_path_buf(),
+                reason: "Non-UTF8 video path".to_string(),
+            })?;
         let output = output_path
             .to_str()
-            .ok_or(Error::Unknown("Invalid output path".to_string()))?;
+            .ok_or_else(|| Error::PathValidation {
+                path: output_path.to_path_buf(),
+                reason: "Non-UTF8 output path".to_string(),
+            })?;
 
         let audio_codec = audio_codec_for_mux(audio_path, output_path, audio_codec_hint);
 
@@ -875,45 +838,30 @@ impl Downloader {
             "Executing FFmpeg combine operation"
         );
 
-        let mut args = vec![
-            "-i".to_string(),
-            audio.to_string(),
-            "-i".to_string(),
-            video.to_string(),
-        ];
+        let mut builder = crate::executor::FfmpegArgs::new()
+            .input(audio)
+            .input(video);
 
         if let Some(meta) = metadata_file {
             let meta_str = meta
                 .to_str()
-                .ok_or(Error::Unknown("Invalid metadata path".to_string()))?;
-            args.push("-i".to_string());
-            args.push(meta_str.to_string());
+                .ok_or_else(|| Error::PathValidation {
+                    path: meta.to_path_buf(),
+                    reason: "Non-UTF8 metadata path".to_string(),
+                })?;
+            builder = builder.input(meta_str);
         }
 
-        // Map audio from input 0 and video from input 1 explicitly
-        args.extend_from_slice(&[
-            "-map".to_string(),
-            "0:a".to_string(),
-            "-map".to_string(),
-            "1:v".to_string(),
-        ]);
+        builder = builder.args(["-map", "0:a", "-map", "1:v"]);
 
         if metadata_file.is_some() {
-            args.extend_from_slice(&[
-                "-map_metadata".to_string(),
-                "2".to_string(),
-                "-map_chapters".to_string(),
-                "2".to_string(),
-            ]);
+            builder = builder.args(["-map_metadata", "2", "-map_chapters", "2"]);
         }
 
-        args.extend_from_slice(&[
-            "-c:v".to_string(),
-            "copy".to_string(),
-            "-c:a".to_string(),
-            audio_codec.to_string(),
-            output.to_string(),
-        ]);
+        let args = builder
+            .args(["-c:v", "copy", "-c:a", audio_codec])
+            .output(output)
+            .build();
 
         tracing::debug!(
             args = ?args,
@@ -1321,15 +1269,7 @@ impl Downloader {
         );
 
         // Get the best format with video and audio
-        let format = video
-            .formats
-            .iter()
-            .find(|f| f.format_type().is_audio_and_video())
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::AudioVideo,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let format = video.best_audio_video_format()?;
 
         tracing::debug!(
             video_id = %video.id,
@@ -1339,14 +1279,7 @@ impl Downloader {
         );
 
         // Get the URL
-        let url = format
-            .download_info
-            .url
-            .as_ref()
-            .ok_or_else(|| Error::FormatNoUrl {
-                video_id: video.id.clone(),
-                format_id: format.format_id.clone(),
-            })?;
+        let url = format.url()?;
 
         // Add to download queue
         let download_id = self
@@ -1427,15 +1360,7 @@ impl Downloader {
         );
 
         // Get the best format with video and audio
-        let format = video
-            .formats
-            .iter()
-            .find(|f| f.format_type().is_audio_and_video())
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::AudioVideo,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let format = video.best_audio_video_format()?;
 
         tracing::debug!(
             video_id = %video.id,
@@ -1445,14 +1370,7 @@ impl Downloader {
         );
 
         // Get the URL
-        let url = format
-            .download_info
-            .url
-            .as_ref()
-            .ok_or_else(|| Error::FormatNoUrl {
-                video_id: video.id.clone(),
-                format_id: format.format_id.clone(),
-            })?;
+        let url = format.url()?;
 
         // Add to download queue with progress callback
         let download_id = self
@@ -1751,6 +1669,44 @@ impl Downloader {
             .await
     }
 
+    /// Helper function to download a specific type of stream with quality preferences
+    #[allow(clippy::too_many_arguments)]
+    async fn download_stream_with_quality<F, Q, C>(
+        &self,
+        video: &Video,
+        output: impl Into<PathBuf>,
+        quality: Q,
+        codec: C,
+        stream_type_name: &str,
+        format_type: FormatType,
+        select_format: F,
+    ) -> Result<PathBuf>
+    where
+        F: FnOnce(&Video, Q, C) -> Option<Format>,
+        Q: std::fmt::Debug,
+        C: std::fmt::Debug,
+    {
+        let output: PathBuf = output.into();
+
+        tracing::debug!(
+            video_id = %video.id,
+            output = ?output,
+            quality = ?quality,
+            codec = ?codec,
+            "Downloading {} stream with quality preferences",
+            stream_type_name
+        );
+
+        let format =
+            select_format(video, quality, codec).ok_or_else(|| Error::FormatNotAvailable {
+                video_id: video.id.clone(),
+                format_type,
+                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+            })?;
+
+        self.download_format_to_path(&format, &output).await
+    }
+
     /// Downloads a video stream with quality preferences to a specific path.
     ///
     /// Unlike [`download_video_stream_with_quality`](Self::download_video_stream_with_quality),
@@ -1769,26 +1725,16 @@ impl Downloader {
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Result<PathBuf> {
-        let output: PathBuf = output.into();
-
-        tracing::debug!(
-            video_id = %video.id,
-            output = ?output,
-            quality = ?quality,
-            codec = ?codec,
-            "Downloading video stream with quality preferences"
-        );
-
-        let video_format =
-            video
-                .select_video_format(quality, codec)
-                .ok_or_else(|| Error::FormatNotAvailable {
-                    video_id: video.id.clone(),
-                    format_type: FormatType::Video,
-                    available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-                })?;
-
-        self.download_format_to_path(video_format, &output).await
+        self.download_stream_with_quality(
+            video,
+            output,
+            quality,
+            codec,
+            "video",
+            FormatType::Video,
+            |v, q, c| v.select_video_format(q, c).cloned(),
+        )
+        .await
     }
 
     /// Downloads an audio stream with the specified quality preferences.
@@ -1856,26 +1802,16 @@ impl Downloader {
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
-        let output: PathBuf = output.into();
-
-        tracing::debug!(
-            video_id = %video.id,
-            output = ?output,
-            quality = ?quality,
-            codec = ?codec,
-            "Downloading audio stream with quality preferences"
-        );
-
-        let audio_format =
-            video
-                .select_audio_format(quality, codec)
-                .ok_or_else(|| Error::FormatNotAvailable {
-                    video_id: video.id.clone(),
-                    format_type: FormatType::Audio,
-                    available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-                })?;
-
-        self.download_format_to_path(audio_format, &output).await
+        self.download_stream_with_quality(
+            video,
+            output,
+            quality,
+            codec,
+            "audio",
+            FormatType::Audio,
+            |v, q, c| v.select_audio_format(q, c).cloned(),
+        )
+        .await
     }
 
     /// Initiates a graceful shutdown of all ongoing operations.
@@ -2457,5 +2393,51 @@ impl Downloader {
         } else {
             tracing::warn!("Webhook delivery not available, webhook not registered");
         }
+    }
+}
+
+impl Clone for Downloader {
+    fn clone(&self) -> Self {
+        // Create extractors with the same library paths
+        let youtube_extractor = extractor::Youtube::new(self.libraries.youtube.clone());
+        let generic_extractor = extractor::Generic::new(self.libraries.youtube.clone());
+
+        Self {
+            youtube_extractor,
+            generic_extractor,
+            libraries: self.libraries.clone(),
+            output_dir: self.output_dir.clone(),
+            args: self.args.clone(),
+            user_agent: self.user_agent.clone(),
+            timeout: self.timeout,
+            proxy: self.proxy.clone(),
+            #[cfg(feature = "cache-backend")]
+            cache: self.cache.clone(),
+            #[cfg(feature = "cache-backend")]
+            download_cache: self.download_cache.clone(),
+            #[cfg(feature = "cache-backend")]
+            playlist_cache: self.playlist_cache.clone(),
+            download_manager: self.download_manager.clone(),
+            cancellation_token: self.cancellation_token.clone(),
+            event_bus: self.event_bus.clone(),
+            #[cfg(feature = "hooks")]
+            hook_registry: self.hook_registry.clone(),
+            #[cfg(feature = "webhooks")]
+            webhook_delivery: self.webhook_delivery.clone(),
+            #[cfg(feature = "statistics")]
+            statistics: self.statistics.clone(),
+        }
+    }
+}
+
+impl Display for Downloader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Downloader: output_dir={:?}, args={:?}, proxy={}",
+            self.output_dir,
+            self.args,
+            self.proxy.is_some()
+        )
     }
 }

@@ -18,8 +18,8 @@
 //! - **Separate streams** (to be combined later): NO metadata applied to avoid redundant work
 //! - **Combined files**: Complete metadata applied to final file, including info from both streams
 
-use crate::error::{Error, Result};
-use std::path::{Path, PathBuf};
+use crate::error::Result;
+use std::path::PathBuf;
 
 pub mod api;
 pub mod base;
@@ -119,92 +119,19 @@ impl MetadataManager {
 
     /// Get the file extension from a path.
     ///
-    /// # Arguments
-    ///
-    /// * `file_path` - Path to extract extension from
-    ///
-    /// # Returns
-    ///
-    /// Lowercase file extension
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file has no extension or contains invalid characters
+    /// Delegates to [`crate::utils::fs::try_extension`].
     pub(crate) fn get_file_extension(file_path: impl Into<PathBuf>) -> Result<String> {
-        let path: PathBuf = file_path.into();
-
-        tracing::trace!(
-            file_path = ?path,
-            "Getting file extension"
-        );
-
-        let ext = path
-            .extension()
-            .ok_or_else(|| Error::path_validation(&path, "File has no extension"))?
-            .to_str()
-            .ok_or_else(|| Error::path_validation(&path, "Invalid characters in file extension"))?
-            .to_lowercase();
-
-        tracing::trace!(
-            file_path = ?path,
-            extension = %ext,
-            "File extension extracted"
-        );
-
-        Ok(ext)
+        crate::utils::fs::try_extension(&file_path.into())
     }
 
     /// Create a temporary output path for metadata processing.
     ///
-    /// # Arguments
-    ///
-    /// * `file_path` - Original file path
-    /// * `file_format` - File extension for the temporary file
-    ///
-    /// # Returns
-    ///
-    /// PathBuf to a unique temporary file in the same directory
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the path cannot be created
+    /// Delegates to [`crate::utils::fs::create_temp_path`].
     pub(crate) fn create_temp_output_path(
         file_path: impl Into<PathBuf>,
         file_format: &str,
     ) -> crate::error::Result<PathBuf> {
-        let path: PathBuf = file_path.into();
-
-        tracing::trace!(
-            file_path = ?path,
-            file_format = file_format,
-            "Creating temporary output path"
-        );
-
-        let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
-        let uuid = uuid::Uuid::new_v4();
-
-        let temp_path = if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-            parent_dir.join(format!("{}_{}_temp.{}", file_stem, uuid, file_format))
-        } else {
-            parent_dir.join(format!("output_{}_temp.{}", uuid, file_format))
-        };
-
-        tracing::trace!(
-            original_path = ?path,
-            temp_path = ?temp_path,
-            "Temporary output path created"
-        );
-
-        Ok(temp_path)
-    }
-
-    /// Log metadata debug messages if tracing is enabled.
-    ///
-    /// # Arguments
-    ///
-    /// * `_message` - Message to log
-    pub(crate) fn log_metadata_debug<S: AsRef<str>>(_message: S) {
-        tracing::debug!("{}", _message.as_ref());
+        Ok(crate::utils::fs::create_temp_path(&file_path.into(), file_format))
     }
 }
 

@@ -3,212 +3,40 @@
 //! This module provides async-safe SQLite implementations using sqlx.
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
-use crate::cache::current_timestamp;
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
+use crate::utils::current_timestamp;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+async fn create_pool(cache_dir: &Path, db_name: &str) -> Result<SqlitePool> {
+    if !cache_dir.exists() {
+        tokio::fs::create_dir_all(cache_dir).await?;
+    }
+
+    let db_path = cache_dir.join(db_name);
+
+    let connection_options =
+        SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
+            .map_err(|e| crate::error::Error::database("Create connection options", e))?
+            .create_if_missing(true);
+
+    SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(connection_options)
+        .await
+        .map_err(|e| crate::error::Error::database("Create connection pool", e))
+}
+
 #[cfg(feature = "cache-backend")]
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
-
-/// SQLite-backed playlist cache implementation.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use yt_dlp::cache::backend::sqlite::SqlitePlaylistCache;
-/// use yt_dlp::cache::backend::PlaylistBackend;
-/// use std::path::PathBuf;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let cache = SqlitePlaylistCache::new(PathBuf::from("/tmp/cache"), None).await?;
-/// # Ok(())
-/// # }
-/// ```
-#[derive(Debug, Clone)]
-pub struct SqlitePlaylistCache {
-    pool: SqlitePool,
-    ttl: i64,
-}
-
-impl SqlitePlaylistCache {
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl = ?ttl,
-            "Creating new SQLite playlist cache"
-        );
-
-        if !&cache_dir.exists() {
-            tokio::fs::create_dir_all(&cache_dir).await?;
-        }
-
-        let db_path = &cache_dir.join("playlist_cache.db");
-
-        let connection_options =
-            SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
-                .map_err(|e| {
-                    crate::error::Error::Unknown(format!(
-                        "Failed to create connection options: {}",
-                        e
-                    ))
-                })?
-                .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect_with(connection_options)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create pool: {}", e)))?;
-
-        // Initialize the database schema
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS playlist_cache (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                url TEXT NOT NULL,
-                playlist_json TEXT NOT NULL,
-                cached_at INTEGER NOT NULL
-            )",
-        )
-        .execute(&pool)
-        .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create table: {}", e)))?;
-
-        // Create an index on the URL
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_playlist_url ON playlist_cache(url)")
-            .execute(&pool)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
-
-        Ok(Self {
-            pool,
-            ttl: ttl.unwrap_or(6 * 60 * 60) as i64, // 6 hours default
-        })
-    }
-}
-
-impl PlaylistBackend for SqlitePlaylistCache {
-    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(
-            url = url,
-            ttl = self.ttl,
-            "Looking for playlist in SQLite cache by URL"
-        );
-
-        let now = current_timestamp();
-
-        let cached = sqlx::query_as::<_, CachedPlaylist>(
-            "SELECT id, title, url, playlist_json, cached_at
-             FROM playlist_cache
-             WHERE url = ? AND cached_at > ?",
-        )
-        .bind(url)
-        .bind(now - self.ttl)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Database query failed: {}", e)))?;
-
-        match cached {
-            Some(cp) => Ok(Some(cp.playlist()?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(
-            playlist_id = id,
-            ttl = self.ttl,
-            "Looking for playlist in SQLite cache by ID"
-        );
-
-        let now = current_timestamp();
-
-        let cached = sqlx::query_as::<_, CachedPlaylist>(
-            "SELECT id, title, url, playlist_json, cached_at
-             FROM playlist_cache
-             WHERE id = ? AND cached_at > ?",
-        )
-        .bind(id)
-        .bind(now - self.ttl)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Database query failed: {}", e)))?;
-
-        match cached {
-            Some(cp) => Ok(Some(cp.playlist()?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        tracing::debug!(
-            url = %url,
-            playlist_id = %playlist.id,
-            playlist_title = %playlist.title,
-            entry_count = playlist.entries.len(),
-            "Caching playlist to SQLite backend"
-        );
-
-        let cached = CachedPlaylist::from((url, playlist));
-
-        sqlx::query(
-            "INSERT OR REPLACE INTO playlist_cache (id, title, url, playlist_json, cached_at)
-             VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(&cached.id)
-        .bind(&cached.title)
-        .bind(&cached.url)
-        .bind(&cached.playlist_json)
-        .bind(cached.cached_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to insert playlist: {}", e)))?;
-
-        Ok(())
-    }
-
-    async fn invalidate(&self, url: &str) -> Result<()> {
-        tracing::debug!(url = url, "Invalidating playlist in SQLite cache");
-        sqlx::query("DELETE FROM playlist_cache WHERE url = ?")
-            .bind(url)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                crate::error::Error::Unknown(format!("Failed to delete playlist: {}", e))
-            })?;
-        Ok(())
-    }
-
-    async fn clean(&self) -> Result<()> {
-        tracing::debug!(ttl = self.ttl, "Cleaning SQLite playlist cache");
-        let now = current_timestamp();
-
-        sqlx::query("DELETE FROM playlist_cache WHERE cached_at < ?")
-            .bind(now - self.ttl)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to clean cache: {}", e)))?;
-        Ok(())
-    }
-
-    async fn clear_all(&self) -> Result<()> {
-        sqlx::query("DELETE FROM playlist_cache")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to clear cache: {}", e)))?;
-        Ok(())
-    }
-}
 
 /// SQLite-backed video cache implementation.
 ///
@@ -239,29 +67,7 @@ impl SqliteVideoCache {
             "Creating new SQLite video cache"
         );
 
-        // Create the cache directory if it doesn't exist
-        if !&cache_dir.exists() {
-            tokio::fs::create_dir_all(&cache_dir).await?;
-        }
-
-        let db_path = &cache_dir.join("video_cache.db");
-
-        // Create connection pool
-        let connection_options =
-            SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
-                .map_err(|e| {
-                    crate::error::Error::Unknown(format!(
-                        "Failed to create connection options: {}",
-                        e
-                    ))
-                })?
-                .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect_with(connection_options)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create pool: {}", e)))?;
+        let pool = create_pool(&cache_dir, "video_cache.db").await?;
 
         // Initialize the database schema
         sqlx::query(
@@ -275,13 +81,13 @@ impl SqliteVideoCache {
         )
         .execute(&pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to create table: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Create videos table", e))?;
 
         // Create an index on the URL for faster lookups
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_videos_url ON videos(url)")
             .execute(&pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Create videos URL index", e))?;
 
         Ok(Self {
             pool,
@@ -311,7 +117,7 @@ impl VideoBackend for SqliteVideoCache {
         .bind(cutoff)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Database query failed: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Fetch video by URL", e))?;
 
         match cached {
             Some(cv) => {
@@ -353,7 +159,7 @@ impl VideoBackend for SqliteVideoCache {
         .bind(cached.cached_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to insert video: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Insert video", e))?;
 
         Ok(())
     }
@@ -365,7 +171,7 @@ impl VideoBackend for SqliteVideoCache {
             .bind(url)
             .execute(&self.pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to delete video: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Delete video", e))?;
 
         Ok(())
     }
@@ -381,7 +187,7 @@ impl VideoBackend for SqliteVideoCache {
             .bind(cutoff)
             .execute(&self.pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to clean cache: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Clean video cache", e))?;
 
         Ok(())
     }
@@ -406,7 +212,7 @@ impl VideoBackend for SqliteVideoCache {
         .bind(cutoff)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Database query failed: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Fetch video by ID", e))?;
 
         match cached {
             Some(cv) => {
@@ -427,6 +233,175 @@ impl VideoBackend for SqliteVideoCache {
                 )))
             }
         }
+    }
+}
+
+/// SQLite-backed playlist cache implementation.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use yt_dlp::cache::backend::sqlite::SqlitePlaylistCache;
+/// use yt_dlp::cache::backend::PlaylistBackend;
+/// use std::path::PathBuf;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache = SqlitePlaylistCache::new(PathBuf::from("/tmp/cache"), None).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SqlitePlaylistCache {
+    pool: SqlitePool,
+    ttl: i64,
+}
+
+impl SqlitePlaylistCache {
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        tracing::debug!(
+            cache_dir = ?cache_dir,
+            ttl = ?ttl,
+            "Creating new SQLite playlist cache"
+        );
+
+        let pool = create_pool(&cache_dir, "playlist_cache.db").await?;
+
+        // Initialize the database schema
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS playlist_cache (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                playlist_json TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .map_err(|e| crate::error::Error::database("Create playlist_cache table", e))?;
+
+        // Create an index on the URL
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_playlist_url ON playlist_cache(url)")
+            .execute(&pool)
+            .await
+            .map_err(|e| crate::error::Error::database("Create playlist URL index", e))?;
+
+        Ok(Self {
+            pool,
+            ttl: ttl.unwrap_or(6 * 60 * 60) as i64, // 6 hours default
+        })
+    }
+}
+
+impl PlaylistBackend for SqlitePlaylistCache {
+    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        tracing::debug!(
+            url = url,
+            ttl = self.ttl,
+            "Looking for playlist in SQLite cache by URL"
+        );
+
+        let now = current_timestamp();
+
+        let cached = sqlx::query_as::<_, CachedPlaylist>(
+            "SELECT id, title, url, playlist_json, cached_at
+             FROM playlist_cache
+             WHERE url = ? AND cached_at > ?",
+        )
+        .bind(url)
+        .bind(now - self.ttl)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| crate::error::Error::database("Fetch playlist by URL", e))?;
+
+        match cached {
+            Some(cp) => Ok(Some(cp.playlist()?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        tracing::debug!(
+            playlist_id = id,
+            ttl = self.ttl,
+            "Looking for playlist in SQLite cache by ID"
+        );
+
+        let now = current_timestamp();
+
+        let cached = sqlx::query_as::<_, CachedPlaylist>(
+            "SELECT id, title, url, playlist_json, cached_at
+             FROM playlist_cache
+             WHERE id = ? AND cached_at > ?",
+        )
+        .bind(id)
+        .bind(now - self.ttl)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| crate::error::Error::database("Fetch playlist by ID", e))?;
+
+        match cached {
+            Some(cp) => Ok(Some(cp.playlist()?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        tracing::debug!(
+            url = %url,
+            playlist_id = %playlist.id,
+            playlist_title = %playlist.title,
+            entry_count = playlist.entries.len(),
+            "Caching playlist to SQLite backend"
+        );
+
+        let cached = CachedPlaylist::from((url, playlist));
+
+        sqlx::query(
+            "INSERT OR REPLACE INTO playlist_cache (id, title, url, playlist_json, cached_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&cached.id)
+        .bind(&cached.title)
+        .bind(&cached.url)
+        .bind(&cached.playlist_json)
+        .bind(cached.cached_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| crate::error::Error::database("Insert playlist", e))?;
+
+        Ok(())
+    }
+
+    async fn invalidate(&self, url: &str) -> Result<()> {
+        tracing::debug!(url = url, "Invalidating playlist in SQLite cache");
+        sqlx::query("DELETE FROM playlist_cache WHERE url = ?")
+            .bind(url)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| crate::error::Error::database("Delete playlist", e))?;
+        Ok(())
+    }
+
+    async fn clean(&self) -> Result<()> {
+        tracing::debug!(ttl = self.ttl, "Cleaning SQLite playlist cache");
+        let now = current_timestamp();
+
+        sqlx::query("DELETE FROM playlist_cache WHERE cached_at < ?")
+            .bind(now - self.ttl)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| crate::error::Error::database("Clean playlist cache", e))?;
+        Ok(())
+    }
+
+    async fn clear_all(&self) -> Result<()> {
+        sqlx::query("DELETE FROM playlist_cache")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| crate::error::Error::database("Clear playlist cache", e))?;
+        Ok(())
     }
 }
 
@@ -460,29 +435,7 @@ impl SqliteFileCache {
             "Creating new SQLite file cache"
         );
 
-        // Create the cache directory if it doesn't exist
-        if !&cache_dir.exists() {
-            tokio::fs::create_dir_all(&cache_dir).await?;
-        }
-
-        let db_path = &cache_dir.join("file_cache.db");
-
-        // Create connection pool
-        let connection_options =
-            SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
-                .map_err(|e| {
-                    crate::error::Error::Unknown(format!(
-                        "Failed to create connection options: {}",
-                        e
-                    ))
-                })?
-                .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect_with(connection_options)
-            .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create pool: {}", e)))?;
+        let pool = create_pool(&cache_dir, "file_cache.db").await?;
 
         // Initialize the database schema for files
         sqlx::query(
@@ -507,19 +460,19 @@ impl SqliteFileCache {
         .execute(&pool)
         .await
         .map_err(|e| {
-            crate::error::Error::Unknown(format!("Failed to create files table: {}", e))
+            crate::error::Error::database("Create files table", e)
         })?;
 
         // Create indices for faster lookups
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_files_video_id ON files(video_id)")
             .execute(&pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Create files video_id index", e))?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_files_format_id ON files(format_id)")
             .execute(&pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Create files format_id index", e))?;
 
         // Initialize the database schema for thumbnails
         sqlx::query(
@@ -538,14 +491,14 @@ impl SqliteFileCache {
         .execute(&pool)
         .await
         .map_err(|e| {
-            crate::error::Error::Unknown(format!("Failed to create thumbnails table: {}", e))
+            crate::error::Error::database("Create thumbnails table", e)
         })?;
 
         // Create index for thumbnails
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_thumbnails_video_id ON thumbnails(video_id)")
             .execute(&pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to create index: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Create thumbnails video_id index", e))?;
 
         Ok(Self {
             pool,
@@ -643,35 +596,30 @@ impl FileBackend for SqliteFileCache {
 
         let cutoff = now - self.ttl;
 
-        let vq = video_quality.and_then(|q| serde_json::to_string(&q).ok());
-        let aq = audio_quality.and_then(|q| serde_json::to_string(&q).ok());
-        let vc = video_codec.and_then(|c| serde_json::to_string(&c).ok());
-        let ac = audio_codec.and_then(|c| serde_json::to_string(&c).ok());
-
         let result = sqlx::query_as::<_, CachedFile>(
             "SELECT id, filename, relative_path, video_id, file_type, format_id, format_json,
                     video_quality, audio_quality, video_codec, audio_codec, filesize, mime_type, language_code, cached_at
              FROM files
-             WHERE video_id = ?
-                AND (video_quality = ? OR video_quality IS NULL)
-                AND (audio_quality = ? OR audio_quality IS NULL)
-                AND (video_codec = ? OR video_codec IS NULL)
-                AND (audio_codec = ? OR audio_codec IS NULL)
-                AND cached_at > ?",
+             WHERE video_id = ? AND cached_at > ?",
         )
         .bind(video_id)
-        .bind(vq)
-        .bind(aq)
-        .bind(vc)
-        .bind(ac)
         .bind(cutoff)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .ok()?;
 
-        result.map(|cached| {
-            let path = self.cache_dir.join(&cached.relative_path);
-            (cached, path)
+        result.into_iter().find_map(|cached| {
+            if cached.matches_preferences(
+                video_quality,
+                audio_quality,
+                video_codec.clone(),
+                audio_codec.clone(),
+            ) {
+                let path = self.cache_dir.join(&cached.relative_path);
+                Some((cached, path))
+            } else {
+                None
+            }
         })
     }
 
@@ -717,7 +665,7 @@ impl FileBackend for SqliteFileCache {
         .bind(file.cached_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to insert file: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Insert cached file", e))?;
 
         Ok(file_path)
     }
@@ -738,7 +686,7 @@ impl FileBackend for SqliteFileCache {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to delete file: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Delete cached file", e))?;
 
         Ok(())
     }
@@ -759,7 +707,7 @@ impl FileBackend for SqliteFileCache {
         .bind(cutoff)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to fetch expired files: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Fetch expired files", e))?;
 
         // Delete files from disk
         for file in &expired {
@@ -774,7 +722,7 @@ impl FileBackend for SqliteFileCache {
             .bind(cutoff)
             .execute(&self.pool)
             .await
-            .map_err(|e| crate::error::Error::Unknown(format!("Failed to clean cache: {}", e)))?;
+            .map_err(|e| crate::error::Error::database("Clean file cache", e))?;
 
         // Same for thumbnails
         let expired_thumbnails = sqlx::query_as::<_, CachedThumbnail>(
@@ -785,7 +733,7 @@ impl FileBackend for SqliteFileCache {
         .bind(cutoff)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to fetch expired thumbnails: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Fetch expired thumbnails", e))?;
 
         for thumb in &expired_thumbnails {
             let path = self.cache_dir.join(&thumb.relative_path);
@@ -799,7 +747,7 @@ impl FileBackend for SqliteFileCache {
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                crate::error::Error::Unknown(format!("Failed to clean thumbnails: {}", e))
+                crate::error::Error::database("Clean thumbnails cache", e)
             })?;
 
         Ok(())
@@ -872,7 +820,7 @@ impl FileBackend for SqliteFileCache {
         .bind(thumbnail.cached_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| crate::error::Error::Unknown(format!("Failed to insert thumbnail: {}", e)))?;
+        .map_err(|e| crate::error::Error::database("Insert thumbnail", e))?;
 
         Ok(file_path)
     }

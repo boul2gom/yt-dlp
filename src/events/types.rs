@@ -10,11 +10,12 @@ use crate::model::playlist::Playlist;
 
 /// Represents all possible events that can occur during download operations
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum DownloadEvent {
     /// Video metadata has been fetched from the URL
     VideoFetched {
         url: String,
-        video: Video,
+        video: Box<Video>,
         duration: Duration,
     },
 

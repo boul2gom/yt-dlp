@@ -4,7 +4,6 @@
 //! Data is stored in RAM only and is not persisted between process restarts.
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
-use crate::cache::current_timestamp;
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -13,12 +12,57 @@ use crate::model::playlist::Playlist;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
-use crate::model::utils::serde::serialize_json_opt;
+use crate::utils::current_timestamp;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::hash::Hash;
+
+fn clean_expired<K, V>(data: &mut LruCache<K, V>, ttl: i64, now: i64)
+where
+    K: Clone + Eq + Hash,
+    V: HasTimestamp,
+{
+    let expired: Vec<K> = data
+        .iter()
+        .filter(|(_, v)| v.cached_at() + ttl <= now)
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    for key in expired {
+        data.pop(&key);
+    }
+}
+
+trait HasTimestamp {
+    fn cached_at(&self) -> i64;
+}
+
+impl HasTimestamp for CachedVideo {
+    fn cached_at(&self) -> i64 {
+        self.cached_at
+    }
+}
+
+impl HasTimestamp for CachedFile {
+    fn cached_at(&self) -> i64 {
+        self.cached_at
+    }
+}
+
+impl HasTimestamp for CachedThumbnail {
+    fn cached_at(&self) -> i64 {
+        self.cached_at
+    }
+}
+
+impl HasTimestamp for CachedPlaylist {
+    fn cached_at(&self) -> i64 {
+        self.cached_at
+    }
+}
 
 // LruCache::get() takes &mut self, so Mutex is required instead of RwLock.
 const VIDEO_CAPACITY: usize = 512;
@@ -97,17 +141,7 @@ impl VideoBackend for MemoryVideoCache {
         );
 
         let mut data = self.data.lock().await;
-        let now = current_timestamp();
-
-        let expired: Vec<String> = data
-            .iter()
-            .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
-            .map(|(k, _)| k.clone())
-            .collect();
-
-        for key in expired {
-            data.pop(&key);
-        }
+        clean_expired(&mut data, self.ttl, current_timestamp());
 
         Ok(())
     }
@@ -126,6 +160,78 @@ impl VideoBackend for MemoryVideoCache {
             "Video with ID {} not found or expired in cache",
             id
         )))
+    }
+}
+
+/// In-memory LRU playlist cache.
+#[derive(Debug, Clone)]
+pub struct MemoryPlaylistCache {
+    data: Arc<Mutex<LruCache<String, CachedPlaylist>>>,
+    ttl: i64,
+}
+
+impl MemoryPlaylistCache {
+    /// Creates a new in-memory LRU playlist cache.
+    pub async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        Ok(Self {
+            data: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(PLAYLIST_CAPACITY).unwrap(),
+            ))),
+            ttl: ttl.unwrap_or(6 * 60 * 60) as i64,
+        })
+    }
+}
+
+impl PlaylistBackend for MemoryPlaylistCache {
+    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        let mut data = self.data.lock().await;
+        let now = current_timestamp();
+
+        if let Some(cached) = data.get(url)
+            && cached.cached_at + self.ttl > now
+        {
+            return Ok(Some(cached.playlist()?));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        let data = self.data.lock().await;
+        let now = current_timestamp();
+
+        for (_, cached) in data.iter() {
+            if cached.id == id && cached.cached_at + self.ttl > now {
+                return Ok(Some(cached.playlist()?));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        let mut data = self.data.lock().await;
+        let cached = CachedPlaylist::from((url.clone(), playlist));
+        data.put(url, cached);
+        Ok(())
+    }
+
+    async fn invalidate(&self, url: &str) -> Result<()> {
+        let mut data = self.data.lock().await;
+        data.pop(url);
+        Ok(())
+    }
+
+    async fn clean(&self) -> Result<()> {
+        let mut data = self.data.lock().await;
+        clean_expired(&mut data, self.ttl, current_timestamp());
+        Ok(())
+    }
+
+    async fn clear_all(&self) -> Result<()> {
+        let mut data = self.data.lock().await;
+        data.clear();
+        Ok(())
     }
 }
 
@@ -204,17 +310,14 @@ impl FileBackend for MemoryFileCache {
         let files = self.files.lock().await;
         let now = current_timestamp();
 
-        let vq = serialize_json_opt(video_quality);
-        let aq = serialize_json_opt(audio_quality);
-        let vc = serialize_json_opt(video_codec);
-        let ac = serialize_json_opt(audio_codec);
-
         for (_, cached) in files.iter() {
             if cached.video_id.as_deref() == Some(video_id)
-                && (vq.is_none() || cached.video_quality == vq)
-                && (aq.is_none() || cached.audio_quality == aq)
-                && (vc.is_none() || cached.video_codec == vc)
-                && (ac.is_none() || cached.audio_codec == ac)
+                && cached.matches_preferences(
+                    video_quality,
+                    audio_quality,
+                    video_codec.clone(),
+                    audio_codec.clone(),
+                )
                 && cached.cached_at + self.ttl > now
             {
                 return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
@@ -255,26 +358,12 @@ impl FileBackend for MemoryFileCache {
 
         {
             let mut files = self.files.lock().await;
-            let expired: Vec<String> = files
-                .iter()
-                .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
-                .map(|(k, _)| k.clone())
-                .collect();
-            for key in expired {
-                files.pop(&key);
-            }
+            clean_expired(&mut files, self.ttl, now);
         }
 
         {
             let mut thumbnails = self.thumbnails.lock().await;
-            let expired: Vec<String> = thumbnails
-                .iter()
-                .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
-                .map(|(k, _)| k.clone())
-                .collect();
-            for key in expired {
-                thumbnails.pop(&key);
-            }
+            clean_expired(&mut thumbnails, self.ttl, now);
         }
 
         Ok(())
@@ -331,88 +420,5 @@ impl FileBackend for MemoryFileCache {
         }
 
         None
-    }
-}
-
-/// In-memory LRU playlist cache.
-#[derive(Debug, Clone)]
-pub struct MemoryPlaylistCache {
-    data: Arc<Mutex<LruCache<String, CachedPlaylist>>>,
-    ttl: i64,
-}
-
-impl MemoryPlaylistCache {
-    /// Creates a new in-memory LRU playlist cache.
-    pub async fn new(_cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        Ok(Self {
-            data: Arc::new(Mutex::new(LruCache::new(
-                NonZeroUsize::new(PLAYLIST_CAPACITY).unwrap(),
-            ))),
-            ttl: ttl.unwrap_or(6 * 60 * 60) as i64,
-        })
-    }
-}
-
-impl PlaylistBackend for MemoryPlaylistCache {
-    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        let mut data = self.data.lock().await;
-        let now = current_timestamp();
-
-        if let Some(cached) = data.get(url)
-            && cached.cached_at + self.ttl > now
-        {
-            return Ok(Some(cached.playlist()?));
-        }
-
-        Ok(None)
-    }
-
-    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        let data = self.data.lock().await;
-        let now = current_timestamp();
-
-        for (_, cached) in data.iter() {
-            if cached.id == id && cached.cached_at + self.ttl > now {
-                return Ok(Some(cached.playlist()?));
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        let mut data = self.data.lock().await;
-        let cached = CachedPlaylist::from((url.clone(), playlist));
-        data.put(url, cached);
-        Ok(())
-    }
-
-    async fn invalidate(&self, url: &str) -> Result<()> {
-        let mut data = self.data.lock().await;
-        data.pop(url);
-        Ok(())
-    }
-
-    async fn clean(&self) -> Result<()> {
-        let mut data = self.data.lock().await;
-        let now = current_timestamp();
-
-        let expired: Vec<String> = data
-            .iter()
-            .filter(|(_, cached)| cached.cached_at + self.ttl <= now)
-            .map(|(k, _)| k.clone())
-            .collect();
-
-        for key in expired {
-            data.pop(&key);
-        }
-
-        Ok(())
-    }
-
-    async fn clear_all(&self) -> Result<()> {
-        let mut data = self.data.lock().await;
-        data.clear();
-        Ok(())
     }
 }

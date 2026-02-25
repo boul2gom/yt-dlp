@@ -34,9 +34,9 @@
 //! heaptrack --analyze heaptrack.profiling.*
 //! ```
 //!
-//! ## Dry-run (no network required)
+//! ## To run all scenarios
 //! ```bash
-//! cargo run --example profiling --features profiling --release -- --dry-run
+//! cargo run --example profiling --features profiling --release -- <URL>
 //! ```
 
 #[cfg(feature = "profiling")]
@@ -48,7 +48,7 @@ use std::time::{Duration, Instant};
 
 use yt_dlp::Downloader;
 use yt_dlp::VideoSelection;
-use yt_dlp::download::postprocess::{AudioCodec, PostProcessConfig, VideoCodec};
+use yt_dlp::download::{AudioCodec, PostProcessConfig, VideoCodec};
 use yt_dlp::events::{DownloadEvent, EventBus};
 use yt_dlp::model::Video;
 use yt_dlp::model::selector::{
@@ -57,7 +57,7 @@ use yt_dlp::model::selector::{
 use yt_dlp::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
 
 // Default short public YouTube video used when no URL is provided
-const DEFAULT_VIDEO_URL: &str = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+const DEFAULT_VIDEO_URL: &str = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
 
 struct ScenarioResult {
     name: String,
@@ -77,7 +77,6 @@ impl ScenarioResult {
 struct Args {
     url: String,
     verbose: bool,
-    dry_run: bool,
     scenario: Option<String>,
     cookies: Option<String>,
     cookies_from_browser: Option<String>,
@@ -88,7 +87,6 @@ fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
     let mut url = DEFAULT_VIDEO_URL.to_string();
     let mut verbose = false;
-    let mut dry_run = false;
     let mut scenario: Option<String> = None;
     let mut cookies = None;
     let mut cookies_from_browser = None;
@@ -97,7 +95,6 @@ fn parse_args() -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verbose" | "-v" => verbose = true,
-            "--dry-run" => dry_run = true,
             "--scenario" => {
                 scenario = args.next();
             }
@@ -115,7 +112,6 @@ fn parse_args() -> Args {
     Args {
         url,
         verbose,
-        dry_run,
         scenario,
         cookies,
         cookies_from_browser,
@@ -143,158 +139,6 @@ async fn setup_downloader(
     let downloader = builder.with_args(args.extra_args.clone()).build().await?;
 
     Ok(downloader)
-}
-
-fn make_format(
-    id: &str,
-    height: Option<u32>,
-    vcodec: Option<&str>,
-    acodec: Option<&str>,
-    vbr: Option<f64>,
-    abr: Option<f64>,
-) -> yt_dlp::model::format::Format {
-    use ordered_float::OrderedFloat;
-    use yt_dlp::model::format::*;
-
-    Format {
-        format: format!("{} - {}x{}", id, height.unwrap_or(0), height.unwrap_or(0)),
-        format_id: id.to_string(),
-        format_note: None,
-        protocol: Protocol::Https,
-        language: None,
-        has_drm: None,
-        container: None,
-        codec_info: CodecInfo {
-            audio_codec: acodec.map(str::to_string),
-            video_codec: vcodec.map(str::to_string),
-            audio_ext: Extension::Unknown,
-            video_ext: Extension::Unknown,
-            audio_channels: acodec.map(|_| 2),
-            asr: acodec.map(|_| 48000),
-        },
-        video_resolution: VideoResolution {
-            width: height.map(|h| h * 16 / 9),
-            height,
-            resolution: height.map(|h| format!("{}x{}", h * 16 / 9, h)),
-            fps: height.map(|_| OrderedFloat(30.0)),
-            aspect_ratio: Some(OrderedFloat(16.0 / 9.0)),
-        },
-        download_info: DownloadInfo {
-            url: Some(format!("https://example.com/stream/{}", id)),
-            ext: Extension::Mp4,
-            http_headers: HttpHeaders {
-                user_agent: "Mozilla/5.0".to_string(),
-                accept: "*/*".to_string(),
-                accept_language: "en-US,en;q=0.9".to_string(),
-                sec_fetch_mode: "navigate".to_string(),
-            },
-            manifest_url: None,
-            downloader_options: None,
-        },
-        quality_info: QualityInfo {
-            quality: height.map(|h| OrderedFloat(h as f64)),
-            dynamic_range: None,
-        },
-        file_info: FileInfo {
-            filesize_approx: height.map(|h| (h as i64) * 100_000),
-            filesize: None,
-        },
-        storyboard_info: StoryboardInfo {
-            rows: None,
-            columns: None,
-            fragments: None,
-        },
-        rates_info: RatesInfo {
-            video_rate: vbr.map(OrderedFloat),
-            audio_rate: abr.map(OrderedFloat),
-            total_rate: Some(OrderedFloat(vbr.unwrap_or(0.0) + abr.unwrap_or(0.0))),
-        },
-        video_id: None,
-    }
-}
-
-fn make_video(n_formats: usize) -> Video {
-    use yt_dlp::model::video::{ExtractorInfo, Version};
-
-    let heights = [2160u32, 1440, 1080, 720, 480, 360, 240, 144];
-    let video_codecs = ["vp9", "avc1.42E01E", "av01.0.05M.08"];
-    let audio_codecs = ["opus", "mp4a.40.2"];
-
-    let mut formats = Vec::with_capacity(n_formats);
-    let mut idx = 0usize;
-
-    'outer: for &height in &heights {
-        for &vcodec in &video_codecs {
-            let vbr = height as f64 * 0.5;
-            formats.push(make_format(
-                &format!("{}-v{}", height, idx),
-                Some(height),
-                Some(vcodec),
-                None,
-                Some(vbr),
-                None,
-            ));
-            idx += 1;
-            if idx >= n_formats {
-                break 'outer;
-            }
-        }
-    }
-
-    // Fill remaining slots with audio-only formats
-    let audio_idx = idx;
-    for i in 0..(n_formats.saturating_sub(audio_idx)) {
-        let acodec = audio_codecs[i % audio_codecs.len()];
-        let abr = 128.0 + (i as f64) * 32.0;
-        formats.push(make_format(
-            &format!("a{}", i),
-            None,
-            None,
-            Some(acodec),
-            None,
-            Some(abr),
-        ));
-    }
-
-    Video {
-        id: "jNQXAC9IVRw".to_string(),
-        title: "Me at the zoo".to_string(),
-        thumbnail: None,
-        description: Some("The first YouTube video.".to_string()),
-        availability: Some("public".to_string()),
-        upload_date: Some(1113005569),
-        view_count: Some(300_000_000),
-        like_count: Some(10_000_000),
-        comment_count: Some(5_000_000),
-        channel: Some("jawed".to_string()),
-        channel_id: Some("UC4QobU6STFB0P71PMvkgx5g".to_string()),
-        channel_url: Some("https://www.youtube.com/channel/UC4QobU6STFB0P71PMvkgx5g".to_string()),
-        channel_follower_count: Some(1_000_000),
-        uploader: Some("jawed".to_string()),
-        uploader_id: Some("jawed".to_string()),
-        formats,
-        thumbnails: Vec::new(),
-        automatic_captions: std::collections::HashMap::new(),
-        subtitles: std::collections::HashMap::new(),
-        chapters: Vec::new(),
-        heatmap: None,
-        tags: vec!["zoo".to_string(), "animals".to_string()],
-        categories: vec!["Pets & Animals".to_string()],
-        age_limit: 0,
-        has_drm: None,
-        live_status: "not_live".to_string(),
-        playable_in_embed: true,
-        extractor_info: ExtractorInfo {
-            extractor: "youtube".to_string(),
-            extractor_key: "Youtube".to_string(),
-        },
-        version: Version {
-            version: "2024.10.22".to_string(),
-            current_git_head: None,
-            release_git_head: None,
-            repository: "yt-dlp/yt-dlp".to_string(),
-        },
-    }
 }
 
 async fn run_setup(libs: &Path, output: &Path, args: &Args) -> ScenarioResult {
@@ -516,7 +360,7 @@ async fn run_statistics(downloader: &Downloader) -> ScenarioResult {
 }
 
 #[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
-async fn run_cache_ops() -> ScenarioResult {
+async fn run_cache_ops(real_video: &Video) -> ScenarioResult {
     use yt_dlp::cache::VideoCache;
 
     const N: usize = 500;
@@ -527,7 +371,7 @@ async fn run_cache_ops() -> ScenarioResult {
 
     let start = Instant::now();
     for i in 0..N {
-        let mut video = make_video(5);
+        let mut video = real_video.clone();
         video.id = format!("bench-{}", i);
         let url = format!("https://example.com/bench-{}", i);
         cache.put(url.clone(), video).await.expect("put failed");
@@ -599,11 +443,19 @@ async fn main() {
         results.push(r);
     }
 
-    let synthetic_video = make_video(50);
+    let downloader = setup_downloader(&libs, &output, &args)
+        .await
+        .expect("failed to build downloader");
+
+    let url = args.url.as_str();
+    let real_video: Video = downloader
+        .fetch_video_infos(url)
+        .await
+        .expect("failed to fetch real metadata");
 
     if run_scenario("format_selection") {
-        println!("[format_selection] Running 10,000 iterations on synthetic video...");
-        let r = run_format_selection(&synthetic_video);
+        println!("[format_selection] Running 10,000 iterations on real video...");
+        let r = run_format_selection(&real_video);
         println!(
             "  done in {} total, {} avg",
             fmt_duration(r.total),
@@ -626,7 +478,7 @@ async fn main() {
     // Validation benchmarks (no network, illustrate overhead)
     if run_scenario("validation") {
         let inputs = [
-            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "https://www.youtube.com/watch?v=gXtp6C-3JKo",
             "https://youtu.be/jNQXAC9IVRw",
             "https://vimeo.com/12345",
             "not-a-url",
@@ -647,96 +499,84 @@ async fn main() {
         });
     }
 
-    if !args.dry_run {
-        let downloader = setup_downloader(&libs, &output, &args)
-            .await
-            .expect("failed to build downloader");
+    if run_scenario("metadata_cold") {
+        println!("[metadata_cold] Fetching fresh metadata 3 times...");
+        let r = run_metadata_cold(&downloader, url, 3).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
 
-        let url = args.url.as_str();
+    if run_scenario("metadata_warm") {
+        println!("[metadata_warm] Fetching cached metadata 10 times...");
+        let r = run_metadata_warm(&downloader, url, 10).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
 
-        if run_scenario("metadata_cold") {
-            println!("[metadata_cold] Fetching fresh metadata 3 times...");
-            let r = run_metadata_cold(&downloader, url, 3).await;
-            println!(
-                "  done in {} total, {} avg",
-                fmt_duration(r.total),
-                fmt_duration(r.avg())
-            );
-            results.push(r);
-        }
+    if run_scenario("download_video") {
+        println!("[download_video] Downloading lowest quality video...");
+        let r = run_download_video(&downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
 
-        if run_scenario("metadata_warm") {
-            println!("[metadata_warm] Fetching cached metadata 10 times...");
-            let r = run_metadata_warm(&downloader, url, 10).await;
-            println!(
-                "  done in {} total, {} avg",
-                fmt_duration(r.total),
-                fmt_duration(r.avg())
-            );
-            results.push(r);
-        }
+    if run_scenario("download_audio") {
+        println!("[download_audio] Downloading lowest quality audio...");
+        let r = run_download_audio(&downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
 
-        if run_scenario("download_video") {
-            println!("[download_video] Downloading lowest quality video...");
-            let r = run_download_video(&downloader, url).await;
-            println!("  done in {}", fmt_duration(r.total));
-            results.push(r);
-        }
+    if run_scenario("download_concurrent") {
+        println!("[download_concurrent] Downloading 3 concurrent streams...");
+        let r = run_download_concurrent(&downloader, url).await;
+        println!("  done in {} total", fmt_duration(r.total));
+        results.push(r);
+    }
 
-        if run_scenario("download_audio") {
-            println!("[download_audio] Downloading lowest quality audio...");
-            let r = run_download_audio(&downloader, url).await;
-            println!("  done in {}", fmt_duration(r.total));
-            results.push(r);
-        }
+    if run_scenario("postprocess") {
+        println!("[postprocess] Post-processing with H264/AAC...");
+        let r = run_postprocess(&downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
 
-        if run_scenario("download_concurrent") {
-            println!("[download_concurrent] Downloading 3 concurrent streams...");
-            let r = run_download_concurrent(&downloader, url).await;
-            println!("  done in {} total", fmt_duration(r.total));
-            results.push(r);
-        }
+    #[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
+    if run_scenario("cache_ops") {
+        println!("[cache_ops] Running 500 put+get cycles on in-memory cache...");
+        let r = run_cache_ops(&real_video).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
 
-        if run_scenario("postprocess") {
-            println!("[postprocess] Post-processing with H264/AAC...");
-            let r = run_postprocess(&downloader, url).await;
-            println!("  done in {}", fmt_duration(r.total));
-            results.push(r);
-        }
-
-        #[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
-        if run_scenario("cache_ops") {
-            println!("[cache_ops] Running 500 put+get cycles on in-memory cache...");
-            let r = run_cache_ops().await;
-            println!(
-                "  done in {} total, {} avg",
-                fmt_duration(r.total),
-                fmt_duration(r.avg())
-            );
-            results.push(r);
-        }
-
-        #[cfg(feature = "statistics")]
-        if run_scenario("statistics") {
-            println!("[statistics] Snapshotting statistics 1,000 times...");
-            let r = run_statistics(&downloader).await;
-            println!(
-                "  done in {} total, {} avg",
-                fmt_duration(r.total),
-                fmt_duration(r.avg())
-            );
-            results.push(r);
-        }
-    } else {
-        println!("[dry-run] Skipping network scenarios.");
+    #[cfg(feature = "statistics")]
+    if run_scenario("statistics") {
+        println!("[statistics] Snapshotting statistics 1,000 times...");
+        let r = run_statistics(&downloader).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
     }
 
     print_results(&results);
 
     #[cfg(feature = "statistics")]
-    if !args.dry_run
-        && let Ok(downloader) = setup_downloader(&libs, &output, &args).await
-    {
+    if let Ok(downloader) = setup_downloader(&libs, &output, &args).await {
         let snap = downloader.statistics().snapshot().await;
         println!("=== Statistics Snapshot ===");
         println!("Downloads completed: {}", snap.downloads.completed);

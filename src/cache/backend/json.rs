@@ -3,7 +3,6 @@
 //! This module provides a simple file-system based cache where metadata is stored as JSON files.
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
-use crate::cache::is_expired;
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -12,7 +11,7 @@ use crate::model::playlist::Playlist;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
-use crate::model::utils::serde::serialize_json_opt;
+use crate::utils::is_expired;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -150,7 +149,7 @@ impl VideoBackend for JsonVideoCache {
         if file_path.exists() {
             let content = tokio::fs::read_to_string(file_path).await?;
             let cached: CachedVideo = serde_json::from_str(&content)
-                .map_err(|e| crate::error::Error::Unknown(format!("Cache corruption: {}", e)))?;
+                .map_err(|e| crate::error::Error::json("Deserialize cached video", e))?;
 
             if is_expired(cached.cached_at, self.ttl) {
                 return Err(crate::error::Error::Unknown("Expired".to_string()));
@@ -238,7 +237,7 @@ impl PlaylistBackend for JsonPlaylistCache {
         if file_path.exists() {
             let content = tokio::fs::read_to_string(file_path).await?;
             let cached: CachedPlaylist = serde_json::from_str(&content)
-                .map_err(|e| crate::error::Error::Unknown(format!("Cache corruption: {}", e)))?;
+                .map_err(|e| crate::error::Error::json("Deserialize cached playlist", e))?;
 
             if is_expired(cached.cached_at, self.ttl) {
                 return Ok(None);
@@ -443,30 +442,18 @@ impl FileBackend for JsonFileCache {
         let meta_dir = self.cache_dir.join("files_meta");
         let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
 
-        let vq_str = serialize_json_opt(video_quality);
-        let aq_str = serialize_json_opt(audio_quality);
-        let vc_str = serialize_json_opt(video_codec);
-        let ac_str = serialize_json_opt(audio_codec);
-
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
                 let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
                     && cached.video_id.as_deref() == Some(video_id)
+                    && cached.matches_preferences(
+                        video_quality.clone(),
+                        audio_quality.clone(),
+                        video_codec.clone(),
+                        audio_codec.clone(),
+                    )
                 {
-                    // Check preferences
-                    if vq_str.is_some() && cached.video_quality != vq_str {
-                        continue;
-                    }
-                    if aq_str.is_some() && cached.audio_quality != aq_str {
-                        continue;
-                    }
-                    if vc_str.is_some() && cached.video_codec != vc_str {
-                        continue;
-                    }
-                    if ac_str.is_some() && cached.audio_codec != ac_str {
-                        continue;
-                    }
 
                     if is_expired(cached.cached_at, self.ttl) {
                         continue;
@@ -622,7 +609,7 @@ impl FileBackend for JsonFileCache {
             .join("thumbnails_meta")
             .join(format!("{}.json", thumbnail.id));
         let json = serde_json::to_string(&thumbnail)
-            .map_err(|e| crate::error::Error::Unknown(format!("Serialization error: {}", e)))?;
+            .map_err(|e| crate::error::Error::json("Serialize cached thumbnail", e))?;
         tokio::fs::write(&meta_path, json).await?;
 
         Ok(file_path)

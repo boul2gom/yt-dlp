@@ -44,7 +44,7 @@ pub async fn convert_subtitle(
     let content = fs::read_to_string(input_path).await?;
 
     // Detect source format
-    let source_format = detect_subtitle_format(&content)?;
+    let source_format = super::detect_subtitle_format(&content)?;
 
     tracing::debug!("Detected source format: {:?}", source_format);
 
@@ -57,10 +57,10 @@ pub async fn convert_subtitle(
             content
         }
         (source, target) => {
-            return Err(Error::Unknown(format!(
-                "Unsupported subtitle conversion: {:?} to {:?}",
-                source, target
-            )));
+            return Err(Error::FormatIncompatible {
+                format_id: format!("{source:?}"),
+                reason: format!("Unsupported subtitle conversion to {target:?}"),
+            });
         }
     };
 
@@ -70,37 +70,6 @@ pub async fn convert_subtitle(
     tracing::info!("Successfully converted subtitle to {:?}", output_path);
 
     Ok(())
-}
-
-/// Detect the format of a subtitle file based on its content.
-///
-/// # Arguments
-///
-/// * `content` - The subtitle file content
-///
-/// # Errors
-///
-/// Returns an error if the format cannot be detected
-fn detect_subtitle_format(content: &str) -> Result<Extension> {
-    let trimmed = content.trim();
-
-    // VTT files start with "WEBVTT"
-    if trimmed.starts_with("WEBVTT") {
-        return Ok(Extension::Vtt);
-    }
-
-    // SRT files start with a number (the first subtitle index)
-    // and have the timestamp format HH:MM:SS,mmm --> HH:MM:SS,mmm
-    if trimmed
-        .lines()
-        .any(|line| line.contains(" --> ") && line.contains(','))
-    {
-        return Ok(Extension::Srt);
-    }
-
-    Err(Error::Unknown(
-        "Could not detect subtitle format".to_string(),
-    ))
 }
 
 /// Convert VTT (WebVTT) format to SRT (SubRip) format.

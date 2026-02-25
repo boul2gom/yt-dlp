@@ -2,8 +2,10 @@
 //!
 //! This module provides tools for executing commands with timeout support.
 
+pub mod ffmpeg;
 pub mod process;
 
+pub use ffmpeg::{FfmpegArgs, run_ffmpeg_with_tempfile};
 pub use process::{ProcessOutput, execute_command};
 
 use crate::error::Result;

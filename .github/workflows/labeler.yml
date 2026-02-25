@@ -1,0 +1,35 @@
+name: "Issue and PR Labeler"
+
+on:
+  issues:
+    types: [opened, edited, milestoned]
+  pull_request_target:
+    types: [opened]
+
+jobs:
+  labeler:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    name: "🏷️ Label issues and PRs"
+
+    steps:
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+          
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: 🏷️ Label issues and PRs
+        uses: jimschubert/labeler-action@v2.1.4
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

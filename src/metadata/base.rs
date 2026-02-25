@@ -10,51 +10,6 @@ use chrono::DateTime;
 ///
 /// This trait provides methods to extract and format metadata from Video and Format objects.
 pub trait BaseMetadata {
-    /// Format a timestamp into a string according to a specified format.
-    ///
-    /// # Arguments
-    ///
-    /// * `timestamp` - Unix timestamp to format
-    /// * `format_str` - Format string (e.g., "%Y-%m-%d" for date, "%Y" for year)
-    ///
-    /// # Returns
-    ///
-    /// Formatted string if the timestamp is valid, None otherwise
-    fn format_timestamp(timestamp: i64, format_str: &str) -> Option<String> {
-        tracing::trace!(
-            timestamp = timestamp,
-            format = format_str,
-            "Formatting timestamp"
-        );
-
-        DateTime::from_timestamp(timestamp, 0).map(|dt| dt.format(format_str).to_string())
-    }
-
-    /// Add metadata to a vector if the value exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `metadata` - Vector to add the metadata to
-    /// * `key` - Metadata key
-    /// * `value` - Optional value to add
-    fn add_metadata_if_some<T: ToString>(
-        metadata: &mut Vec<(String, String)>,
-        key: &str,
-        value: Option<T>,
-    ) {
-        if let Some(value) = value {
-            let value_str = value.to_string();
-            tracing::trace!(
-                key = key,
-                value = %value_str,
-                "Adding metadata value"
-            );
-            metadata.push((key.to_string(), value_str));
-        } else {
-            tracing::trace!(key = key, "Skipping metadata value (None)");
-        }
-    }
-
     /// Extract basic metadata from a video.
     ///
     /// Basic metadata includes: title, artist (channel), album, genre (from tags), date/year
@@ -191,5 +146,50 @@ pub trait BaseMetadata {
         Self::add_metadata_if_some(&mut metadata, "audio_sample_rate", format.codec_info.asr);
 
         metadata
+    }
+
+    /// Format a timestamp into a string according to a specified format.
+    ///
+    /// # Arguments
+    ///
+    /// * `timestamp` - Unix timestamp to format
+    /// * `format_str` - Format string (e.g., "%Y-%m-%d" for date, "%Y" for year)
+    ///
+    /// # Returns
+    ///
+    /// Formatted string if the timestamp is valid, None otherwise
+    fn format_timestamp(timestamp: i64, format_str: &str) -> Option<String> {
+        tracing::trace!(
+            timestamp = timestamp,
+            format = format_str,
+            "Formatting timestamp"
+        );
+
+        DateTime::from_timestamp(timestamp, 0).map(|dt| dt.format(format_str).to_string())
+    }
+
+    /// Add metadata to a vector if the value exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `metadata` - Vector to add the metadata to
+    /// * `key` - Metadata key
+    /// * `value` - Optional value to add
+    fn add_metadata_if_some<T: ToString>(
+        metadata: &mut Vec<(String, String)>,
+        key: &str,
+        value: Option<T>,
+    ) {
+        if let Some(value) = value {
+            let value_str = value.to_string();
+            tracing::trace!(
+                key = key,
+                value = %value_str,
+                "Adding metadata value"
+            );
+            metadata.push((key.to_string(), value_str));
+        } else {
+            tracing::trace!(key = key, "Skipping metadata value (None)");
+        }
     }
 }

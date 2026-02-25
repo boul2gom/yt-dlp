@@ -130,6 +130,23 @@ yt-dlp = { version = "2.0.1", features = ["cache-json"] }
 yt-dlp = { version = "2.0.1", features = ["cache-sqlite"] }
 ```
 
+#### CDN URL expiry and cache invalidation
+
+When a `Video` is cached, its stream format URLs are valid for approximately **6 hours** (YouTube CDN lifetime). The library tracks this automatically via the `available_at` field on each `Format`.
+
+On every `fetch_video_infos` call, the cache checks whether the format URLs are still fresh. If they have expired, the cached entry is **silently invalidated** and the video is re-fetched — so you never end up downloading with stale CDN URLs. The configured TTL (default 24 h) acts as an upper bound; the effective TTL is `min(configured_ttl, cdn_url_lifetime)`.
+
+This behavior is transparent and requires no changes to your code. You can inspect the expiry yourself:
+```rust,ignore
+if !video.are_format_urls_fresh() {
+    // URLs are stale — fetch_video_infos will re-fetch automatically
+}
+// Or get the earliest available_at timestamp across all downloadable formats:
+if let Some(ts) = video.formats_available_at() {
+    println!("Format URLs valid until approx. {} (unix)", ts + yt_dlp::model::FORMAT_URL_LIFETIME);
+}
+```
+
 ### 🔍 Observability & Tracing
 
 This crate always includes the <img align="center" width="20" alt="Tracing" src="https://raw.githubusercontent.com/tokio-rs/tracing/refs/heads/master/assets/logo.svg" /> [`tracing`](https://crates.io/crates/tracing) crate. The library emits `debug` and `trace` span events throughout its internal operations (downloads, cache lookups, subprocess execution, etc.).
@@ -519,6 +536,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
+use yt_dlp::model::selector::ThumbnailQuality;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -535,7 +553,103 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     let video = downloader.fetch_video_infos(url).await?;
-    let thumbnail_path = downloader.download_thumbnail(&video, "thumbnail.jpg").await?;
+    let thumbnail_path = downloader.download_thumbnail(&video, ThumbnailQuality::Best, "thumbnail.jpg").await?;
+    Ok(())
+}
+```
+
+- 🖼️ Selecting a thumbnail by minimum resolution and downloading it:
+```rust,no_run
+use yt_dlp::Downloader;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Best thumbnail by area (width × height)
+    if let Some(thumb) = video.best_thumbnail() {
+        println!("Best thumbnail: {} — {:?}", thumb.url, thumb.resolution);
+    }
+
+    // Smallest thumbnail that is at least 1280×720
+    if let Some(thumb) = video.thumbnail_for_size(1280, 720) {
+        println!("HD thumbnail: {}", thumb.url);
+    }
+
+    Ok(())
+}
+```
+
+- 📝 Downloading subtitles or automatic captions:
+```rust,no_run
+use yt_dlp::Downloader;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Check available languages (merges subtitles + automatic captions)
+    let langs = downloader.list_subtitle_languages(&video);
+    println!("Available languages: {:?}", langs);
+
+    // Download French subtitles (falls back to automatic captions if no manual ones)
+    let sub_path = downloader.download_subtitle(&video, "fr", "subtitles.srt", true).await?;
+
+    // Download all available subtitles/captions
+    let paths = downloader.download_all_subtitles(&video, "subtitles/", true).await?;
+
+    Ok(())
+}
+```
+
+- 🎞️ Downloading storyboard preview frames:
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::model::StoryboardQuality;
+use yt_dlp::VideoSelection;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Download the best (highest resolution) storyboard into a directory
+    let frames = downloader
+        .download_storyboard(&video, StoryboardQuality::Best, "storyboard/")
+        .await?;
+    println!("Downloaded {} MHTML fragment(s)", frames.len());
+
+    // Or pick a specific storyboard format directly
+    if let Some(format) = video.best_storyboard_format() {
+        let frames = downloader.download_storyboard_format(format, "storyboard/").await?;
+    }
+
     Ok(())
 }
 ```
@@ -1035,7 +1149,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download English subtitles
     let subtitle_path = downloader
-        .download_subtitle(&video, "en", "subtitle_en.srt")
+        .download_subtitle(&video, "en", "subtitle_en.srt", true)
         .await?;
     println!("Subtitle downloaded to: {:?}", subtitle_path);
 
@@ -1067,7 +1181,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download all available subtitles
     let subtitle_paths = downloader
-        .download_all_subtitles(&video, &output_dir)
+        .download_all_subtitles(&video, &output_dir, true)
         .await?;
     println!("Downloaded {} subtitle files", subtitle_paths.len());
 
@@ -1102,10 +1216,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download subtitles
     let en_subtitle = downloader
-        .download_subtitle(&video, "en", "subtitle_en.srt")
+        .download_subtitle(&video, "en", "subtitle_en.srt", true)
         .await?;
     let fr_subtitle = downloader
-        .download_subtitle(&video, "fr", "subtitle_fr.srt")
+        .download_subtitle(&video, "fr", "subtitle_fr.srt", true)
         .await?;
 
     // Embed subtitles into video

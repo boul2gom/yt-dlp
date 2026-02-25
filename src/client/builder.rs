@@ -2,6 +2,7 @@
 //!
 //! This module provides a fluent API for constructing Downloader instances with various configurations.
 
+use crate::extractor::ExtractorConfig;
 #[cfg(feature = "cache-backend")]
 use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
 use crate::client::proxy::ProxyConfig;

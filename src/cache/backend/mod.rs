@@ -29,6 +29,24 @@ use memory::{MemoryFileCache, MemoryPlaylistCache, MemoryVideoCache};
 #[cfg(cache_backend = "sqlite")]
 use sqlite::{SqliteFileCache, SqlitePlaylistCache, SqliteVideoCache};
 
+/// Trait for video cache backend implementations.
+pub trait VideoBackend: Send + Sync + std::fmt::Debug {
+    /// Retrieves a video by its URL.
+    fn get(&self, url: &str) -> impl Future<Output = Result<Option<Video>>> + Send;
+
+    /// Stores a video in the cache.
+    fn put(&self, url: String, video: Video) -> impl Future<Output = Result<()>> + Send;
+
+    /// Removes a video from the cache by URL.
+    fn remove(&self, url: &str) -> impl Future<Output = Result<()>> + Send;
+
+    /// Cleans expired entries from the cache.
+    fn clean(&self) -> impl Future<Output = Result<()>> + Send;
+
+    /// Retrieves a video by its ID.
+    fn get_by_id(&self, id: &str) -> impl Future<Output = Result<CachedVideo>> + Send;
+}
+
 /// Trait for playlist cache backend implementations.
 pub trait PlaylistBackend: Send + Sync + std::fmt::Debug {
     /// Retrieves a playlist by its URL.
@@ -48,24 +66,6 @@ pub trait PlaylistBackend: Send + Sync + std::fmt::Debug {
 
     /// Clears all entries from the cache.
     fn clear_all(&self) -> impl Future<Output = Result<()>> + Send;
-}
-
-/// Trait for video cache backend implementations.
-pub trait VideoBackend: Send + Sync + std::fmt::Debug {
-    /// Retrieves a video by its URL.
-    fn get(&self, url: &str) -> impl Future<Output = Result<Option<Video>>> + Send;
-
-    /// Stores a video in the cache.
-    fn put(&self, url: String, video: Video) -> impl Future<Output = Result<()>> + Send;
-
-    /// Removes a video from the cache by URL.
-    fn remove(&self, url: &str) -> impl Future<Output = Result<()>> + Send;
-
-    /// Cleans expired entries from the cache.
-    fn clean(&self) -> impl Future<Output = Result<()>> + Send;
-
-    /// Retrieves a video by its ID.
-    fn get_by_id(&self, id: &str) -> impl Future<Output = Result<CachedVideo>> + Send;
 }
 
 /// Trait for file cache backend implementations.
@@ -139,6 +139,20 @@ pub enum VideoBackendEnum {
     Memory(MemoryVideoCache),
 }
 
+/// Zero-cost enum dispatch for `PlaylistBackend` implementations.
+///
+/// `build.rs` guarantees exactly one variant is compiled per build, regardless
+/// of how many cache feature flags are active simultaneously.
+#[derive(Debug)]
+pub enum PlaylistBackendEnum {
+    #[cfg(cache_backend = "sqlite")]
+    Sqlite(SqlitePlaylistCache),
+    #[cfg(cache_backend = "json")]
+    Json(JsonPlaylistCache),
+    #[cfg(cache_backend = "memory")]
+    Memory(MemoryPlaylistCache),
+}
+
 /// Zero-cost enum dispatch for `FileBackend` implementations.
 ///
 /// `build.rs` guarantees exactly one variant is compiled per build, regardless
@@ -153,18 +167,24 @@ pub enum FileBackendEnum {
     Memory(MemoryFileCache),
 }
 
-/// Zero-cost enum dispatch for `PlaylistBackend` implementations.
-///
-/// `build.rs` guarantees exactly one variant is compiled per build, regardless
-/// of how many cache feature flags are active simultaneously.
-#[derive(Debug)]
-pub enum PlaylistBackendEnum {
-    #[cfg(cache_backend = "sqlite")]
-    Sqlite(SqlitePlaylistCache),
-    #[cfg(cache_backend = "json")]
-    Json(JsonPlaylistCache),
-    #[cfg(cache_backend = "memory")]
-    Memory(MemoryPlaylistCache),
+// ── Video backend dispatch ──
+
+impl VideoBackendEnum {
+    /// Creates the appropriate video backend based on enabled features.
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        #[cfg(cache_backend = "sqlite")]
+        {
+            Ok(Self::Sqlite(SqliteVideoCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(cache_backend = "json")]
+        {
+            Ok(Self::Json(JsonVideoCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(cache_backend = "memory")]
+        {
+            Ok(Self::Memory(MemoryVideoCache::new(cache_dir, ttl).await?))
+        }
+    }
 }
 
 impl VideoBackend for VideoBackendEnum {
@@ -220,6 +240,118 @@ impl VideoBackend for VideoBackendEnum {
             Self::Json(b) => b.get_by_id(id).await,
             #[cfg(cache_backend = "memory")]
             Self::Memory(b) => b.get_by_id(id).await,
+        }
+    }
+}
+
+// ── Playlist backend dispatch ──
+
+impl PlaylistBackendEnum {
+    /// Creates the appropriate playlist backend based on enabled features.
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        #[cfg(cache_backend = "sqlite")]
+        {
+            Ok(Self::Sqlite(
+                SqlitePlaylistCache::new(cache_dir, ttl).await?,
+            ))
+        }
+        #[cfg(cache_backend = "json")]
+        {
+            Ok(Self::Json(JsonPlaylistCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(cache_backend = "memory")]
+        {
+            Ok(Self::Memory(
+                MemoryPlaylistCache::new(cache_dir, ttl).await?,
+            ))
+        }
+    }
+}
+
+impl PlaylistBackend for PlaylistBackendEnum {
+    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.get(url).await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.get(url).await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.get(url).await,
+        }
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.get_by_id(id).await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.get_by_id(id).await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.get_by_id(id).await,
+        }
+    }
+
+    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.put(url, playlist).await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.put(url, playlist).await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.put(url, playlist).await,
+        }
+    }
+
+    async fn invalidate(&self, url: &str) -> Result<()> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.invalidate(url).await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.invalidate(url).await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.invalidate(url).await,
+        }
+    }
+
+    async fn clean(&self) -> Result<()> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.clean().await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.clean().await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.clean().await,
+        }
+    }
+
+    async fn clear_all(&self) -> Result<()> {
+        match self {
+            #[cfg(cache_backend = "sqlite")]
+            Self::Sqlite(b) => b.clear_all().await,
+            #[cfg(cache_backend = "json")]
+            Self::Json(b) => b.clear_all().await,
+            #[cfg(cache_backend = "memory")]
+            Self::Memory(b) => b.clear_all().await,
+        }
+    }
+}
+
+// ── File backend dispatch ──
+
+impl FileBackendEnum {
+    /// Creates the appropriate file backend based on enabled features.
+    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
+        #[cfg(cache_backend = "sqlite")]
+        {
+            Ok(Self::Sqlite(SqliteFileCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(cache_backend = "json")]
+        {
+            Ok(Self::Json(JsonFileCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(cache_backend = "memory")]
+        {
+            Ok(Self::Memory(MemoryFileCache::new(cache_dir, ttl).await?))
         }
     }
 }
@@ -370,132 +502,6 @@ impl FileBackend for FileBackendEnum {
             Self::Json(b) => b.get_subtitle_by_language(video_id, language).await,
             #[cfg(cache_backend = "memory")]
             Self::Memory(b) => b.get_subtitle_by_language(video_id, language).await,
-        }
-    }
-}
-
-impl VideoBackendEnum {
-    /// Creates the appropriate video backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(SqliteVideoCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "json")]
-        {
-            Ok(Self::Json(JsonVideoCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "memory")]
-        {
-            Ok(Self::Memory(MemoryVideoCache::new(cache_dir, ttl).await?))
-        }
-    }
-}
-
-impl FileBackendEnum {
-    /// Creates the appropriate file backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(SqliteFileCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "json")]
-        {
-            Ok(Self::Json(JsonFileCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "memory")]
-        {
-            Ok(Self::Memory(MemoryFileCache::new(cache_dir, ttl).await?))
-        }
-    }
-}
-
-impl PlaylistBackendEnum {
-    /// Creates the appropriate playlist backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(
-                SqlitePlaylistCache::new(cache_dir, ttl).await?,
-            ))
-        }
-        #[cfg(cache_backend = "json")]
-        {
-            Ok(Self::Json(JsonPlaylistCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "memory")]
-        {
-            Ok(Self::Memory(
-                MemoryPlaylistCache::new(cache_dir, ttl).await?,
-            ))
-        }
-    }
-}
-
-impl PlaylistBackend for PlaylistBackendEnum {
-    async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get(url).await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.get(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get(url).await,
-        }
-    }
-
-    async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_by_id(id).await,
-        }
-    }
-
-    async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.put(url, playlist).await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.put(url, playlist).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.put(url, playlist).await,
-        }
-    }
-
-    async fn invalidate(&self, url: &str) -> Result<()> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.invalidate(url).await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.invalidate(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.invalidate(url).await,
-        }
-    }
-
-    async fn clean(&self) -> Result<()> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clean().await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.clean().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clean().await,
-        }
-    }
-
-    async fn clear_all(&self) -> Result<()> {
-        match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clear_all().await,
-            #[cfg(cache_backend = "json")]
-            Self::Json(b) => b.clear_all().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clear_all().await,
         }
     }
 }

@@ -69,14 +69,6 @@ pub struct HookRegistry {
     timeout: std::time::Duration,
 }
 
-impl std::fmt::Debug for HookRegistry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HookRegistry")
-            .field("hooks_count", &"<async>")
-            .finish()
-    }
-}
-
 impl HookRegistry {
     /// Creates a new hook registry
     ///
@@ -257,6 +249,14 @@ impl Clone for HookRegistry {
             hooks: self.hooks.clone(),
             timeout: self.timeout,
         }
+    }
+}
+
+impl std::fmt::Debug for HookRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HookRegistry")
+            .field("hooks_count", &"<async>")
+            .finish()
     }
 }
 

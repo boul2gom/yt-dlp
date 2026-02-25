@@ -203,19 +203,11 @@ struct WebhookPayload {
 /// Webhook delivery system
 pub struct WebhookDelivery {
     /// HTTP client for sending webhooks
-    client: Client,
+    client: Arc<Client>,
     /// Registered webhooks
     webhooks: Arc<RwLock<Vec<WebhookConfig>>>,
     /// Channel for queuing webhook deliveries
     tx: mpsc::Sender<(WebhookConfig, DownloadEvent)>,
-}
-
-impl std::fmt::Debug for WebhookDelivery {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WebhookDelivery")
-            .field("webhooks_count", &"<async>")
-            .finish()
-    }
 }
 
 impl WebhookDelivery {
@@ -227,10 +219,11 @@ impl WebhookDelivery {
     pub fn new() -> Self {
         tracing::debug!("Creating new WebhookDelivery system");
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let client = crate::utils::http::build_http_client(crate::utils::http::HttpClientConfig {
+            timeout: Some(Duration::from_secs(30)),
+            ..Default::default()
+        })
+        .unwrap_or_else(|_| Arc::new(Client::new()));
 
         let (tx, mut rx) = mpsc::channel::<(WebhookConfig, DownloadEvent)>(1024);
 
@@ -311,6 +304,27 @@ impl WebhookDelivery {
         );
     }
 
+    /// Returns the number of registered webhooks
+    ///
+    /// # Returns
+    ///
+    /// The total number of registered webhooks
+    pub async fn count(&self) -> usize {
+        let webhooks = self.webhooks.read().await;
+        webhooks.len()
+    }
+
+    /// Clears all registered webhooks
+    pub async fn clear(&self) {
+        tracing::debug!("Clearing all registered webhooks");
+
+        let mut webhooks = self.webhooks.write().await;
+        let count = webhooks.len();
+        webhooks.clear();
+
+        tracing::debug!(webhooks_cleared = count, "All webhooks cleared");
+    }
+
     /// Delivers a webhook with retry logic
     ///
     /// # Arguments
@@ -318,7 +332,7 @@ impl WebhookDelivery {
     /// * `client` - HTTP client for sending requests
     /// * `config` - Webhook configuration
     /// * `event` - Event to deliver
-    async fn deliver_webhook(client: Client, config: WebhookConfig, event: DownloadEvent) {
+    async fn deliver_webhook(client: Arc<Client>, config: WebhookConfig, event: DownloadEvent) {
         tracing::debug!(
             url = %config.url,
             event_type = event.event_type(),
@@ -437,27 +451,6 @@ impl WebhookDelivery {
 
         Ok(())
     }
-
-    /// Returns the number of registered webhooks
-    ///
-    /// # Returns
-    ///
-    /// The total number of registered webhooks
-    pub async fn count(&self) -> usize {
-        let webhooks = self.webhooks.read().await;
-        webhooks.len()
-    }
-
-    /// Clears all registered webhooks
-    pub async fn clear(&self) {
-        tracing::debug!("Clearing all registered webhooks");
-
-        let mut webhooks = self.webhooks.write().await;
-        let count = webhooks.len();
-        webhooks.clear();
-
-        tracing::debug!(webhooks_cleared = count, "All webhooks cleared");
-    }
 }
 
 impl Default for WebhookDelivery {
@@ -473,5 +466,13 @@ impl Clone for WebhookDelivery {
             webhooks: self.webhooks.clone(),
             tx: self.tx.clone(),
         }
+    }
+}
+
+impl std::fmt::Debug for WebhookDelivery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebhookDelivery")
+            .field("webhooks_count", &"<async>")
+            .finish()
     }
 }

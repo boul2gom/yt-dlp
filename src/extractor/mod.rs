@@ -82,16 +82,67 @@ pub trait VideoExtractor: Downcast + Send + Sync + fmt::Debug {
 
 impl_downcast!(VideoExtractor);
 
+/// Common configuration methods for all extractors.
+pub trait ExtractorConfig: VideoExtractor {
+    /// Add custom yt-dlp argument.
+    fn with_arg(&mut self, arg: String) -> &mut Self;
+
+    /// Set timeout for yt-dlp operations.
+    fn with_timeout(&mut self, timeout: Duration) -> &mut Self;
+
+    /// Use a Netscape cookie file for authentication.
+    fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        let cookie_path = path.as_ref().display().to_string();
+        self.with_arg(format!("--cookies={}", cookie_path))
+    }
+
+    /// Extract cookies from a browser for authentication.
+    fn with_cookies_from_browser(&mut self, browser: &str) -> &mut Self {
+        self.with_arg(format!("--cookies-from-browser={}", browser))
+    }
+
+    /// Use .netrc for authentication.
+    fn with_netrc(&mut self) -> &mut Self {
+        self.with_arg("--netrc".to_string())
+    }
+}
+
 pub mod detector;
 pub mod generic;
 pub mod youtube;
+
+/// Common logic for extractors to execute yt-dlp and parse output.
+#[async_trait]
+pub trait ExtractorBase: VideoExtractor {
+    /// Get the executable path.
+    fn executable_path(&self) -> PathBuf;
+    /// Get the request timeout.
+    fn timeout(&self) -> Duration;
+    /// Build base arguments for yt-dlp.
+    fn build_base_args(&self) -> Vec<String>;
+
+    /// Fetch and parse video metadata.
+    async fn fetch_video_metadata(&self, url: &str) -> Result<Video> {
+        let mut args = self.build_base_args();
+        args.push(url.to_string());
+        execute_and_parse_video(self.executable_path(), &args, self.timeout()).await
+    }
+
+    /// Fetch and parse playlist metadata.
+    async fn fetch_playlist_metadata(&self, url: &str) -> Result<Playlist> {
+        let mut args = self.build_base_args();
+        args.push("--flat-playlist".to_string());
+        args.push(url.to_string());
+        execute_and_parse_playlist(self.executable_path(), &args, self.timeout()).await
+    }
+}
 
 pub use detector::detect_extractor_type;
 pub use generic::Generic;
 pub use youtube::Youtube;
 
 use crate::executor::Executor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Helper to execute the extractor command and parse the output as a Video.
