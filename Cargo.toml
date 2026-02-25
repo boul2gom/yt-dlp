@@ -94,7 +94,7 @@ xz2 = "0.1.7"
 sha2 = "0.10.9"
 
 # Date and time
-chrono = "0.4.43"
+chrono = "0.4.44"
 
 # Text and pattern matching
 regex = "1.12.3"
@@ -110,7 +110,7 @@ rand = "0.10.0"
 
 # General utilities
 lazy_static = "1.5.0"
-tempfile = "3.25.0"
+tempfile = "3.26.0"
 cfg-if = "1.0.4"
 
 # Logging
