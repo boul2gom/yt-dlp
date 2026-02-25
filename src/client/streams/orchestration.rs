@@ -7,9 +7,9 @@ use crate::model::Video;
 use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
-use crate::model::selector::{StoryboardQuality, ThumbnailQuality};
 #[cfg(cache)]
 use crate::model::selector::FormatPreferences;
+use crate::model::selector::{StoryboardQuality, ThumbnailQuality};
 use crate::utils;
 use crate::{DownloadStatus, Downloader};
 

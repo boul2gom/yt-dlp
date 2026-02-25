@@ -3,12 +3,12 @@
 //! Provides `CachedVideo`, `CachedFile`, `CachedThumbnail` data structures and the
 //! `VideoCache` wrapper that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
+use crate::cache::FormatPreferences;
 #[cfg(has_persistent_cache)]
 use crate::cache::backend::PersistentVideoBackend;
 use crate::cache::backend::VideoBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaVideoCache;
-use crate::cache::FormatPreferences;
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::utils;

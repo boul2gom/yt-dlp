@@ -4,13 +4,13 @@
 //! and subtitles with higher-level convenience methods built on top of the
 //! `FileBackend` trait.
 
+use crate::cache::FormatPreferences;
 use crate::cache::backend::FileBackend;
 #[cfg(has_persistent_cache)]
 use crate::cache::backend::PersistentFileBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaFileCache;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedType};
-use crate::cache::FormatPreferences;
 use crate::error::Result;
 use crate::model::format::Format;
 use crate::model::utils;

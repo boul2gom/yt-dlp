@@ -24,8 +24,8 @@ pub use crate::download::{Fetcher, ProgressTracker};
 // Model types
 pub use crate::model::Video;
 pub use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality,
-    VideoCodecPreference, VideoQuality,
+    AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality, VideoCodecPreference,
+    VideoQuality,
 };
 
 // Cache types (if enabled)
