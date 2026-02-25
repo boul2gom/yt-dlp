@@ -55,7 +55,7 @@ body:
         - label: 🔔 Events (hooks, webhooks, event bus)
         - label: 📡 Extractor (YouTube, generic, detector)
         - label: 🏷️ Metadata (MP3, MP4, chapters, FFmpeg)
-        - label: 🔍 Cache (memory, JSON, SQLite)
+        - label: 🔍 Cache (memory, JSON, redb, Redis)
         - label: 📊 Statistics (tracker, snapshots)
         - label: 📦 Model (Video, Format, Playlist, etc.)
 

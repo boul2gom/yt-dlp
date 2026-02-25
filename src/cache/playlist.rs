@@ -1,9 +1,13 @@
-//! Playlist cache wrapper using backend implementations.
+//! Playlist cache data types and tiered wrapper.
 //!
-//! This module provides a high-level API for caching playlist metadata,
-//! using pluggable backend implementations.
+//! Provides the `CachedPlaylist` data structure and the `PlaylistCache` wrapper
+//! that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
-use crate::cache::backend::{PlaylistBackend, PlaylistBackendEnum};
+#[cfg(has_persistent_cache)]
+use crate::cache::backend::PersistentPlaylistBackend;
+use crate::cache::backend::PlaylistBackend;
+#[cfg(feature = "cache-memory")]
+use crate::cache::backend::memory::MokaPlaylistCache;
 use crate::error::Result;
 use crate::model::playlist::Playlist;
 use crate::utils::current_timestamp;
@@ -12,7 +16,6 @@ use std::path::PathBuf;
 
 /// Structure for storing playlist metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedPlaylist {
     /// The ID of the playlist.
     pub id: String,
@@ -28,6 +31,14 @@ pub struct CachedPlaylist {
 
 impl CachedPlaylist {
     /// Deserialize the cached playlist JSON into a Playlist struct.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized `Playlist` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JSON deserialization fails.
     pub fn playlist(&self) -> Result<Playlist> {
         Ok(serde_json::from_str(&self.playlist_json)?)
     }
@@ -53,10 +64,13 @@ impl std::fmt::Display for CachedPlaylist {
     }
 }
 
-/// Playlist cache for storing and retrieving playlist metadata.
+/// Playlist cache manager with tiered L1 (Moka) + L2 (persistent) lookup.
 #[derive(Debug)]
 pub struct PlaylistCache {
-    backend: PlaylistBackendEnum,
+    #[cfg(feature = "cache-memory")]
+    memory: MokaPlaylistCache,
+    #[cfg(has_persistent_cache)]
+    persistent: PersistentPlaylistBackend,
 }
 
 impl PlaylistCache {
@@ -68,6 +82,7 @@ impl PlaylistCache {
     /// # Arguments
     ///
     /// * `cache_dir` - Directory where cache data will be stored.
+    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
     ///
     /// # Returns
     ///
@@ -76,8 +91,17 @@ impl PlaylistCache {
     /// # Errors
     ///
     /// Returns an error if the backend initialization fails.
-    pub async fn new(cache_dir: impl Into<PathBuf>) -> Result<Self> {
-        Self::with_ttl(cache_dir, Self::DEFAULT_TTL).await
+    pub async fn new(
+        cache_dir: impl Into<PathBuf>,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+    ) -> Result<Self> {
+        Self::with_ttl(
+            cache_dir,
+            #[cfg(feature = "cache-redis")]
+            redis_url,
+            Self::DEFAULT_TTL,
+        )
+        .await
     }
 
     /// Create a new PlaylistCache with custom TTL.
@@ -85,6 +109,7 @@ impl PlaylistCache {
     /// # Arguments
     ///
     /// * `cache_dir` - Directory where cache data will be stored.
+    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
     /// * `ttl_seconds` - Time-to-live for cache entries in seconds.
     ///
     /// # Returns
@@ -93,18 +118,28 @@ impl PlaylistCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if the backend initialization fails or no backend is enabled.
-    pub async fn with_ttl(cache_dir: impl Into<PathBuf>, ttl_seconds: u64) -> Result<Self> {
+    /// Returns an error if the backend initialization fails.
+    pub async fn with_ttl(
+        cache_dir: impl Into<PathBuf>,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+        ttl_seconds: u64,
+    ) -> Result<Self> {
         let cache_dir = cache_dir.into();
 
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl_seconds = ttl_seconds,
-            "⚙️ Creating playlist cache"
-        );
+        tracing::debug!(cache_dir = ?cache_dir, ttl_seconds = ttl_seconds, "⚙️ Creating playlist cache");
 
-        let backend = PlaylistBackendEnum::new(cache_dir, Some(ttl_seconds)).await?;
-        Ok(Self { backend })
+        Ok(Self {
+            #[cfg(feature = "cache-memory")]
+            memory: MokaPlaylistCache::new(cache_dir.clone(), Some(ttl_seconds)).await?,
+            #[cfg(has_persistent_cache)]
+            persistent: PersistentPlaylistBackend::new(
+                cache_dir,
+                #[cfg(feature = "cache-redis")]
+                redis_url,
+                Some(ttl_seconds),
+            )
+            .await?,
+        })
     }
 
     /// Get a playlist from the cache by URL.
@@ -123,13 +158,26 @@ impl PlaylistCache {
     pub async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         tracing::debug!(url = url, "🔍 Looking up playlist by URL");
 
-        let result = self.backend.get(url).await;
-
-        if let Ok(Some(_)) = &result {
-            tracing::debug!(url = url, "✅ Playlist cache hit by URL");
+        // L1: Moka
+        #[cfg(feature = "cache-memory")]
+        if let Some(playlist) = self.memory.get(url).await? {
+            tracing::debug!(url = url, "✅ Playlist cache hit (L1 memory)");
+            return Ok(Some(playlist));
         }
 
-        result
+        // L2: persistent
+        #[cfg(has_persistent_cache)]
+        if let Some(playlist) = self.persistent.get(url).await? {
+            tracing::debug!(url = url, "✅ Playlist cache hit (L2 persistent)");
+
+            // Backfill L1
+            #[cfg(feature = "cache-memory")]
+            let _ = self.memory.put(url.to_string(), playlist.clone()).await;
+
+            return Ok(Some(playlist));
+        }
+
+        Ok(None)
     }
 
     /// Get a playlist from the cache by ID.
@@ -148,25 +196,32 @@ impl PlaylistCache {
     pub async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
         tracing::debug!(playlist_id = id, "🔍 Looking up playlist by ID");
 
-        let result = self.backend.get_by_id(id).await;
-
-        if let Ok(Some(_)) = &result {
-            tracing::debug!(playlist_id = id, "✅ Playlist cache hit by ID");
+        // L1: Moka
+        #[cfg(feature = "cache-memory")]
+        if let Some(playlist) = self.memory.get_by_id(id).await? {
+            tracing::debug!(playlist_id = id, "✅ Playlist cache hit by ID (L1 memory)");
+            return Ok(Some(playlist));
         }
 
-        result
+        // L2: persistent
+        #[cfg(has_persistent_cache)]
+        if let Some(playlist) = self.persistent.get_by_id(id).await? {
+            tracing::debug!(
+                playlist_id = id,
+                "✅ Playlist cache hit by ID (L2 persistent)"
+            );
+            return Ok(Some(playlist));
+        }
+
+        Ok(None)
     }
 
-    /// Store a playlist in the cache.
+    /// Store a playlist in the cache (both layers).
     ///
     /// # Arguments
     ///
     /// * `url` - The URL of the playlist.
     /// * `playlist` - The playlist metadata to cache.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
     ///
     /// # Errors
     ///
@@ -175,23 +230,23 @@ impl PlaylistCache {
         tracing::debug!(
             url = url,
             playlist_id = playlist.id,
-            playlist_title = playlist.title,
-            entry_count = playlist.entries.len(),
             "⚙️ Storing playlist in cache"
         );
 
-        self.backend.put(url, playlist).await
+        #[cfg(feature = "cache-memory")]
+        self.memory.put(url.clone(), playlist.clone()).await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.put(url, playlist).await?;
+
+        Ok(())
     }
 
-    /// Remove a playlist from the cache.
+    /// Remove a playlist from the cache (both layers).
     ///
     /// # Arguments
     ///
     /// * `url` - The URL of the playlist to invalidate.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
     ///
     /// # Errors
     ///
@@ -199,14 +254,16 @@ impl PlaylistCache {
     pub async fn invalidate(&self, url: &str) -> Result<()> {
         tracing::debug!(url = url, "⚙️ Invalidating playlist in cache");
 
-        self.backend.invalidate(url).await
+        #[cfg(feature = "cache-memory")]
+        self.memory.invalidate(url).await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.invalidate(url).await?;
+
+        Ok(())
     }
 
-    /// Clean expired entries.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
+    /// Clean expired entries (both layers).
     ///
     /// # Errors
     ///
@@ -214,14 +271,16 @@ impl PlaylistCache {
     pub async fn clean(&self) -> Result<()> {
         tracing::debug!("⚙️ Cleaning playlist cache");
 
-        self.backend.clean().await
+        #[cfg(feature = "cache-memory")]
+        self.memory.clean().await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.clean().await?;
+
+        Ok(())
     }
 
-    /// Clear all playlists.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
+    /// Clear all playlists (both layers).
     ///
     /// # Errors
     ///
@@ -229,6 +288,12 @@ impl PlaylistCache {
     pub async fn clear_all(&self) -> Result<()> {
         tracing::debug!("⚙️ Clearing all playlists from cache");
 
-        self.backend.clear_all().await
+        #[cfg(feature = "cache-memory")]
+        self.memory.clear_all().await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.clear_all().await?;
+
+        Ok(())
     }
 }

@@ -7,6 +7,10 @@ on:
     branches: [ develop, master ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -36,10 +40,10 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
 
       - name: ✅ Check with Clippy linter (all feature combinations)
-        run: cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings
+        run: cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
 
       - name: 🦀 Build (all feature combinations)
-        run: cargo hack build --each-feature --exclude-features cache-backend
+        run: cargo hack build --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis
 
   doc-tests:
     name: 📚 Check format and test docs

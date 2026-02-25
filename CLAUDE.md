@@ -40,7 +40,7 @@ src/
 │   ├── utils/          # CommonTraits, AllTraits blanket traits, serde helpers (json_none)
 │   └── selector.rs     # VideoQuality, AudioQuality, StoryboardQuality, ThumbnailQuality enums
 ├── cache/              # VideoCache, DownloadCache, PlaylistCache (feature-gated)
-│   └── backend/        # Backend trait abstractions + implementations (memory, json, sqlite)
+│   └── backend/        # Backend trait abstractions + implementations (memory/moka, json, redb, redis)
 ├── stats/              # StatisticsTracker, GlobalSnapshot (feature: statistics)
 └── utils/              # fs, http, platform, retry, validation, url_expiry, subtitle
 ```
@@ -80,9 +80,9 @@ Rules:
 - **Structured named fields** on every variant — never just a string. Use fields like `operation`, `context`, `url`, `reason`, `path`, `source`.
 - **`#[source]`** on the inner error field for proper error chaining.
 - **Helper constructors** with embedded tracing: `Error::io(operation, source)`, `Error::http(url, context, source)`, etc. Each logs `tracing::warn!` or `tracing::error!` with structured fields before constructing.
-- **`From` impls** for common error types (`std::io::Error`, `reqwest::Error`, `serde_json::Error`, `JoinError`, `ZipError`, conditionally `sqlx::Error`). Each `From` impl also logs a tracing message with `"(automatic conversion)"` suffix.
+- **`From` impls** for common error types (`std::io::Error`, `reqwest::Error`, `serde_json::Error`, `JoinError`, `ZipError`, conditionally `redb::Error`, `redis::RedisError`). Each `From` impl also logs a tracing message with `"(automatic conversion)"` suffix.
 - **Constructor parameter style**: `impl Into<String>` — not generics with trait bounds.
-- **Feature-gated variants**: `#[cfg(feature = "cache-sqlite")] Database { ... }`.
+- **Feature-gated variants**: `#[cfg(feature = "cache-redb")] Database { ... }`, `#[cfg(feature = "cache-redis")] Redis { ... }`.
 - **Only other error type**: `HookError` in `src/events/hooks.rs` (for hook execution failures).
 - Never use `anyhow` — always the crate's own `Error` / `Result`.
 
@@ -252,22 +252,23 @@ Event emission pattern — three-phase delivery in `Downloader::emit_event()`:
 Feature Flags & Conditional Compilation
 
 Features in `Cargo.toml`:
-- `default = ["reqwest/default", "cache"]`
-- **Cache hierarchy**: `cache-backend` (internal umbrella — never enable directly), `cache` (LRU memory), `cache-json` (JSON files), `cache-sqlite` (SQLite).
+- `default = ["reqwest/default", "cache-memory"]`
+- **Cache hierarchy**: `cache-memory` (Moka in-memory), `cache-json` (JSON files), `cache-redb` (embedded redb), `cache-redis` (distributed Redis). The `cache` cfg is emitted by `build.rs` when any of these is enabled.
 - `hooks`, `webhooks`, `statistics` — zero-dependency feature flags.
 - `profiling` — optional `dhat` heap profiler.
 - `rustls` — optional TLS backend.
 
 Cache backend selection via `build.rs`:
-- Emits custom `cfg(cache_backend = "sqlite"|"json"|"memory")` with priority: sqlite > json > memory.
-- `compile_error!` safety net in `cache/mod.rs` prevents enabling `cache-backend` directly.
-- Only one backend is active at a time, regardless of how many features are enabled.
+- Emits `cache` when any cache backend (`cache-memory`, `cache-json`, `cache-redb`, `cache-redis`) is enabled.
+- Emits `has_persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled.
+- Emits `multiple_persistent_backends` (triggers `compile_error!`) if more than one persistent backend is active.
+- Architecture: tiered L1 (Moka, `#[cfg(feature = "cache-memory")]`) + L2 (persistent, `#[cfg(has_persistent_cache)]`).
 
 Usage patterns:
-- `#[cfg(feature = "cache-backend")]` — single guard for all cache code.
-- `#[cfg(cache_backend = "json")]` — backend-specific module declarations and imports.
+- `#[cfg(cache)]` — single guard for all cache code (emitted by `build.rs`, not a Cargo feature).
+- `#[cfg(feature = "cache-json")]` — backend-specific module declarations and imports.
+- `#[cfg(has_persistent_cache)]` — guard for any persistent backend code.
 - `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
-- `#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]` — conditional derives on cached types.
 
 Process Execution
 
@@ -387,7 +388,7 @@ Verification
 
 All edits must pass these checks:
 ```bash
-cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings
+cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
 cargo test --doc
 cargo deny check
 ```

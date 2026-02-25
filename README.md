@@ -90,9 +90,10 @@ This library puts a lot of functionality behind optional features in order to op
 compile time for the most common use cases. The following features are
 available.
 
-- ⚡ **`cache`** (enabled by default) — In-memory LRU backend (pulls in `lru`). Zero-dependency default; no persistence.
-- 🗃️ **`cache-json`** — JSON file-system backend. Superseded by `cache-sqlite` if both are active.
-- <img align="center" width="20" alt="SQLite" src="https://avatars.githubusercontent.com/u/48680494?v=4&s=50" /> **`cache-sqlite`** — SQLite backend (pulls in `sqlx`). Highest-priority backend.
+- ⚡ **`cache-memory`** (enabled by default) — In-memory Moka cache (pulls in `moka`). Fast TTL-based eviction; no persistence.
+- 🗃️ **`cache-json`** — JSON file-system backend. One `.json` file per entry.
+- 🗄️ **`cache-redb`** — Embedded [redb](https://github.com/cberner/redb) backend. Single-file, pure-Rust, ACID-compliant.
+- 🌐 **`cache-redis`** — Distributed [Redis](https://redis.io/) backend. Native TTL via `SETEX`.
 - 🔒 **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
 - 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
@@ -101,24 +102,26 @@ available.
 
 ### 🗄️ Cache backends
 
-The library includes a metadata cache that avoids redundant yt-dlp subprocess calls for
-video info, downloaded files, and playlists. Three backends are available, selected
-exclusively via Cargo features:
+The library includes a tiered metadata cache that avoids redundant yt-dlp subprocess calls for
+video info, downloaded files, and playlists. The architecture uses an optional L1 in-memory layer
+(Moka) and an optional L2 persistent layer, selected exclusively via Cargo features:
 
 | Feature | Backend | Persistence | Notes |
 |---|---|---|---|
-| `cache` *(default)* | In-memory LRU | ❌ No | 512 videos / 64 files / 256 thumbnails / 128 playlists |
+| `cache-memory` *(default)* | In-memory Moka | ❌ No | TTL-based eviction, async-ready |
 | `cache-json` | JSON files on disk | ✅ Yes | One `.json` file per entry in the cache directory |
-| `cache-sqlite` | SQLite database | ✅ Yes | Single `.db` file, requires `sqlx` |
+| `cache-redb` | Embedded redb | ✅ Yes | Single-file, pure-Rust, ACID transactions |
+| `cache-redis` | Redis | ✅ Yes | Distributed, native TTL via `SETEX` |
 
-Each backend feature is independent. If multiple are enabled (e.g. via transitive dependencies),
-`build.rs` enforces priority order automatically: **`cache-sqlite` > `cache-json` > `cache`**.
-Exactly one backend is ever compiled, regardless of how many feature flags are active.
+At most **one persistent backend** may be enabled at a time. `build.rs` enforces this with a
+`compile_error!` if multiple persistent features (`cache-json`, `cache-redb`, `cache-redis`)
+are active simultaneously. The `cache-memory` feature (Moka L1) can be combined with any persistent
+backend for a tiered L1 + L2 setup.
 
-**Default (in-memory LRU)** — no persistence, bounded by capacity, useful for short-lived processes:
+**Default (in-memory Moka)** — no persistence, TTL-based eviction, useful for short-lived processes:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.1", features = ["cache"] }
+yt-dlp = { version = "2.0.1", features = ["cache-memory"] }
 ```
 
 **JSON** — persistent, file-system backed, no extra dependencies:
@@ -127,10 +130,22 @@ yt-dlp = { version = "2.0.1", features = ["cache"] }
 yt-dlp = { version = "2.0.1", features = ["cache-json"] }
 ```
 
-**SQLite** — better for large caches or concurrent access:
+**Redb** — embedded, single-file, ACID-compliant, great for desktop/server apps:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.0.1", features = ["cache-sqlite"] }
+yt-dlp = { version = "2.0.1", features = ["cache-redb"] }
+```
+
+**Redis** — distributed, ideal for multi-node or cloud deployments:
+```toml
+[dependencies]
+yt-dlp = { version = "2.0.1", features = ["cache-redis"] }
+```
+
+**Tiered (Moka L1 + persistent L2)** — best of both worlds:
+```toml
+[dependencies]
+yt-dlp = { version = "2.0.1", features = ["cache-memory", "cache-redb"] }
 ```
 
 #### CDN URL expiry and cache invalidation

@@ -8,7 +8,7 @@ use crate::model::caption::Extension as CaptionExtension;
 use crate::model::format::{Format, FormatType};
 use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 use crate::model::selector::{StoryboardQuality, ThumbnailQuality};
-#[cfg(feature = "cache-backend")]
+#[cfg(cache)]
 use crate::model::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::utils;
 use crate::{DownloadStatus, Downloader};
@@ -28,12 +28,12 @@ impl Downloader {
     ///
     /// `Some(Video)` if found in cache and not expired, `None` otherwise
     async fn check_video_cache(&self, url: &str) -> Option<Video> {
-        #[cfg(feature = "cache-backend")]
+        #[cfg(cache)]
         {
             tracing::debug!(url = url, "🔍 Checking video cache");
 
             let cache = self.cache.as_ref()?;
-            let video = cache.get(url).await.ok().flatten()?;
+            let video = cache.videos.get(url).await.ok().flatten()?;
 
             // If format URLs have expired according to available_at, invalidate and force re-fetch
             if !video.are_format_urls_fresh() {
@@ -42,7 +42,7 @@ impl Downloader {
                     video_id = %video.id,
                     "🔍 Cached video has expired format URLs, invalidating"
                 );
-                let _ = cache.remove(url).await;
+                let _ = cache.videos.remove(url).await;
                 return None;
             }
 
@@ -54,7 +54,7 @@ impl Downloader {
 
             Some(video)
         }
-        #[cfg(not(feature = "cache-backend"))]
+        #[cfg(not(cache))]
         {
             tracing::debug!(url = url, "🔍 Cache feature disabled");
             let _ = url;
@@ -237,11 +237,11 @@ impl Downloader {
             }
         };
 
-        #[cfg(feature = "cache-backend")]
+        #[cfg(cache)]
         if let Some(cache) = &self.cache {
             tracing::debug!(video_id = %video.id, "🔍 Updating cache with video data");
 
-            let _ = cache.put(url.to_string(), video.clone()).await;
+            let _ = cache.videos.put(url.to_string(), video.clone()).await;
         }
 
         Ok(video)
@@ -257,12 +257,12 @@ impl Downloader {
     ///
     /// `Some(Video)` if found in cache, `None` otherwise.
     pub async fn get_video_by_id(&self, id: &str) -> Option<Video> {
-        #[cfg(feature = "cache-backend")]
+        #[cfg(cache)]
         {
             tracing::debug!(video_id = id, "🔍 Getting video from cache by ID");
 
             let cache = self.cache.as_ref()?;
-            let cached_video = cache.get_by_id(id).await.ok()?;
+            let cached_video = cache.videos.get_by_id(id).await.ok()?;
             let video = cached_video.video().ok();
 
             tracing::debug!(
@@ -273,7 +273,7 @@ impl Downloader {
 
             video
         }
-        #[cfg(not(feature = "cache-backend"))]
+        #[cfg(not(cache))]
         {
             tracing::debug!(video_id = id, "🔍 Cache feature disabled");
             let _ = id;
@@ -372,10 +372,10 @@ impl Downloader {
         let path = output.into();
 
         // Check if the video is in the cache
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache {
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache {
             // Try to find the video in the cache by its ID
-            if let Some((_, cached_path)) = download_cache.get_by_hash(&video.id).await {
+            if let Some((_, cached_path)) = cache.downloads.get_by_hash(&video.id).await {
                 tracing::debug!(video_id = video.id, "🔍 Cache hit for downloaded video");
 
                 // Copy the file from the cache to the output directory
@@ -405,13 +405,14 @@ impl Downloader {
             .await?;
 
         // Cache the downloaded file if caching is enabled
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache {
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache {
             tracing::debug!(video_id = video.id, "🔍 Caching downloaded video");
 
             let output_str = utils::try_name(path.as_path()).unwrap_or_default();
 
-            if let Err(_e) = download_cache
+            if let Err(_e) = cache
+                .downloads
                 .put_file(&path, output_str, Some(video.id.clone()), None)
                 .await
             {
@@ -633,7 +634,7 @@ impl Downloader {
 
         // Use the internal function to download the format without preferences
         cfg_if::cfg_if! {
-            if #[cfg(feature = "cache-backend")] {
+            if #[cfg(cache)] {
                 self.download_format_internal(format, &output_path, None, None, None, None).await
             } else {
                 self.download_format_internal(format, &output_path).await
@@ -646,25 +647,25 @@ impl Downloader {
         &self,
         format: &Format,
         path: &PathBuf,
-        #[cfg(feature = "cache-backend")] video_quality: Option<VideoQuality>,
-        #[cfg(feature = "cache-backend")] audio_quality: Option<AudioQuality>,
-        #[cfg(feature = "cache-backend")] video_codec: Option<VideoCodecPreference>,
-        #[cfg(feature = "cache-backend")] audio_codec: Option<AudioCodecPreference>,
+        #[cfg(cache)] video_quality: Option<VideoQuality>,
+        #[cfg(cache)] audio_quality: Option<AudioQuality>,
+        #[cfg(cache)] video_codec: Option<VideoCodecPreference>,
+        #[cfg(cache)] audio_codec: Option<AudioCodecPreference>,
     ) -> crate::error::Result<PathBuf> {
         // Check if we have specific preferences
-        #[cfg(feature = "cache-backend")]
-        let has_preferences = video_quality.is_some()
-            || audio_quality.is_some()
-            || video_codec.is_some()
-            || audio_codec.is_some();
+        #[cfg(cache)]
+        let has_preferences = [video_quality, audio_quality, video_codec, audio_codec]
+            .iter()
+            .any(|opt| opt.is_some());
 
         // Check if the format is in the cache
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache
             && let Some(video_id) = format.video_id.as_ref()
         {
             // First try to find by exact format ID
-            if let Some((_, cached_path)) = download_cache
+            if let Some((_, cached_path)) = cache
+                .downloads
                 .get_by_video_and_format(video_id, &format.format_id)
                 .await
             {
@@ -677,7 +678,8 @@ impl Downloader {
 
             // Then try to find by preferences if they exist
             if has_preferences
-                && let Some((_, cached_path)) = download_cache
+                && let Some((_, cached_path)) = cache
+                    .downloads
                     .get_by_video_and_preferences(
                         video_id,
                         video_quality,
@@ -722,8 +724,8 @@ impl Downloader {
         self.add_metadata_if_needed(path, format).await?;
 
         // Cache the downloaded file if caching is enabled
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache {
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache {
             let output_str = utils::try_name(path.as_path()).unwrap_or_default();
 
             tracing::debug!(format_id = format.format_id, "🔍 Caching format");
@@ -731,7 +733,8 @@ impl Downloader {
             // Use the appropriate function depending on whether we have preferences or not
             if has_preferences {
                 if let Some(video_id) = format.video_id.as_ref()
-                    && let Err(_e) = download_cache
+                    && let Err(_e) = cache
+                        .downloads
                         .put_file_with_preferences(
                             path,
                             output_str,
@@ -746,7 +749,8 @@ impl Downloader {
                 {
                     tracing::warn!(error = %_e, "Failed to cache format with preferences");
                 }
-            } else if let Err(_e) = download_cache
+            } else if let Err(_e) = cache
+                .downloads
                 .put_file(path, output_str, format.video_id.clone(), Some(format))
                 .await
             {
@@ -785,9 +789,10 @@ impl Downloader {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Check if subtitle is in the cache
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache
-            && let Some((_, cached_path)) = download_cache
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache
+            && let Some((_, cached_path)) = cache
+                .downloads
                 .get_subtitle_by_language(&video.id, language_code)
                 .await
         {
@@ -855,15 +860,16 @@ impl Downloader {
         fetcher.fetch_asset(&output_path).await?;
 
         // Cache the downloaded subtitle
-        #[cfg(feature = "cache-backend")]
-        if let Some(download_cache) = &self.download_cache {
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache {
             tracing::debug!(
                 video_id = video.id,
                 language = language_code,
                 "🔍 Caching subtitle"
             );
 
-            if let Err(_e) = download_cache
+            if let Err(_e) = cache
+                .downloads
                 .put_subtitle_file(
                     &output_path,
                     output.as_ref(),
@@ -1168,9 +1174,9 @@ impl Downloader {
         tracing::info!(url = url_str, "📋 Fetching playlist information");
 
         // Check if the playlist is in the cache
-        #[cfg(feature = "cache-backend")]
-        if let Some(cache) = &self.playlist_cache
-            && let Some(playlist) = cache.get(url_str).await?
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache
+            && let Some(playlist) = cache.playlists.get(url_str).await?
         {
             tracing::debug!(url = url_str, "🔍 Using cached playlist information");
             return Ok(playlist);
@@ -1226,11 +1232,15 @@ impl Downloader {
         playlist.url = Some(url_str.to_string());
 
         // Cache the playlist if caching is enabled
-        #[cfg(feature = "cache-backend")]
-        if let Some(cache) = &self.playlist_cache {
+        #[cfg(cache)]
+        if let Some(cache) = &self.cache {
             tracing::debug!(url = url_str, "🔍 Caching playlist information");
 
-            if let Err(_e) = cache.put(url_str.to_string(), playlist.clone()).await {
+            if let Err(_e) = cache
+                .playlists
+                .put(url_str.to_string(), playlist.clone())
+                .await
+            {
                 tracing::warn!(error = %_e, "Failed to cache playlist information");
             }
         }

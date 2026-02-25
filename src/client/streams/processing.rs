@@ -1,7 +1,7 @@
 use crate::Downloader;
 
 use crate::executor::Executor;
-#[cfg(feature = "cache-backend")]
+#[cfg(cache)]
 use crate::metadata::MetadataManager;
 use crate::model::format::Format;
 
@@ -191,9 +191,9 @@ impl Downloader {
                 );
 
                 // Try to get video metadata from cache
-                #[cfg(feature = "cache-backend")]
+                #[cfg(cache)]
                 if let Some(cache) = &self.cache
-                    && let Ok(cached_video) = cache.get_by_id(video_id).await
+                    && let Ok(cached_video) = cache.videos.get_by_id(video_id).await
                     && let Ok(video) = cached_video.video()
                 {
                     // Add metadata with format information
@@ -223,7 +223,7 @@ impl Downloader {
                     }
                 }
 
-                #[cfg(not(feature = "cache-backend"))]
+                #[cfg(not(cache))]
                 {
                     tracing::debug!(
                         video_id = video_id,

@@ -1,9 +1,13 @@
-//! Video cache wrapper using backend implementations.
+//! Video cache data types and tiered wrapper.
 //!
-//! This module provides a high-level API for caching video metadata,
-//! using pluggable backend implementations.
+//! Provides `CachedVideo`, `CachedFile`, `CachedThumbnail` data structures and the
+//! `VideoCache` wrapper that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
-use crate::cache::backend::{VideoBackend, VideoBackendEnum};
+#[cfg(has_persistent_cache)]
+use crate::cache::backend::PersistentVideoBackend;
+use crate::cache::backend::VideoBackend;
+#[cfg(feature = "cache-memory")]
+use crate::cache::backend::memory::MokaVideoCache;
 use crate::cache::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use crate::error::Result;
 use crate::model::Video;
@@ -14,7 +18,6 @@ use std::path::PathBuf;
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedVideo {
     /// The ID of the video.
     pub id: String,
@@ -65,7 +68,6 @@ impl std::fmt::Display for CachedVideo {
 
 /// Structure for storing downloaded file metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedFile {
     /// The ID of the file (SHA-256 hash of the content).
     pub id: String,
@@ -172,7 +174,6 @@ impl std::fmt::Display for CachedType {
 
 /// Structure for storing thumbnail metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 pub struct CachedThumbnail {
     /// The ID of the thumbnail (SHA-256 hash of the content).
     pub id: String,
@@ -204,18 +205,25 @@ impl std::fmt::Display for CachedThumbnail {
     }
 }
 
-/// Video cache manager using pluggable backend.
+/// Video cache manager with tiered L1 (Moka) + L2 (persistent) lookup.
+///
+/// On `get`: L1 → miss → L2 → backfill L1.
+/// On `put`: write to both layers.
 #[derive(Debug)]
 pub struct VideoCache {
-    backend: VideoBackendEnum,
+    #[cfg(feature = "cache-memory")]
+    memory: MokaVideoCache,
+    #[cfg(has_persistent_cache)]
+    persistent: PersistentVideoBackend,
 }
 
 impl VideoCache {
-    /// Creates a new video cache with the specified directory and TTL.
+    /// Creates a new video cache with the configured layers.
     ///
     /// # Arguments
     ///
     /// * `cache_dir` - Directory where cache data will be stored.
+    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
     /// * `ttl` - Time-to-live for cache entries in seconds (optional).
     ///
     /// # Returns
@@ -224,18 +232,26 @@ impl VideoCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if the backend initialization fails or no backend is enabled.
-    pub async fn new(cache_dir: impl Into<PathBuf>, ttl: Option<u64>) -> Result<Self> {
-        let cache_dir = cache_dir.into();
+    /// Returns an error if backend initialization fails.
+    pub async fn new(
+        cache_dir: PathBuf,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+        ttl: Option<u64>,
+    ) -> Result<Self> {
+        tracing::debug!(cache_dir = ?cache_dir, ttl = ?ttl, "⚙️ Creating video cache");
 
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl = ?ttl,
-            "⚙️ Creating video cache"
-        );
-
-        let backend = VideoBackendEnum::new(cache_dir, ttl).await?;
-        Ok(Self { backend })
+        Ok(Self {
+            #[cfg(feature = "cache-memory")]
+            memory: MokaVideoCache::new(cache_dir.clone(), ttl).await?,
+            #[cfg(has_persistent_cache)]
+            persistent: PersistentVideoBackend::new(
+                cache_dir,
+                #[cfg(feature = "cache-redis")]
+                redis_url,
+                ttl,
+            )
+            .await?,
+        })
     }
 
     /// Retrieves a video from the cache by its URL.
@@ -254,49 +270,55 @@ impl VideoCache {
     pub async fn get(&self, url: &str) -> Result<Option<Video>> {
         tracing::debug!(url = url, "🔍 Looking up video by URL");
 
-        let result = self.backend.get(url).await;
-
-        if let Ok(Some(_)) = &result {
-            tracing::debug!(url = url, "✅ Video cache hit by URL");
+        // L1: Moka
+        #[cfg(feature = "cache-memory")]
+        if let Some(video) = self.memory.get(url).await? {
+            tracing::debug!(url = url, "✅ Video cache hit (L1 memory)");
+            return Ok(Some(video));
         }
 
-        result
+        // L2: persistent
+        #[cfg(has_persistent_cache)]
+        if let Some(video) = self.persistent.get(url).await? {
+            tracing::debug!(url = url, "✅ Video cache hit (L2 persistent)");
+
+            // Backfill L1
+            #[cfg(feature = "cache-memory")]
+            let _ = self.memory.put(url.to_string(), video.clone()).await;
+
+            return Ok(Some(video));
+        }
+
+        Ok(None)
     }
 
-    /// Puts a video in the cache.
+    /// Puts a video in the cache (both layers).
     ///
     /// # Arguments
     ///
     /// * `url` - The URL of the video.
     /// * `video` - The video metadata to cache.
     ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
-    ///
     /// # Errors
     ///
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, video: Video) -> Result<()> {
-        tracing::debug!(
-            url = url,
-            video_id = video.id,
-            video_title = video.title,
-            "⚙️ Storing video in cache"
-        );
+        tracing::debug!(url = url, video_id = video.id, "⚙️ Storing video in cache");
 
-        self.backend.put(url, video).await
+        #[cfg(feature = "cache-memory")]
+        self.memory.put(url.clone(), video.clone()).await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.put(url, video).await?;
+
+        Ok(())
     }
 
-    /// Removes a video from the cache.
+    /// Removes a video from the cache (both layers).
     ///
     /// # Arguments
     ///
     /// * `url` - The URL of the video to remove.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
     ///
     /// # Errors
     ///
@@ -304,14 +326,16 @@ impl VideoCache {
     pub async fn remove(&self, url: &str) -> Result<()> {
         tracing::debug!(url = url, "⚙️ Removing video from cache");
 
-        self.backend.remove(url).await
+        #[cfg(feature = "cache-memory")]
+        self.memory.remove(url).await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.remove(url).await?;
+
+        Ok(())
     }
 
     /// Cleans the cache by removing expired entries.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
     ///
     /// # Errors
     ///
@@ -319,7 +343,13 @@ impl VideoCache {
     pub async fn clean(&self) -> Result<()> {
         tracing::debug!("⚙️ Cleaning video cache");
 
-        self.backend.clean().await
+        #[cfg(feature = "cache-memory")]
+        self.memory.clean().await?;
+
+        #[cfg(has_persistent_cache)]
+        self.persistent.clean().await?;
+
+        Ok(())
     }
 
     /// Retrieves a video from the cache by its ID.
@@ -334,16 +364,36 @@ impl VideoCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if the video is not found, expired, or the backend query fails.
+    /// Returns an error if the video is not found or the backend query fails.
     pub async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
         tracing::debug!(video_id = id, "🔍 Looking up video by ID");
 
-        let result = self.backend.get_by_id(id).await;
-
-        if result.is_ok() {
-            tracing::debug!(video_id = id, "✅ Video cache hit by ID");
+        // L1: Moka
+        #[cfg(feature = "cache-memory")]
+        if let Ok(cached) = self.memory.get_by_id(id).await {
+            tracing::debug!(video_id = id, "✅ Video cache hit by ID (L1 memory)");
+            return Ok(cached);
         }
 
-        result
+        // L2: persistent
+        #[cfg(has_persistent_cache)]
+        {
+            let cached = self.persistent.get_by_id(id).await?;
+            tracing::debug!(video_id = id, "✅ Video cache hit by ID (L2 persistent)");
+
+            // Backfill L1
+            #[cfg(feature = "cache-memory")]
+            if let Ok(video) = cached.video() {
+                let _ = self.memory.put(cached.url.clone(), video).await;
+            }
+
+            return Ok(cached);
+        }
+
+        #[allow(unreachable_code)]
+        Err(crate::error::Error::Unknown(format!(
+            "Video with ID {} not found in cache",
+            id
+        )))
     }
 }

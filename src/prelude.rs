@@ -28,8 +28,8 @@ pub use crate::model::selector::{
 };
 
 // Cache types (if enabled)
-#[cfg(feature = "cache-backend")]
-pub use crate::cache::{DownloadCache, VideoCache};
+#[cfg(cache)]
+pub use crate::cache::{CacheConfig, CacheLayer, DownloadCache, VideoCache};
 
 // Utility types
 pub use crate::utils::platform::Platform;

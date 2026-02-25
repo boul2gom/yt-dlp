@@ -1,33 +1,35 @@
-//! Cache backend implementations.
+//! Cache backend trait definitions and dispatch enums.
 //!
-//! This module provides different backend implementations for caching video metadata and files.
-//! Each backend must implement the appropriate traits for video and file caching.
+//! This module defines the backend traits (`VideoBackend`, `PlaylistBackend`, `FileBackend`)
+//! and provides persistent-layer dispatch enums that delegate to the correct concrete
+//! backend based on enabled features. The in-memory Moka backend is separate and used
+//! as the L1 layer; the persistent enum is the L2 layer.
 
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
-use std::path::PathBuf;
-
+use crate::model::playlist::Playlist;
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
 };
+use std::future::Future;
+use std::path::PathBuf;
 
-#[cfg(cache_backend = "json")]
+#[cfg(feature = "cache-json")]
 pub mod json;
-#[cfg(cache_backend = "memory")]
+#[cfg(feature = "cache-memory")]
 pub mod memory;
-#[cfg(cache_backend = "sqlite")]
-pub mod sqlite;
+#[cfg(feature = "cache-redb")]
+pub mod redb;
+#[cfg(feature = "cache-redis")]
+pub mod redis;
 
-use crate::model::playlist::Playlist;
-
-// Re-export concrete types used by enum variants
-#[cfg(cache_backend = "json")]
+#[cfg(feature = "cache-json")]
 use json::{JsonFileCache, JsonPlaylistCache, JsonVideoCache};
-#[cfg(cache_backend = "memory")]
-use memory::{MemoryFileCache, MemoryPlaylistCache, MemoryVideoCache};
-#[cfg(cache_backend = "sqlite")]
-use sqlite::{SqliteFileCache, SqlitePlaylistCache, SqliteVideoCache};
+#[cfg(feature = "cache-redb")]
+use redb::{RedbFileCache, RedbPlaylistCache, RedbVideoCache};
+#[cfg(feature = "cache-redis")]
+use redis::{RedisFileCache, RedisPlaylistCache, RedisVideoCache};
 
 /// Trait for video cache backend implementations.
 pub trait VideoBackend: Send + Sync + std::fmt::Debug {
@@ -303,246 +305,294 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 }
 
-/// Zero-cost enum dispatch for `VideoBackend` implementations.
+// ── Persistent backend dispatch enums ──
+
+/// Enum dispatch for persistent video backends.
 ///
-/// `build.rs` guarantees exactly one variant is compiled per build, regardless
-/// of how many cache feature flags are active simultaneously.
+/// Exactly one variant is compiled, determined by the enabled persistent feature.
+/// The compile_error in `cache/mod.rs` ensures at most one persistent backend.
+#[cfg(has_persistent_cache)]
 #[derive(Debug)]
-pub enum VideoBackendEnum {
-    #[cfg(cache_backend = "sqlite")]
-    Sqlite(SqliteVideoCache),
-    #[cfg(cache_backend = "json")]
+pub enum PersistentVideoBackend {
+    #[cfg(feature = "cache-json")]
     Json(JsonVideoCache),
-    #[cfg(cache_backend = "memory")]
-    Memory(MemoryVideoCache),
+    #[cfg(feature = "cache-redb")]
+    Redb(RedbVideoCache),
+    #[cfg(feature = "cache-redis")]
+    Redis(RedisVideoCache),
 }
 
-/// Zero-cost enum dispatch for `PlaylistBackend` implementations.
-///
-/// `build.rs` guarantees exactly one variant is compiled per build, regardless
-/// of how many cache feature flags are active simultaneously.
+/// Enum dispatch for persistent playlist backends.
+#[cfg(has_persistent_cache)]
 #[derive(Debug)]
-pub enum PlaylistBackendEnum {
-    #[cfg(cache_backend = "sqlite")]
-    Sqlite(SqlitePlaylistCache),
-    #[cfg(cache_backend = "json")]
+pub enum PersistentPlaylistBackend {
+    #[cfg(feature = "cache-json")]
     Json(JsonPlaylistCache),
-    #[cfg(cache_backend = "memory")]
-    Memory(MemoryPlaylistCache),
+    #[cfg(feature = "cache-redb")]
+    Redb(RedbPlaylistCache),
+    #[cfg(feature = "cache-redis")]
+    Redis(RedisPlaylistCache),
 }
 
-/// Zero-cost enum dispatch for `FileBackend` implementations.
-///
-/// `build.rs` guarantees exactly one variant is compiled per build, regardless
-/// of how many cache feature flags are active simultaneously.
+/// Enum dispatch for persistent file backends.
+#[cfg(has_persistent_cache)]
 #[derive(Debug)]
-pub enum FileBackendEnum {
-    #[cfg(cache_backend = "sqlite")]
-    Sqlite(SqliteFileCache),
-    #[cfg(cache_backend = "json")]
+pub enum PersistentFileBackend {
+    #[cfg(feature = "cache-json")]
     Json(JsonFileCache),
-    #[cfg(cache_backend = "memory")]
-    Memory(MemoryFileCache),
+    #[cfg(feature = "cache-redb")]
+    Redb(RedbFileCache),
+    #[cfg(feature = "cache-redis")]
+    Redis(RedisFileCache),
 }
 
-// ── Video backend dispatch ──
+// ── Persistent video backend constructors & dispatch ──
 
-impl VideoBackendEnum {
-    /// Creates the appropriate video backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(SqliteVideoCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "json")]
+#[cfg(has_persistent_cache)]
+impl PersistentVideoBackend {
+    /// Creates the persistent video backend based on the enabled feature.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - Directory for file-based backends
+    /// * `redis_url` - Connection URL for Redis backend
+    /// * `ttl` - Time-to-live in seconds
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if backend initialization fails.
+    pub async fn new(
+        cache_dir: PathBuf,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+        ttl: Option<u64>,
+    ) -> Result<Self> {
+        #[cfg(feature = "cache-json")]
         {
             Ok(Self::Json(JsonVideoCache::new(cache_dir, ttl).await?))
         }
-        #[cfg(cache_backend = "memory")]
+        #[cfg(feature = "cache-redb")]
         {
-            Ok(Self::Memory(MemoryVideoCache::new(cache_dir, ttl).await?))
+            Ok(Self::Redb(RedbVideoCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(feature = "cache-redis")]
+        {
+            let _ = cache_dir;
+            let url = redis_url.unwrap_or("redis://127.0.0.1/");
+            Ok(Self::Redis(RedisVideoCache::new(url, ttl).await?))
         }
     }
 }
 
-impl VideoBackend for VideoBackendEnum {
+#[cfg(has_persistent_cache)]
+impl VideoBackend for PersistentVideoBackend {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get(url).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get(url).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get(url).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get(url).await,
         }
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.put(url, video).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.put(url, video).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.put(url, video).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.put(url, video).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.put(url, video).await,
         }
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.remove(url).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.remove(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.remove(url).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.remove(url).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.remove(url).await,
         }
     }
 
     async fn clean(&self) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clean().await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.clean().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clean().await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.clean().await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.clean().await,
         }
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_by_id(id).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_by_id(id).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_by_id(id).await,
         }
     }
 }
 
-// ── Playlist backend dispatch ──
+// ── Persistent playlist backend constructors & dispatch ──
 
-impl PlaylistBackendEnum {
-    /// Creates the appropriate playlist backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(
-                SqlitePlaylistCache::new(cache_dir, ttl).await?,
-            ))
-        }
-        #[cfg(cache_backend = "json")]
+#[cfg(has_persistent_cache)]
+impl PersistentPlaylistBackend {
+    /// Creates the persistent playlist backend based on the enabled feature.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - Directory for file-based backends
+    /// * `redis_url` - Connection URL for Redis backend
+    /// * `ttl` - Time-to-live in seconds
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if backend initialization fails.
+    pub async fn new(
+        cache_dir: PathBuf,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+        ttl: Option<u64>,
+    ) -> Result<Self> {
+        #[cfg(feature = "cache-json")]
         {
             Ok(Self::Json(JsonPlaylistCache::new(cache_dir, ttl).await?))
         }
-        #[cfg(cache_backend = "memory")]
+        #[cfg(feature = "cache-redb")]
         {
-            Ok(Self::Memory(
-                MemoryPlaylistCache::new(cache_dir, ttl).await?,
-            ))
+            Ok(Self::Redb(RedbPlaylistCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(feature = "cache-redis")]
+        {
+            let _ = cache_dir;
+            let url = redis_url.unwrap_or("redis://127.0.0.1/");
+            Ok(Self::Redis(RedisPlaylistCache::new(url, ttl).await?))
         }
     }
 }
 
-impl PlaylistBackend for PlaylistBackendEnum {
+#[cfg(has_persistent_cache)]
+impl PlaylistBackend for PersistentPlaylistBackend {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get(url).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get(url).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get(url).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get(url).await,
         }
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_id(id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_by_id(id).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_by_id(id).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_by_id(id).await,
         }
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.put(url, playlist).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.put(url, playlist).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.put(url, playlist).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.put(url, playlist).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.put(url, playlist).await,
         }
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.invalidate(url).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.invalidate(url).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.invalidate(url).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.invalidate(url).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.invalidate(url).await,
         }
     }
 
     async fn clean(&self) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clean().await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.clean().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clean().await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.clean().await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.clean().await,
         }
     }
 
     async fn clear_all(&self) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clear_all().await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.clear_all().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clear_all().await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.clear_all().await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.clear_all().await,
         }
     }
 }
 
-// ── File backend dispatch ──
+// ── Persistent file backend constructors & dispatch ──
 
-impl FileBackendEnum {
-    /// Creates the appropriate file backend based on enabled features.
-    pub async fn new(cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
-        #[cfg(cache_backend = "sqlite")]
-        {
-            Ok(Self::Sqlite(SqliteFileCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(cache_backend = "json")]
+#[cfg(has_persistent_cache)]
+impl PersistentFileBackend {
+    /// Creates the persistent file backend based on the enabled feature.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - Directory for file-based backends
+    /// * `redis_url` - Connection URL for Redis backend
+    /// * `ttl` - Time-to-live in seconds
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if backend initialization fails.
+    pub async fn new(
+        cache_dir: PathBuf,
+        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
+        ttl: Option<u64>,
+    ) -> Result<Self> {
+        #[cfg(feature = "cache-json")]
         {
             Ok(Self::Json(JsonFileCache::new(cache_dir, ttl).await?))
         }
-        #[cfg(cache_backend = "memory")]
+        #[cfg(feature = "cache-redb")]
         {
-            Ok(Self::Memory(MemoryFileCache::new(cache_dir, ttl).await?))
+            Ok(Self::Redb(RedbFileCache::new(cache_dir, ttl).await?))
+        }
+        #[cfg(feature = "cache-redis")]
+        {
+            let url = redis_url.unwrap_or("redis://127.0.0.1/");
+            Ok(Self::Redis(RedisFileCache::new(url, cache_dir, ttl).await?))
         }
     }
 }
 
-impl FileBackend for FileBackendEnum {
+#[cfg(has_persistent_cache)]
+impl FileBackend for PersistentFileBackend {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_by_hash(hash).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_hash(hash).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_by_hash(hash).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_by_hash(hash).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_by_hash(hash).await,
         }
     }
 
@@ -552,12 +602,12 @@ impl FileBackend for FileBackendEnum {
         format_id: &str,
     ) -> Option<(CachedFile, PathBuf)> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_by_video_and_format(video_id, format_id).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_video_and_format(video_id, format_id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_by_video_and_format(video_id, format_id).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_by_video_and_format(video_id, format_id).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_by_video_and_format(video_id, format_id).await,
         }
     }
 
@@ -570,18 +620,7 @@ impl FileBackend for FileBackendEnum {
         audio_codec: Option<AudioCodecPreference>,
     ) -> Option<(CachedFile, PathBuf)> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => {
-                b.get_by_video_and_preferences(
-                    video_id,
-                    video_quality,
-                    audio_quality,
-                    video_codec,
-                    audio_codec,
-                )
-                .await
-            }
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => {
                 b.get_by_video_and_preferences(
                     video_id,
@@ -592,8 +631,19 @@ impl FileBackend for FileBackendEnum {
                 )
                 .await
             }
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => {
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => {
+                b.get_by_video_and_preferences(
+                    video_id,
+                    video_quality,
+                    audio_quality,
+                    video_codec,
+                    audio_codec,
+                )
+                .await
+            }
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => {
                 b.get_by_video_and_preferences(
                     video_id,
                     video_quality,
@@ -608,34 +658,34 @@ impl FileBackend for FileBackendEnum {
 
     async fn put(&self, file: CachedFile, source_path: &std::path::Path) -> Result<PathBuf> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.put(file, source_path).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.put(file, source_path).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.put(file, source_path).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.put(file, source_path).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.put(file, source_path).await,
         }
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.remove(id).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.remove(id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.remove(id).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.remove(id).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.remove(id).await,
         }
     }
 
     async fn clean(&self) -> Result<()> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.clean().await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.clean().await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.clean().await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.clean().await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.clean().await,
         }
     }
 
@@ -644,12 +694,12 @@ impl FileBackend for FileBackendEnum {
         video_id: &str,
     ) -> Option<(CachedThumbnail, PathBuf)> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_thumbnail_by_video_id(video_id).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_thumbnail_by_video_id(video_id).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_thumbnail_by_video_id(video_id).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_thumbnail_by_video_id(video_id).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_thumbnail_by_video_id(video_id).await,
         }
     }
 
@@ -659,12 +709,12 @@ impl FileBackend for FileBackendEnum {
         source_path: &std::path::Path,
     ) -> Result<PathBuf> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.put_thumbnail(thumbnail, source_path).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.put_thumbnail(thumbnail, source_path).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.put_thumbnail(thumbnail, source_path).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.put_thumbnail(thumbnail, source_path).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.put_thumbnail(thumbnail, source_path).await,
         }
     }
 
@@ -674,12 +724,12 @@ impl FileBackend for FileBackendEnum {
         language: &str,
     ) -> Option<(CachedFile, PathBuf)> {
         match self {
-            #[cfg(cache_backend = "sqlite")]
-            Self::Sqlite(b) => b.get_subtitle_by_language(video_id, language).await,
-            #[cfg(cache_backend = "json")]
+            #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_subtitle_by_language(video_id, language).await,
-            #[cfg(cache_backend = "memory")]
-            Self::Memory(b) => b.get_subtitle_by_language(video_id, language).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.get_subtitle_by_language(video_id, language).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.get_subtitle_by_language(video_id, language).await,
         }
     }
 }

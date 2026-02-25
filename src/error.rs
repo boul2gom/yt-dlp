@@ -82,15 +82,26 @@ pub enum Error {
         source: serde_json::Error,
     },
 
-    /// Database operation failed.
+    /// Database operation failed (redb backend).
     ///
-    /// Includes the specific operation and table/query context.
-    #[cfg(feature = "cache-sqlite")]
+    /// Includes the specific operation that failed.
+    #[cfg(feature = "cache-redb")]
     #[error("Database error during {operation}: {source}")]
     Database {
         operation: String,
         #[source]
-        source: sqlx::Error,
+        source: Box<redb::Error>,
+    },
+
+    /// Redis operation failed.
+    ///
+    /// Includes the specific operation that failed.
+    #[cfg(feature = "cache-redis")]
+    #[error("Redis error during {operation}: {source}")]
+    Redis {
+        operation: String,
+        #[source]
+        source: redis::RedisError,
     },
 
     // ==================== Dependency & Binary Errors ====================
@@ -337,19 +348,20 @@ impl Error {
         }
     }
 
-    /// Create a database error with operation context.
+    /// Create a database error with operation context (redb).
     ///
     /// # Arguments
     ///
     /// * `operation` - Description of the database operation that failed
-    /// * `source` - The underlying sqlx error
+    /// * `source` - The underlying redb error
     ///
     /// # Returns
     ///
     /// An Error::Database variant with the provided context
-    #[cfg(feature = "cache-sqlite")]
-    pub fn database(operation: impl Into<String>, source: sqlx::Error) -> Self {
+    #[cfg(feature = "cache-redb")]
+    pub fn database(operation: impl Into<String>, source: impl Into<redb::Error>) -> Self {
         let operation_str = operation.into();
+        let source = source.into();
 
         tracing::warn!(
             operation = operation_str,
@@ -358,6 +370,32 @@ impl Error {
         );
 
         Self::Database {
+            operation: operation_str,
+            source: Box::new(source),
+        }
+    }
+
+    /// Create a Redis error with operation context.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation` - Description of the Redis operation that failed
+    /// * `source` - The underlying Redis error
+    ///
+    /// # Returns
+    ///
+    /// An Error::Redis variant with the provided context
+    #[cfg(feature = "cache-redis")]
+    pub fn redis(operation: impl Into<String>, source: redis::RedisError) -> Self {
+        let operation_str = operation.into();
+
+        tracing::warn!(
+            operation = operation_str,
+            error = %source,
+            "⚙️ Redis error occurred"
+        );
+
+        Self::Redis {
             operation: operation_str,
             source,
         }
@@ -561,9 +599,9 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-#[cfg(feature = "cache-sqlite")]
-impl From<sqlx::Error> for Error {
-    fn from(err: sqlx::Error) -> Self {
+#[cfg(feature = "cache-redb")]
+impl From<redb::Error> for Error {
+    fn from(err: redb::Error) -> Self {
         tracing::warn!(
             error = %err,
             "⚙️ Database error (automatic conversion)"
@@ -571,6 +609,21 @@ impl From<sqlx::Error> for Error {
 
         Self::Database {
             operation: "Database operation".to_string(),
+            source: Box::new(err),
+        }
+    }
+}
+
+#[cfg(feature = "cache-redis")]
+impl From<redis::RedisError> for Error {
+    fn from(err: redis::RedisError) -> Self {
+        tracing::warn!(
+            error = %err,
+            "⚙️ Redis error (automatic conversion)"
+        );
+
+        Self::Redis {
+            operation: "Redis operation".to_string(),
             source: err,
         }
     }

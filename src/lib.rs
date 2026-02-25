@@ -9,15 +9,15 @@ use crate::extractor::ExtractorConfig;
 use crate::extractor::ExtractorName;
 use crate::metadata::MetadataManager;
 use crate::utils::fs;
-#[cfg(feature = "cache-backend")]
-use cache::{DownloadCache, PlaylistCache, VideoCache};
+#[cfg(cache)]
+use cache::{CacheConfig, CacheLayer, DownloadCache};
 use std::fmt::{self, Display};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 // Core modules
-#[cfg(feature = "cache-backend")]
+#[cfg(cache)]
 pub mod cache;
 pub mod error;
 pub mod executor;
@@ -174,15 +174,9 @@ pub struct Downloader {
     pub timeout: Duration,
     /// Optional proxy configuration for HTTP requests and yt-dlp.
     pub proxy: Option<client::proxy::ProxyConfig>,
-    /// The cache for video metadata.
-    #[cfg(feature = "cache-backend")]
-    pub cache: Option<Arc<VideoCache>>,
-    /// The cache for downloaded files.
-    #[cfg(feature = "cache-backend")]
-    pub download_cache: Option<Arc<DownloadCache>>,
-    /// The cache for playlist metadata.
-    #[cfg(feature = "cache-backend")]
-    pub playlist_cache: Option<Arc<PlaylistCache>>,
+    /// The unified cache layer (videos, downloads, playlists).
+    #[cfg(cache)]
+    pub cache: Option<Arc<CacheLayer>>,
     /// The download manager for managing parallel downloads.
     pub download_manager: Arc<DownloadManager>,
     /// Cancellation token for graceful shutdown.
@@ -917,7 +911,7 @@ impl Downloader {
             tracing::debug!("🏷️ Adding metadata to combined file");
 
             cfg_if::cfg_if! {
-                if #[cfg(feature = "cache-backend")] {
+                if #[cfg(cache)] {
                     let video_format = self.find_cached_format(video_path.clone()).await;
                     let audio_format = self.find_cached_format(audio_path.clone()).await;
 
@@ -998,53 +992,52 @@ impl Downloader {
     }
 
     /// Finds the format of a file in the cache if it exists
-    #[cfg(feature = "cache-backend")]
+    #[cfg(cache)]
     async fn find_cached_format(&self, file_path: impl Into<PathBuf>) -> Option<Format> {
         let file_path: PathBuf = file_path.into();
 
         tracing::trace!(
             file_path = ?file_path,
-            has_cache = self.download_cache.is_some(),
+            has_cache = self.cache.is_some(),
             "🔍 Looking up format in download cache"
         );
 
-        if let Some(download_cache) = &self.download_cache {
-            let file_hash = match DownloadCache::calculate_file_hash(file_path.as_path()).await {
-                Ok(hash) => {
-                    tracing::trace!(
-                        file_path = ?file_path,
-                        file_hash = hash,
-                        "🔍 Calculated file hash for cache lookup"
-                    );
-                    hash
-                }
-                Err(_e) => {
-                    tracing::trace!(
-                        file_path = ?file_path,
-                        error = %_e,
-                        "🔍 Failed to calculate file hash"
-                    );
-                    return None;
-                }
-            };
-
-            if let Some((cached_file, _)) = download_cache.get_by_hash(&file_hash).await
-                && let Some(ref format_json) = cached_file.format_json
-                && let Ok(format) = serde_json::from_str::<Format>(format_json)
-            {
+        let cache = self.cache.as_ref()?;
+        let file_hash = match DownloadCache::calculate_file_hash(file_path.as_path()).await {
+            Ok(hash) => {
                 tracing::trace!(
                     file_path = ?file_path,
-                    format_id = format.format_id,
-                    "🔍 Format found in cache"
+                    file_hash = hash,
+                    "🔍 Calculated file hash for cache lookup"
                 );
-                return Some(format);
+                hash
             }
+            Err(_e) => {
+                tracing::trace!(
+                    file_path = ?file_path,
+                    error = %_e,
+                    "🔍 Failed to calculate file hash"
+                );
+                return None;
+            }
+        };
 
+        if let Some((cached_file, _)) = cache.downloads.get_by_hash(&file_hash).await
+            && let Some(ref format_json) = cached_file.format_json
+            && let Ok(format) = serde_json::from_str::<Format>(format_json)
+        {
             tracing::trace!(
                 file_path = ?file_path,
-                "🔍 Format not found in cache"
+                format_id = format.format_id,
+                "🔍 Format found in cache"
             );
+            return Some(format);
         }
+
+        tracing::trace!(
+            file_path = ?file_path,
+            "🔍 Format not found in cache"
+        );
 
         None
     }
@@ -1053,12 +1046,11 @@ impl Downloader {
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - The directory where to store the cache.
-    /// * `ttl` - The time-to-live for cache entries in seconds (default: 24 hours).
+    /// * `config` - The cache configuration (directory, TTLs, optional Redis URL).
     ///
     /// # Errors
     ///
-    /// This function will return an error if the cache directory could not be created.
+    /// Returns an error if the cache layer could not be initialized.
     ///
     /// # Examples
     ///
@@ -1066,6 +1058,7 @@ impl Downloader {
     /// # use yt_dlp::Downloader;
     /// # use std::path::PathBuf;
     /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::cache::CacheConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let libraries_dir = PathBuf::from("libs");
@@ -1077,150 +1070,22 @@ impl Downloader {
     ///     .build()
     ///     .await?;
     ///
-    /// // Enable video metadata caching
-    /// downloader.with_cache(PathBuf::from("cache"), None).await?;
+    /// // Enable caching with default TTLs
+    /// let config = CacheConfig::builder()
+    ///     .cache_dir(PathBuf::from("cache"))
+    ///     .build();
+    /// downloader.with_cache(config).await?;
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "cache-backend")]
-    pub async fn with_cache(
-        &mut self,
-        cache_dir: impl Into<PathBuf>,
-        ttl: Option<u64>,
-    ) -> Result<&mut Self> {
-        let cache_dir = cache_dir.into();
+    #[cfg(cache)]
+    pub async fn with_cache(&mut self, config: CacheConfig) -> Result<&mut Self> {
+        tracing::debug!(config = %config, "🔍 Enabling cache layer");
 
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl = ?ttl,
-            "🔍 Enabling video metadata cache"
-        );
+        let layer = CacheLayer::from_config(&config).await?;
+        self.cache = Some(Arc::new(layer));
 
-        let cache = VideoCache::new(cache_dir, ttl).await?;
-        self.cache = Some(Arc::new(cache));
-
-        tracing::debug!("✅ Video metadata cache enabled");
-
-        Ok(self)
-    }
-
-    /// Enables caching of downloaded files.
-    ///
-    /// # Arguments
-    ///
-    /// * `cache_dir` - The directory where to store the cache.
-    /// * `ttl` - The time-to-live for cache entries in seconds (default: 7 days).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache directory could not be created.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let yt_dlp = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(yt_dlp, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
-    ///
-    /// // Enable downloaded files caching
-    /// downloader.with_download_cache(PathBuf::from("cache"), None).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "cache-backend")]
-    pub async fn with_download_cache(
-        &mut self,
-        cache_dir: impl Into<PathBuf>,
-        ttl: Option<u64>,
-    ) -> Result<&mut Self> {
-        let cache_dir = cache_dir.into();
-
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl = ?ttl,
-            "🔍 Enabling downloaded files cache"
-        );
-
-        let download_cache = DownloadCache::new(cache_dir, ttl).await?;
-        self.download_cache = Some(Arc::new(download_cache));
-
-        tracing::debug!("✅ Downloaded files cache enabled");
-
-        Ok(self)
-    }
-
-    /// Enables caching of playlist metadata.
-    ///
-    /// # Arguments
-    ///
-    /// * `cache_dir` - The directory where to store the cache.
-    /// * `ttl` - The time-to-live for cache entries in seconds (default: 6 hours).
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the cache directory could not be created.
-    ///
-    /// # Examples
-    ///
-    /// ```rust, no_run
-    /// # use yt_dlp::Downloader;
-    /// # use std::path::PathBuf;
-    /// # use yt_dlp::client::deps::Libraries;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let libraries_dir = PathBuf::from("libs");
-    /// # let output_dir = PathBuf::from("output");
-    /// # let youtube = libraries_dir.join("yt-dlp");
-    /// # let ffmpeg = libraries_dir.join("ffmpeg");
-    /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
-    ///
-    /// // Enable playlist metadata caching
-    /// downloader.with_playlist_cache(PathBuf::from("cache"), None).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "cache-backend")]
-    pub async fn with_playlist_cache(
-        &mut self,
-        cache_dir: impl Into<PathBuf>,
-        ttl: Option<i64>,
-    ) -> Result<&mut Self> {
-        let cache_dir = cache_dir.into();
-
-        tracing::debug!(
-            cache_dir = ?cache_dir,
-            ttl = ?ttl,
-            "🔍 Enabling playlist metadata cache"
-        );
-
-        let db_path = cache_dir.join("playlists.db");
-
-        tracing::trace!(
-            db_path = ?db_path,
-            "🔍 Playlist cache database path"
-        );
-
-        let playlist_cache = if let Some(ttl_seconds) = ttl {
-            PlaylistCache::with_ttl(db_path, ttl_seconds as u64).await?
-        } else {
-            PlaylistCache::new(db_path).await?
-        };
-        self.playlist_cache = Some(Arc::new(playlist_cache));
-
-        tracing::debug!("✅ Playlist metadata cache enabled");
+        tracing::debug!("✅ Cache layer enabled");
 
         Ok(self)
     }
@@ -2419,12 +2284,8 @@ impl Clone for Downloader {
             user_agent: self.user_agent.clone(),
             timeout: self.timeout,
             proxy: self.proxy.clone(),
-            #[cfg(feature = "cache-backend")]
+            #[cfg(cache)]
             cache: self.cache.clone(),
-            #[cfg(feature = "cache-backend")]
-            download_cache: self.download_cache.clone(),
-            #[cfg(feature = "cache-backend")]
-            playlist_cache: self.playlist_cache.clone(),
             download_manager: self.download_manager.clone(),
             cancellation_token: self.cancellation_token.clone(),
             event_bus: self.event_bus.clone(),

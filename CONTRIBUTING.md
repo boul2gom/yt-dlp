@@ -36,7 +36,7 @@ Thank you for your interest in contributing! This guide will help you understand
 Every PR must pass these three commands:
 ```bash
 # Lint every feature combination (the CI does this)
-cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings
+cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings
 
 # Run all doc-tests
 cargo test --doc
@@ -81,7 +81,7 @@ src/
 │   ├── utils/          #    CommonTraits, AllTraits blanket traits, serde helpers
 │   └── selector.rs     #    VideoQuality, AudioQuality, StoryboardQuality enums
 ├── cache/              # 🔍 VideoCache, DownloadCache, PlaylistCache (feature-gated)
-│   └── backend/        #    Backend trait + implementations (memory, json, sqlite)
+│   └── backend/        #    Backend trait + implementations (memory/moka, json, redb, redis)
 ├── stats/              # 📊 StatisticsTracker, GlobalSnapshot (feature: statistics)
 └── utils/              # 🛠️ fs, http, platform, retry, validation, url_expiry, subtitle
 ```
@@ -188,7 +188,7 @@ We use a **single unified error type** in `src/error.rs`. Never introduce new er
 | **Helper constructors** | `Error::io(...)`, `Error::http(...)` — each logs `tracing::warn!`/`tracing::error!` before constructing |
 | **`From` impls** | For `std::io::Error`, `reqwest::Error`, `serde_json::Error`, `JoinError`, `ZipError` — each logs with `"(automatic conversion)"` suffix |
 | **Parameter style** | `impl Into<String>` — not concrete types |
-| **Feature-gated** | `#[cfg(feature = "cache-sqlite")] Database { ... }` |
+| **Feature-gated** | `#[cfg(feature = "cache-redb")] Database { ... }`, `#[cfg(feature = "cache-redis")] Redis { ... }` |
 | **No `anyhow`** | Always use the crate's own `Error` / `Result` |
 
 ### Example: Adding a new error variant
@@ -461,39 +461,42 @@ MyNewEvent(u64, String),
 
 | Feature | Purpose | Dependencies |
 |---------|---------|-------------|
-| `cache` *(default)* | In-memory LRU cache | `lru` |
+| `cache-memory` *(default)* | In-memory Moka cache | `moka` |
 | `cache-json` | JSON file backend | None |
-| `cache-sqlite` | SQLite backend | `sqlx` |
+| `cache-redb` | Embedded redb backend | `redb` |
+| `cache-redis` | Distributed Redis backend | `redis` |
 | `hooks` | Rust event callbacks | None |
 | `webhooks` | HTTP event delivery | None |
 | `statistics` | Real-time analytics | None |
 | `profiling` | Heap profiler | `dhat` |
 | `rustls` | TLS backend | `reqwest/rustls` |
 
-### ⚠️ `cache-backend` is internal
+### ⚙️ `cache` cfg is emitted by `build.rs`
 
-**Never** enable `cache-backend` directly — it's an internal umbrella feature. A `compile_error!` in `cache/mod.rs` enforces this.
+The `cache` cfg is **not** a Cargo feature — it is a custom `cfg` emitted by `build.rs` when any cache backend
+(`cache-memory`, `cache-json`, `cache-redb`, or `cache-redis`) is enabled. Users cannot activate it directly,
+and it is invisible in `Cargo.toml`. Use `#[cfg(cache)]` to guard code that requires any cache backend.
 
-### Backend selection priority
+### Backend selection
 
-`build.rs` emits custom `cfg(cache_backend = "sqlite"|"json"|"memory")` with priority: **sqlite > json > memory**. Only one backend is active at a time.
+`build.rs` emits `has_persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled, and `multiple_persistent_backends` if more than one is active (which triggers a `compile_error!`). At most one persistent backend may be enabled at a time.
 
 ### Conditional compilation patterns
 
 ```rust
-// Module-level guard for all cache code
-#[cfg(feature = "cache-backend")]
+// Module-level guard for all cache code (cfg emitted by build.rs)
+#[cfg(cache)]
 
 // Backend-specific modules
-#[cfg(cache_backend = "json")]
+#[cfg(feature = "cache-json")]
 pub mod json;
+
+// Persistent backend guard (any of json/redb/redis)
+#[cfg(has_persistent_cache)]
 
 // Feature-gated struct fields
 #[cfg(feature = "hooks")]
 pub(crate) hook_registry: Option<events::HookRegistry>,
-
-// Conditional derives
-#[cfg_attr(feature = "cache-sqlite", derive(sqlx::FromRow))]
 ```
 
 ---
@@ -664,7 +667,7 @@ All macros must use `$crate::` fully-qualified paths for robustness. The `use` i
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo hack clippy --each-feature --exclude-features cache-backend -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo hack clippy --feature-powerset --mutually-exclusive-features cache-json,cache-redb,cache-redis -- -D warnings` — zero warnings
 - [ ] 🧪 `cargo test --doc` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 📝 All new public items have rustdoc following the template

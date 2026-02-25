@@ -269,20 +269,3 @@ pub fn is_http_error_retryable(error: &reqwest::Error) -> bool {
 
     false
 }
-
-/// Check if a database error is retryable.
-///
-/// # Arguments
-///
-/// * `error` - The sqlx error to check
-///
-/// # Returns
-///
-/// True if the error is likely transient and worth retrying.
-#[cfg(feature = "cache-sqlite")]
-pub fn is_database_error_retryable(error: &sqlx::Error) -> bool {
-    matches!(
-        error,
-        sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)
-    )
-}

@@ -359,13 +359,13 @@ async fn run_statistics(downloader: &Downloader) -> ScenarioResult {
     }
 }
 
-#[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
+#[cfg(cache)]
 async fn run_cache_ops(real_video: &Video) -> ScenarioResult {
     use yt_dlp::cache::VideoCache;
 
     const N: usize = 500;
     let dir = tempfile::TempDir::new().expect("tempdir failed");
-    let cache = VideoCache::new(dir.path(), None)
+    let cache = VideoCache::new(dir.path().to_path_buf(), None)
         .await
         .expect("cache init failed");
 
@@ -549,7 +549,7 @@ async fn main() {
         results.push(r);
     }
 
-    #[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
+    #[cfg(cache)]
     if run_scenario("cache_ops") {
         println!("[cache_ops] Running 500 put+get cycles on in-memory cache...");
         let r = run_cache_ops(&real_video).await;

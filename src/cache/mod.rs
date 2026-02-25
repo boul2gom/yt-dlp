@@ -1,29 +1,33 @@
 //! Cache module for storing video metadata and downloaded files.
 //!
-//! This module provides async-safe functionality for caching video metadata and downloaded files
-//! to avoid making repeated requests for the same videos and re-downloading the same files.
+//! This module provides a tiered caching architecture with L1 (in-memory) and L2 (persistent)
+//! layers. Users can enable any combination of:
 //!
-//! Uses `sqlx` for fully async SQLite operations that do not block the tokio runtime.
+//! - **No cache**: Disable all cache features
+//! - **Moka only** (`cache-memory`): Fast in-memory cache with TTL eviction
+//! - **Persistent only** (`cache-json`, `cache-redb`, or `cache-redis`): Durable storage
+//! - **Moka + persistent**: L1 memory cache backed by L2 persistent storage
+//!
+//! At most one persistent backend may be enabled at a time.
 
 pub mod backend;
+pub mod config;
 pub mod files;
+pub mod layer;
 pub mod playlist;
 pub mod video;
 
-// Safety net: cache-backend is internal and must not be enabled directly.
-#[cfg(all(
-    feature = "cache-backend",
-    not(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))
-))]
+// Safety net: at most one persistent backend allowed.
+#[cfg(multiple_persistent_backends)]
 compile_error!(
-    "Feature \"cache-backend\" is internal and must not be enabled directly; \
-     use \"cache\", \"cache-json\", or \"cache-sqlite\""
+    "Enable at most one persistent cache backend at a time: \
+     \"cache-json\", \"cache-redb\", or \"cache-redis\""
 );
 
-// Priority order when multiple backends are enabled: cache-sqlite > cache-json > cache.
-
 // Re-export main types
+pub use config::CacheConfig;
 pub use files::DownloadCache;
+pub use layer::CacheLayer;
 pub use playlist::PlaylistCache;
 pub use video::VideoCache;
 

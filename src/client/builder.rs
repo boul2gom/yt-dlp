@@ -2,15 +2,15 @@
 //!
 //! This module provides a fluent API for constructing Downloader instances with various configurations.
 
-#[cfg(feature = "cache-backend")]
-use crate::cache::{DownloadCache, PlaylistCache, VideoCache};
+#[cfg(cache)]
+use crate::cache::{CacheConfig, CacheLayer};
 use crate::client::proxy::ProxyConfig;
 use crate::client::{Downloader, Libraries};
 use crate::download::manager::{DownloadManager, ManagerConfig};
 use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
 use crate::extractor::ExtractorConfig;
-#[cfg(feature = "cache-backend")]
+#[cfg(cache)]
 use crate::utils::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,8 +46,8 @@ pub struct DownloaderBuilder {
     cookies: Option<PathBuf>,
     cookies_from_browser: Option<String>,
     use_netrc: bool,
-    #[cfg(feature = "cache-backend")]
-    cache_dir: Option<PathBuf>,
+    #[cfg(cache)]
+    cache_config: Option<CacheConfig>,
     download_manager_config: Option<ManagerConfig>,
 }
 
@@ -76,8 +76,8 @@ impl DownloaderBuilder {
             cookies: None,
             cookies_from_browser: None,
             use_netrc: false,
-            #[cfg(feature = "cache-backend")]
-            cache_dir: None,
+            #[cfg(cache)]
+            cache_config: None,
             download_manager_config: None,
         }
     }
@@ -179,7 +179,7 @@ impl DownloaderBuilder {
     /// # Arguments
     ///
     /// * `cache_dir` - The directory to store cache files
-    #[cfg(feature = "cache-backend")]
+    #[cfg(cache)]
     pub fn with_cache(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         let cache_dir = cache_dir.into();
 
@@ -188,7 +188,23 @@ impl DownloaderBuilder {
             "🔧 Enabling cache with directory"
         );
 
-        self.cache_dir = Some(cache_dir);
+        self.cache_config = Some(CacheConfig::builder().cache_dir(cache_dir).build());
+        self
+    }
+
+    /// Enable caching with a full configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The cache configuration (directory, TTLs, optional Redis URL)
+    #[cfg(cache)]
+    pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
+        tracing::debug!(
+            config = %config,
+            "🔧 Enabling cache with config"
+        );
+
+        self.cache_config = Some(config);
         self
     }
 
@@ -281,17 +297,17 @@ impl DownloaderBuilder {
     /// - The download manager cannot be initialized
     pub async fn build(self) -> Result<Downloader> {
         {
-            #[cfg(feature = "cache-backend")]
+            #[cfg(cache)]
             tracing::debug!(
                 output_dir = ?self.output_dir,
                 args_count = self.args.len(),
                 timeout = ?self.timeout,
                 has_proxy = self.proxy.is_some(),
-                has_cache = self.cache_dir.is_some(),
+                has_cache = self.cache_config.is_some(),
                 "🔧 Building Downloader instance"
             );
 
-            #[cfg(not(feature = "cache-backend"))]
+            #[cfg(not(cache))]
             tracing::debug!(
                 output_dir = ?self.output_dir,
                 args_count = self.args.len(),
@@ -355,22 +371,16 @@ impl DownloaderBuilder {
             args.push("--netrc".to_string());
         }
 
-        // Create caches if enabled
-        #[cfg(feature = "cache-backend")]
-        let (cache, download_cache, playlist_cache) = if let Some(cache_dir) = self.cache_dir {
+        // Create cache layer if configured
+        #[cfg(cache)]
+        let cache = if let Some(config) = self.cache_config {
             // Ensure cache directory exists
-            if !cache_dir.exists() {
-                fs::create_dir(&cache_dir).await?;
+            if !config.cache_dir.exists() {
+                fs::create_dir(&config.cache_dir).await?;
             }
-            (
-                Some(Arc::new(VideoCache::new(cache_dir.clone(), None).await?)),
-                Some(Arc::new(DownloadCache::new(cache_dir.clone(), None).await?)),
-                Some(Arc::new(
-                    PlaylistCache::new(cache_dir.join("playlists.db")).await?,
-                )),
-            )
+            Some(Arc::new(CacheLayer::from_config(&config).await?))
         } else {
-            (None, None, None)
+            None
         };
 
         #[cfg(feature = "statistics")]
@@ -385,12 +395,8 @@ impl DownloaderBuilder {
             user_agent: None,
             timeout: self.timeout,
             proxy: self.proxy,
-            #[cfg(feature = "cache-backend")]
+            #[cfg(cache)]
             cache,
-            #[cfg(feature = "cache-backend")]
-            download_cache,
-            #[cfg(feature = "cache-backend")]
-            playlist_cache,
             download_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             event_bus,

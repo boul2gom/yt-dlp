@@ -69,6 +69,7 @@ body:
     id: os
     attributes:
       label: 💻 Operating system
+      description: Which operating system are you using?
       options:
         - Linux
         - macOS
@@ -84,9 +85,10 @@ body:
       description: Which optional features do you have enabled?
       multiple: true
       options:
-        - cache (default)
+        - cache-memory (default)
         - cache-json
-        - cache-sqlite
+        - cache-redb
+        - cache-redis
         - hooks
         - webhooks
         - statistics

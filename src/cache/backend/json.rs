@@ -437,7 +437,7 @@ impl FileBackend for JsonFileCache {
         None
     }
 
-    #[cfg(feature = "cache-backend")]
+    #[cfg(cache)]
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,

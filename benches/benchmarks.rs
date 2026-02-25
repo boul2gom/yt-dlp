@@ -519,7 +519,7 @@ fn bench_retry_strategy(c: &mut Criterion) {
     group.finish();
 }
 
-#[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
+#[cfg(cache)]
 fn bench_cache_ops(c: &mut Criterion) {
     use yt_dlp::cache::VideoCache;
 
@@ -638,29 +638,17 @@ criterion_group!(
 #[cfg(feature = "webhooks")]
 criterion_group!(webhooks_benches, bench_retry_strategy);
 
-#[cfg(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))]
+#[cfg(cache)]
 criterion_group!(cache_benches, bench_cache_ops);
 
-#[cfg(all(
-    feature = "webhooks",
-    any(feature = "cache", feature = "cache-json", feature = "cache-sqlite")
-))]
+#[cfg(all(feature = "webhooks", cache))]
 criterion_main!(benches, webhooks_benches, cache_benches);
 
-#[cfg(all(
-    feature = "webhooks",
-    not(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))
-))]
+#[cfg(all(feature = "webhooks", not(cache)))]
 criterion_main!(benches, webhooks_benches);
 
-#[cfg(all(
-    not(feature = "webhooks"),
-    any(feature = "cache", feature = "cache-json", feature = "cache-sqlite")
-))]
+#[cfg(all(not(feature = "webhooks"), cache))]
 criterion_main!(benches, cache_benches);
 
-#[cfg(all(
-    not(feature = "webhooks"),
-    not(any(feature = "cache", feature = "cache-json", feature = "cache-sqlite"))
-))]
+#[cfg(all(not(feature = "webhooks"), not(cache)))]
 criterion_main!(benches);
