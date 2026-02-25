@@ -46,15 +46,12 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use yt_dlp::Downloader;
-use yt_dlp::VideoSelection;
 use yt_dlp::download::{AudioCodec, PostProcessConfig, VideoCodec};
 use yt_dlp::events::{DownloadEvent, EventBus};
 use yt_dlp::model::Video;
-use yt_dlp::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use yt_dlp::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
+use yt_dlp::{Downloader, VideoSelection};
 
 // Default short public YouTube video used when no URL is provided
 const DEFAULT_VIDEO_URL: &str = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
@@ -119,11 +116,7 @@ fn parse_args() -> Args {
     }
 }
 
-async fn setup_downloader(
-    libs: &Path,
-    output: &Path,
-    args: &Args,
-) -> yt_dlp::error::Result<Downloader> {
+async fn setup_downloader(libs: &Path, output: &Path, args: &Args) -> yt_dlp::error::Result<Downloader> {
     tokio::fs::create_dir_all(libs).await?;
     tokio::fs::create_dir_all(output).await?;
 
@@ -143,9 +136,7 @@ async fn setup_downloader(
 
 async fn run_setup(libs: &Path, output: &Path, args: &Args) -> ScenarioResult {
     let start = Instant::now();
-    let _downloader = setup_downloader(libs, output, args)
-        .await
-        .expect("setup failed");
+    let _downloader = setup_downloader(libs, output, args).await.expect("setup failed");
     ScenarioResult {
         name: "setup".to_string(),
         iterations: 1,
@@ -397,10 +388,7 @@ fn fmt_duration(d: Duration) -> String {
 
 fn print_results(results: &[ScenarioResult]) {
     println!("\n=== yt-dlp Profiling Results ===");
-    println!(
-        "{:<36} {:>6}  {:>10}  {:>10}",
-        "Scenario", "Iters", "Total", "Avg/iter"
-    );
+    println!("{:<36} {:>6}  {:>10}  {:>10}", "Scenario", "Iters", "Total", "Avg/iter");
     println!("{}", "─".repeat(68));
     for r in results {
         println!(
@@ -412,6 +400,146 @@ fn print_results(results: &[ScenarioResult]) {
         );
     }
     println!();
+}
+
+async fn run_cpu_scenarios(run_scenario: impl Fn(&str) -> bool, real_video: &Video, results: &mut Vec<ScenarioResult>) {
+    if run_scenario("format_selection") {
+        println!("[format_selection] Running 10,000 iterations on real video...");
+        let r = run_format_selection(real_video);
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
+
+    if run_scenario("event_bus") {
+        println!("[event_bus] Emitting 10,000 events...");
+        let r = run_event_bus();
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
+
+    if run_scenario("validation") {
+        let inputs = [
+            "https://www.youtube.com/watch?v=gXtp6C-3JKo",
+            "https://youtu.be/jNQXAC9IVRw",
+            "https://vimeo.com/12345",
+            "not-a-url",
+        ];
+        let start = Instant::now();
+        const N: usize = 10_000;
+        for _ in 0..N {
+            for url in &inputs {
+                let _ = validate_youtube_url(url);
+            }
+            let _ = sanitize_filename("My video: great/stuff\\file.mp4");
+            let _ = sanitize_path("downloads/my video.mp4");
+        }
+        results.push(ScenarioResult {
+            name: "validation".to_string(),
+            iterations: N,
+            total: start.elapsed(),
+        });
+    }
+}
+
+async fn run_network_scenarios(
+    run_scenario: impl Fn(&str) -> bool,
+    downloader: &Downloader,
+    url: &str,
+    results: &mut Vec<ScenarioResult>,
+) {
+    if run_scenario("metadata_cold") {
+        println!("[metadata_cold] Fetching fresh metadata 3 times...");
+        let r = run_metadata_cold(downloader, url, 3).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
+
+    if run_scenario("metadata_warm") {
+        println!("[metadata_warm] Fetching cached metadata 10 times...");
+        let r = run_metadata_warm(downloader, url, 10).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
+
+    if run_scenario("download_video") {
+        println!("[download_video] Downloading lowest quality video...");
+        let r = run_download_video(downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
+
+    if run_scenario("download_audio") {
+        println!("[download_audio] Downloading lowest quality audio...");
+        let r = run_download_audio(downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
+
+    if run_scenario("download_concurrent") {
+        println!("[download_concurrent] Downloading 3 concurrent streams...");
+        let r = run_download_concurrent(downloader, url).await;
+        println!("  done in {} total", fmt_duration(r.total));
+        results.push(r);
+    }
+
+    if run_scenario("postprocess") {
+        println!("[postprocess] Post-processing with H264/AAC...");
+        let r = run_postprocess(downloader, url).await;
+        println!("  done in {}", fmt_duration(r.total));
+        results.push(r);
+    }
+}
+
+#[cfg(cache)]
+async fn run_cache_scenarios(
+    run_scenario: impl Fn(&str) -> bool,
+    real_video: &Video,
+    results: &mut Vec<ScenarioResult>,
+) {
+    if run_scenario("cache_ops") {
+        println!("[cache_ops] Running 500 put+get cycles on in-memory cache...");
+        let r = run_cache_ops(real_video).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
+}
+
+#[cfg(feature = "statistics")]
+async fn run_statistics_scenarios(
+    run_scenario: impl Fn(&str) -> bool,
+    downloader: &Downloader,
+    results: &mut Vec<ScenarioResult>,
+) {
+    if run_scenario("statistics") {
+        println!("[statistics] Snapshotting statistics 1,000 times...");
+        let r = run_statistics(downloader).await;
+        println!(
+            "  done in {} total, {} avg",
+            fmt_duration(r.total),
+            fmt_duration(r.avg())
+        );
+        results.push(r);
+    }
 }
 
 #[tokio::main]
@@ -453,125 +581,14 @@ async fn main() {
         .await
         .expect("failed to fetch real metadata");
 
-    if run_scenario("format_selection") {
-        println!("[format_selection] Running 10,000 iterations on real video...");
-        let r = run_format_selection(&real_video);
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
-
-    if run_scenario("event_bus") {
-        println!("[event_bus] Emitting 10,000 events...");
-        let r = run_event_bus();
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
-
-    // Validation benchmarks (no network, illustrate overhead)
-    if run_scenario("validation") {
-        let inputs = [
-            "https://www.youtube.com/watch?v=gXtp6C-3JKo",
-            "https://youtu.be/jNQXAC9IVRw",
-            "https://vimeo.com/12345",
-            "not-a-url",
-        ];
-        let start = Instant::now();
-        const N: usize = 10_000;
-        for _ in 0..N {
-            for url in &inputs {
-                let _ = validate_youtube_url(url);
-            }
-            let _ = sanitize_filename("My video: great/stuff\\file.mp4");
-            let _ = sanitize_path("downloads/my video.mp4");
-        }
-        results.push(ScenarioResult {
-            name: "validation".to_string(),
-            iterations: N,
-            total: start.elapsed(),
-        });
-    }
-
-    if run_scenario("metadata_cold") {
-        println!("[metadata_cold] Fetching fresh metadata 3 times...");
-        let r = run_metadata_cold(&downloader, url, 3).await;
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
-
-    if run_scenario("metadata_warm") {
-        println!("[metadata_warm] Fetching cached metadata 10 times...");
-        let r = run_metadata_warm(&downloader, url, 10).await;
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
-
-    if run_scenario("download_video") {
-        println!("[download_video] Downloading lowest quality video...");
-        let r = run_download_video(&downloader, url).await;
-        println!("  done in {}", fmt_duration(r.total));
-        results.push(r);
-    }
-
-    if run_scenario("download_audio") {
-        println!("[download_audio] Downloading lowest quality audio...");
-        let r = run_download_audio(&downloader, url).await;
-        println!("  done in {}", fmt_duration(r.total));
-        results.push(r);
-    }
-
-    if run_scenario("download_concurrent") {
-        println!("[download_concurrent] Downloading 3 concurrent streams...");
-        let r = run_download_concurrent(&downloader, url).await;
-        println!("  done in {} total", fmt_duration(r.total));
-        results.push(r);
-    }
-
-    if run_scenario("postprocess") {
-        println!("[postprocess] Post-processing with H264/AAC...");
-        let r = run_postprocess(&downloader, url).await;
-        println!("  done in {}", fmt_duration(r.total));
-        results.push(r);
-    }
+    run_cpu_scenarios(&run_scenario, &real_video, &mut results).await;
+    run_network_scenarios(&run_scenario, &downloader, url, &mut results).await;
 
     #[cfg(cache)]
-    if run_scenario("cache_ops") {
-        println!("[cache_ops] Running 500 put+get cycles on in-memory cache...");
-        let r = run_cache_ops(&real_video).await;
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
+    run_cache_scenarios(&run_scenario, &real_video, &mut results).await;
 
     #[cfg(feature = "statistics")]
-    if run_scenario("statistics") {
-        println!("[statistics] Snapshotting statistics 1,000 times...");
-        let r = run_statistics(&downloader).await;
-        println!(
-            "  done in {} total, {} avg",
-            fmt_duration(r.total),
-            fmt_duration(r.avg())
-        );
-        results.push(r);
-    }
+    run_statistics_scenarios(&run_scenario, &downloader, &mut results).await;
 
     print_results(&results);
 

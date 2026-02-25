@@ -3,9 +3,10 @@
 //! This module provides functionality to detect when URLs (for videos, audio, subtitles)
 //! have expired and need to be refreshed from yt-dlp.
 
-use crate::error::Error;
 use reqwest::StatusCode;
 use typed_builder::TypedBuilder;
+
+use crate::error::Error;
 
 /// Represents the result of a URL expiry check.
 #[derive(Debug, Clone, PartialEq)]
@@ -137,10 +138,7 @@ pub fn check_download_error(error: &Error) -> UrlStatus {
 /// Returns `true` if the URL should be refreshed from yt-dlp
 pub fn should_refresh_url(error: &Error) -> bool {
     let should_refresh = check_download_error(error).is_expired();
-    tracing::debug!(
-        should_refresh = should_refresh,
-        "⚙️ Checked if URL should be refreshed"
-    );
+    tracing::debug!(should_refresh = should_refresh, "⚙️ Checked if URL should be refreshed");
     should_refresh
 }
 

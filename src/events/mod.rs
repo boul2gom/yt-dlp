@@ -65,7 +65,6 @@ mod webhooks;
 mod retry;
 
 #[cfg(feature = "webhooks")]
-pub use webhooks::{WebhookConfig, WebhookDelivery, WebhookMethod};
-
-#[cfg(feature = "webhooks")]
 pub use retry::RetryStrategy;
+#[cfg(feature = "webhooks")]
+pub use webhooks::{WebhookConfig, WebhookDelivery, WebhookMethod};

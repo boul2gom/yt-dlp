@@ -3,6 +3,10 @@
 //! Provides `CachedVideo`, `CachedFile`, `CachedThumbnail` data structures and the
 //! `VideoCache` wrapper that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
 use crate::cache::FormatPreferences;
 #[cfg(has_persistent_cache)]
 use crate::cache::backend::PersistentVideoBackend;
@@ -10,11 +14,8 @@ use crate::cache::backend::VideoBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaVideoCache;
 use crate::error::Result;
-use crate::model::Video;
-use crate::model::utils;
+use crate::model::{Video, utils};
 use crate::utils::current_timestamp;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Structure for storing video metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,11 +192,7 @@ pub struct CachedThumbnail {
 
 impl std::fmt::Display for CachedThumbnail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "CachedThumbnail(id={}, video_id={})",
-            self.id, self.video_id
-        )
+        write!(f, "CachedThumbnail(id={}, video_id={})", self.id, self.video_id)
     }
 }
 

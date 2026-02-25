@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::BroadcastStream;
@@ -145,9 +146,7 @@ impl EventBus {
     /// A Stream that yields events
     pub fn stream(
         &self,
-    ) -> impl Stream<
-        Item = Result<Arc<DownloadEvent>, tokio_stream::wrappers::errors::BroadcastStreamRecvError>,
-    > {
+    ) -> impl Stream<Item = Result<Arc<DownloadEvent>, tokio_stream::wrappers::errors::BroadcastStreamRecvError>> {
         BroadcastStream::new(self.subscribe())
     }
 

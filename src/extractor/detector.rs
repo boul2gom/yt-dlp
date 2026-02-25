@@ -1,7 +1,7 @@
-use crate::error::Result;
-use crate::executor::Executor;
 use std::path::Path;
 
+use crate::error::Result;
+use crate::executor::Executor;
 use crate::extractor::ExtractorName;
 
 /// Detect which extractor type should handle a URL.
@@ -96,11 +96,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
         url.to_string(),
     ];
 
-    let executor = Executor::new(
-        executable_path.to_path_buf(),
-        args,
-        crate::client::DEFAULT_TIMEOUT,
-    );
+    let executor = Executor::new(executable_path.to_path_buf(), args, crate::client::DEFAULT_TIMEOUT);
 
     tracing::debug!(
         url = %url,

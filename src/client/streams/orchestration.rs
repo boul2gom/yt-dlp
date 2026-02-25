@@ -1,3 +1,8 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use futures_util::stream::{FuturesUnordered, StreamExt};
+
 use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
 use crate::error::Error;
@@ -10,12 +15,7 @@ use crate::model::playlist::{Playlist, PlaylistDownloadProgress};
 #[cfg(cache)]
 use crate::model::selector::FormatPreferences;
 use crate::model::selector::{StoryboardQuality, ThumbnailQuality};
-use crate::utils;
-use crate::{DownloadStatus, Downloader};
-
-use futures_util::stream::{FuturesUnordered, StreamExt};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use crate::{DownloadStatus, Downloader, utils};
 
 impl Downloader {
     /// Helper to check if a video is in the cache by URL.
@@ -75,11 +75,7 @@ impl Downloader {
     fn get_extractor(&self, url: &str) -> &dyn crate::extractor::VideoExtractor {
         let is_youtube = crate::extractor::Youtube::supports_url(url);
 
-        tracing::debug!(
-            url = url,
-            is_youtube = is_youtube,
-            "📡 Selecting video extractor"
-        );
+        tracing::debug!(url = url, is_youtube = is_youtube, "📡 Selecting video extractor");
 
         if is_youtube {
             &self.youtube_extractor
@@ -169,30 +165,16 @@ impl Downloader {
     /// # Errors
     ///
     /// Returns an error if the yt-dlp command fails or the output cannot be parsed.
-    pub async fn fetch_video_infos_fresh(
-        &self,
-        url: impl AsRef<str>,
-    ) -> crate::error::Result<Video> {
+    pub async fn fetch_video_infos_fresh(&self, url: impl AsRef<str>) -> crate::error::Result<Video> {
         let url_str = url.as_ref();
 
-        self.fetch_video_infos_internal(
-            url_str,
-            "fetching fresh video information (bypassing cache)",
-        )
-        .await
+        self.fetch_video_infos_internal(url_str, "fetching fresh video information (bypassing cache)")
+            .await
     }
 
     /// Internal helper to fetch video information, emit events, and update cache.
-    async fn fetch_video_infos_internal(
-        &self,
-        url: &str,
-        log_message: &str,
-    ) -> crate::error::Result<Video> {
-        tracing::debug!(
-            url = url,
-            message = log_message,
-            "📡 Fetching video information"
-        );
+    async fn fetch_video_infos_internal(&self, url: &str, log_message: &str) -> crate::error::Result<Video> {
+        tracing::debug!(url = url, message = log_message, "📡 Fetching video information");
 
         let start = std::time::Instant::now();
         let result = self.get_extractor(url).fetch_video(url).await;
@@ -291,11 +273,7 @@ impl Downloader {
     ///
     /// * `url` - The URL of the video.
     /// * `action` - A closure that takes a `Video` and returns a Future.
-    pub async fn execute_with_retry<T, F, Fut>(
-        &self,
-        url: String,
-        action: F,
-    ) -> crate::error::Result<T>
+    pub async fn execute_with_retry<T, F, Fut>(&self, url: String, action: F) -> crate::error::Result<T>
     where
         F: Fn(Video) -> Fut + Send + Sync + Clone,
         Fut: Future<Output = crate::error::Result<T>> + Send,
@@ -343,11 +321,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn download_video(
-        &self,
-        video: &Video,
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
+    pub async fn download_video(&self, video: &Video, output: impl AsRef<str>) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_video_to_path(video, &output_path).await
     }
@@ -384,21 +358,17 @@ impl Downloader {
             }
         }
 
-        let best_video = video
-            .best_video_format()
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Video,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let best_video = video.best_video_format().ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Video,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
-        let best_audio = video
-            .best_audio_format()
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Audio,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let best_audio = video.best_audio_format().ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Audio,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         // Download and combine video and audio, embedding metadata in a single ffmpeg pass
         self.download_and_combine_with_meta(video, best_video, best_audio, &path)
@@ -433,20 +403,14 @@ impl Downloader {
     /// # Returns
     ///
     /// The path to the downloaded file.
-    pub async fn download_video_stream(
-        &self,
-        video: &Video,
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
+    pub async fn download_video_stream(&self, video: &Video, output: impl AsRef<str>) -> crate::error::Result<PathBuf> {
         tracing::debug!(title = video.title, "📥 Downloading video stream");
 
-        let best_video = video
-            .best_video_format()
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Video,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let best_video = video.best_video_format().ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Video,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         self.download_format(best_video, output).await
     }
@@ -468,13 +432,11 @@ impl Downloader {
     ) -> crate::error::Result<PathBuf> {
         tracing::debug!(title = video.title, "📥 Downloading video stream to path");
 
-        let best_video = video
-            .best_video_format()
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Video,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let best_video = video.best_video_format().ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Video,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         self.download_format_to_path(best_video, output).await
     }
@@ -503,22 +465,18 @@ impl Downloader {
             "🖼️ Downloading thumbnail for {}", video.title
         );
 
-        let thumbnail =
-            video
-                .select_thumbnail(quality)
-                .ok_or_else(|| crate::error::Error::NoThumbnail {
-                    video_id: video.id.clone(),
-                })?;
+        let thumbnail = video
+            .select_thumbnail(quality)
+            .ok_or_else(|| crate::error::Error::NoThumbnail {
+                video_id: video.id.clone(),
+            })?;
 
-        let http_headers = self
-            .user_agent
-            .clone()
-            .map(|ua| crate::model::format::HttpHeaders {
-                user_agent: ua,
-                accept: "*/*".to_string(),
-                accept_language: "en-US,en".to_string(),
-                sec_fetch_mode: "navigate".to_string(),
-            });
+        let http_headers = self.user_agent.clone().map(|ua| crate::model::format::HttpHeaders {
+            user_agent: ua,
+            accept: "*/*".to_string(),
+            accept_language: "en-US,en".to_string(),
+            sec_fetch_mode: "navigate".to_string(),
+        });
 
         let id = self
             .download_manager
@@ -536,13 +494,8 @@ impl Downloader {
                 id,
                 format!("Thumbnail download failed: {}", reason),
             )),
-            Some(DownloadStatus::Canceled) => {
-                Err(crate::error::Error::DownloadCancelled { download_id: id })
-            }
-            _ => Err(crate::error::Error::download_failed(
-                id,
-                "Unexpected download status",
-            )),
+            Some(DownloadStatus::Canceled) => Err(crate::error::Error::DownloadCancelled { download_id: id }),
+            _ => Err(crate::error::Error::download_failed(id, "Unexpected download status")),
         }
     }
 
@@ -556,14 +509,9 @@ impl Downloader {
     /// # Returns
     ///
     /// The path to the downloaded file.
-    pub async fn download_audio_stream(
-        &self,
-        video: &Video,
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
+    pub async fn download_audio_stream(&self, video: &Video, output: impl AsRef<str>) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
-        self.download_audio_stream_to_path(video, &output_path)
-            .await
+        self.download_audio_stream_to_path(video, &output_path).await
     }
 
     /// Fetch the audio stream, download it to a specific path.
@@ -583,13 +531,11 @@ impl Downloader {
     ) -> crate::error::Result<PathBuf> {
         tracing::debug!(title = video.title, "📥 Downloading audio stream");
 
-        let best_audio = video
-            .best_audio_format()
-            .ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type: FormatType::Audio,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let best_audio = video.best_audio_format().ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type: FormatType::Audio,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         self.download_format_to_path(best_audio, output).await
     }
@@ -604,11 +550,7 @@ impl Downloader {
     /// # Returns
     ///
     /// The path to the downloaded file.
-    pub async fn download_format(
-        &self,
-        format: &Format,
-        output: impl AsRef<str>,
-    ) -> crate::error::Result<PathBuf> {
+    pub async fn download_format(&self, format: &Format, output: impl AsRef<str>) -> crate::error::Result<PathBuf> {
         let output_path = self.output_dir.join(output.as_ref());
         self.download_format_to_path(format, &output_path).await
     }
@@ -686,17 +628,10 @@ impl Downloader {
         }
 
         // Check if URL is available
-        let url = format
-            .download_info
-            .url
-            .clone()
-            .ok_or_else(|| Error::FormatNoUrl {
-                video_id: format
-                    .video_id
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
-                format_id: format.format_id.clone(),
-            })?;
+        let url = format.download_info.url.clone().ok_or_else(|| Error::FormatNoUrl {
+            video_id: format.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
+            format_id: format.format_id.clone(),
+        })?;
 
         // Create an optimized fetcher with parallel downloading, driven by the configured SpeedProfile
         let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)?
@@ -723,13 +658,7 @@ impl Downloader {
                 if let Some(video_id) = format.video_id.as_ref()
                     && let Err(_e) = cache
                         .downloads
-                        .put_file_with_preferences(
-                            path,
-                            output_str,
-                            Some(video_id.clone()),
-                            Some(format),
-                            &preferences,
-                        )
+                        .put_file_with_preferences(path, output_str, Some(video_id.clone()), Some(format), &preferences)
                         .await
                 {
                     tracing::warn!(error = %_e, "Failed to cache format with preferences");
@@ -765,21 +694,14 @@ impl Downloader {
     ) -> crate::error::Result<PathBuf> {
         let language_code = language_code.as_ref();
 
-        tracing::debug!(
-            video_id = video.id,
-            language = language_code,
-            "💬 Downloading subtitle"
-        );
+        tracing::debug!(video_id = video.id, language = language_code, "💬 Downloading subtitle");
 
         let output_path = self.output_dir.join(output.as_ref());
 
         // Check if subtitle is in the cache
         #[cfg(cache)]
         if let Some(cache) = &self.cache
-            && let Some((_, cached_path)) = cache
-                .downloads
-                .get_subtitle_by_language(&video.id, language_code)
-                .await
+            && let Some((_, cached_path)) = cache.downloads.get_subtitle_by_language(&video.id, language_code).await
         {
             tracing::debug!(
                 video_id = video.id,
@@ -795,43 +717,33 @@ impl Downloader {
         // Resolve subtitles for the language: prefer user-uploaded subtitles,
         // then fall back to automatic captions (e.g. YouTube auto-generated).
         let owned_fallback: Vec<crate::model::caption::Subtitle>;
-        let subtitles: &[crate::model::caption::Subtitle] =
-            if let Some(subs) = video.subtitles.get(language_code) {
-                subs.as_slice()
-            } else if fallback_to_automatic {
-                if let Some(captions) = video.automatic_captions.get(language_code) {
-                    owned_fallback = captions
-                        .iter()
-                        .map(|c| {
-                            crate::model::caption::Subtitle::from_automatic_caption(
-                                c,
-                                language_code.to_string(),
-                            )
-                        })
-                        .collect();
-                    owned_fallback.as_slice()
-                } else {
-                    return Err(Error::SubtitleNotAvailable {
-                        video_id: video.id.clone(),
-                        language: language_code.to_string(),
-                    });
-                }
+        let subtitles: &[crate::model::caption::Subtitle] = if let Some(subs) = video.subtitles.get(language_code) {
+            subs.as_slice()
+        } else if fallback_to_automatic {
+            if let Some(captions) = video.automatic_captions.get(language_code) {
+                owned_fallback = captions
+                    .iter()
+                    .map(|c| crate::model::caption::Subtitle::from_automatic_caption(c, language_code.to_string()))
+                    .collect();
+                owned_fallback.as_slice()
             } else {
                 return Err(Error::SubtitleNotAvailable {
                     video_id: video.id.clone(),
                     language: language_code.to_string(),
                 });
-            };
+            }
+        } else {
+            return Err(Error::SubtitleNotAvailable {
+                video_id: video.id.clone(),
+                language: language_code.to_string(),
+            });
+        };
 
         // Prefer SRT format, then VTT, then any available format
         let subtitle = subtitles
             .iter()
             .find(|s| s.is_format(&CaptionExtension::Srt))
-            .or_else(|| {
-                subtitles
-                    .iter()
-                    .find(|s| s.is_format(&CaptionExtension::Vtt))
-            })
+            .or_else(|| subtitles.iter().find(|s| s.is_format(&CaptionExtension::Vtt)))
             .or_else(|| subtitles.first())
             .ok_or_else(|| Error::SubtitleNotAvailable {
                 video_id: video.id.clone(),
@@ -847,11 +759,7 @@ impl Downloader {
         // Cache the downloaded subtitle
         #[cfg(cache)]
         if let Some(cache) = &self.cache {
-            tracing::debug!(
-                video_id = video.id,
-                language = language_code,
-                "🔍 Caching subtitle"
-            );
+            tracing::debug!(video_id = video.id, language = language_code, "🔍 Caching subtitle");
 
             if let Err(_e) = cache
                 .downloads
@@ -902,18 +810,14 @@ impl Downloader {
         let mut downloaded_files = Vec::new();
 
         // Merge language sources: manual subtitles take priority over automatic captions
-        let mut all_languages: std::collections::HashMap<
-            &str,
-            Vec<crate::model::caption::Subtitle>,
-        > = std::collections::HashMap::new();
+        let mut all_languages: std::collections::HashMap<&str, Vec<crate::model::caption::Subtitle>> =
+            std::collections::HashMap::new();
 
         if fallback_to_automatic {
             for (lang, captions) in &video.automatic_captions {
                 let subs: Vec<_> = captions
                     .iter()
-                    .map(|c| {
-                        crate::model::caption::Subtitle::from_automatic_caption(c, lang.clone())
-                    })
+                    .map(|c| crate::model::caption::Subtitle::from_automatic_caption(c, lang.clone()))
                     .collect();
                 all_languages.entry(lang.as_str()).or_insert(subs);
             }
@@ -928,22 +832,13 @@ impl Downloader {
             let Some(subtitle) = subtitles
                 .iter()
                 .find(|s| s.is_format(&CaptionExtension::Srt))
-                .or_else(|| {
-                    subtitles
-                        .iter()
-                        .find(|s| s.is_format(&CaptionExtension::Vtt))
-                })
+                .or_else(|| subtitles.iter().find(|s| s.is_format(&CaptionExtension::Vtt)))
                 .or_else(|| subtitles.first())
             else {
                 continue;
             };
 
-            let filename = format!(
-                "{}.{}.{}",
-                video.id,
-                language_code,
-                subtitle.file_extension()
-            );
+            let filename = format!("{}.{}.{}", video.id, language_code, subtitle.file_extension());
             let output_path = output_dir.join(&filename);
 
             tracing::debug!(
@@ -1001,17 +896,10 @@ impl Downloader {
             });
         }
 
-        let fragments = format
-            .storyboard_info
-            .fragments
-            .as_deref()
-            .unwrap_or_default();
+        let fragments = format.storyboard_info.fragments.as_deref().unwrap_or_default();
 
         // Use video_id when available (set by the library), fall back to format_id
-        let prefix = format
-            .video_id
-            .as_deref()
-            .unwrap_or(format.format_id.as_str());
+        let prefix = format.video_id.as_deref().unwrap_or(format.format_id.as_str());
 
         tracing::debug!(
             video_id = prefix,
@@ -1061,10 +949,7 @@ impl Downloader {
                     return Err(crate::error::Error::DownloadCancelled { download_id: id });
                 }
                 _ => {
-                    return Err(crate::error::Error::download_failed(
-                        id,
-                        "Unexpected download status",
-                    ));
+                    return Err(crate::error::Error::download_failed(id, "Unexpected download status"));
                 }
             }
         }
@@ -1151,10 +1036,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_playlist_infos(
-        &self,
-        url: impl AsRef<str>,
-    ) -> crate::error::Result<Playlist> {
+    pub async fn fetch_playlist_infos(&self, url: impl AsRef<str>) -> crate::error::Result<Playlist> {
         let url_str = url.as_ref();
         tracing::info!(url = url_str, "📋 Fetching playlist information");
 
@@ -1221,11 +1103,7 @@ impl Downloader {
         if let Some(cache) = &self.cache {
             tracing::debug!(url = url_str, "🔍 Caching playlist information");
 
-            if let Err(_e) = cache
-                .playlists
-                .put(url_str.to_string(), playlist.clone())
-                .await
-            {
+            if let Err(_e) = cache.playlists.put(url_str.to_string(), playlist.clone()).await {
                 tracing::warn!(error = %_e, "Failed to cache playlist information");
             }
         }
@@ -1392,155 +1270,45 @@ impl Downloader {
         loop {
             // Spawn tasks up to max_concurrent limit
             while tasks.len() < max_concurrent {
-                if let Some(entry) = entry_iter.next() {
-                    if !entry.is_available() {
-                        tracing::warn!(
-                            title = entry.title,
-                            id = entry.id,
-                            "📋 Skipping unavailable video"
-                        );
-
-                        let entry_clone = entry.clone();
-                        completed += 1;
-
-                        self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
-                            playlist_id: playlist.id.clone(),
-                            index: entry.index.unwrap_or(0),
-                            total: total_videos,
-                            video_id: entry.id.clone(),
-                            error: format!("Video {} is not available", entry.id),
-                        })
-                        .await;
-
-                        // Call progress callback for unavailable video
-                        if let Some(callback) = &progress_callback {
-                            callback(PlaylistDownloadProgress {
-                                entry: entry_clone.clone(),
-                                result: Err(format!("Video {} is not available", entry_clone.id)),
-                                completed,
-                                total: total_videos,
-                            });
-                        }
-
-                        results.push(Err(Error::video_fetch(
-                            &entry.url,
-                            format!("Video {} is not available", entry.id),
-                        )));
-                        continue;
-                    }
-
-                    let entry = entry.clone();
-                    let output_pattern = output_pattern.clone();
-                    let youtube = self.clone();
-                    let _callback = progress_callback.clone();
-                    let playlist_id = playlist.id.clone();
-
-                    self.emit_event(crate::events::DownloadEvent::PlaylistItemStarted {
-                        playlist_id: playlist_id.clone(),
-                        index: entry.index.unwrap_or(0),
-                        total: total_videos,
-                        video_id: entry.id.clone(),
-                    })
-                    .await;
-
-                    let task = tokio::spawn(async move {
-                        tracing::debug!(
-                            video_id = entry.id,
-                            index = entry.index.unwrap_or(0),
-                            "📥 Downloading video from playlist"
-                        );
-
-                        // Fetch full video info
-                        let video_result = youtube.fetch_video_infos(entry.url.clone()).await;
-                        let video = match video_result {
-                            Ok(v) => v,
-                            Err(e) => return (entry, Err(e)),
-                        };
-
-                        // Generate filename from pattern
-                        let filename = output_pattern
-                            .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
-                            .replace("%(title)s", &entry.title)
-                            .replace("%(id)s", &entry.id);
-
-                        // Download the video
-                        let download_result = youtube.download_video(&video, &filename).await;
-
-                        if download_result.is_ok() {
-                            tracing::info!(
-                                title = entry.title,
-                                index = entry.index.unwrap_or(0),
-                                "✅ Downloaded video from playlist"
-                            );
-                        }
-
-                        (entry, download_result)
-                    });
-
-                    tasks.push(task);
-                } else {
-                    // No more entries to spawn
+                let Some(entry) = entry_iter.next() else {
                     break;
+                };
+
+                if !entry.is_available() {
+                    completed += 1;
+                    self.handle_unavailable_playlist_entry(
+                        entry,
+                        playlist,
+                        total_videos,
+                        completed,
+                        &progress_callback,
+                        &mut results,
+                    )
+                    .await;
+                    continue;
                 }
+
+                let task = self
+                    .spawn_playlist_download_task(entry, &output_pattern, playlist, total_videos)
+                    .await;
+                tasks.push(task);
             }
 
-            // If no tasks running and no more entries, we're done
             if tasks.is_empty() {
                 break;
             }
 
-            // Wait for next task to complete
             if let Some(result) = tasks.next().await {
                 completed += 1;
-
-                match result {
-                    Ok((entry, download_result)) => {
-                        match &download_result {
-                            Ok(path) => {
-                                self.emit_event(
-                                    crate::events::DownloadEvent::PlaylistItemCompleted {
-                                        playlist_id: playlist.id.clone(),
-                                        index: entry.index.unwrap_or(0),
-                                        total: total_videos,
-                                        video_id: entry.id.clone(),
-                                        output_path: path.clone(),
-                                    },
-                                )
-                                .await;
-                            }
-                            Err(e) => {
-                                self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
-                                    playlist_id: playlist.id.clone(),
-                                    index: entry.index.unwrap_or(0),
-                                    total: total_videos,
-                                    video_id: entry.id.clone(),
-                                    error: e.to_string(),
-                                })
-                                .await;
-                            }
-                        }
-
-                        // Call progress callback
-                        if let Some(callback) = &progress_callback {
-                            let result_for_progress = download_result
-                                .as_ref()
-                                .map(|p| p.clone())
-                                .map_err(|e| e.to_string());
-
-                            callback(PlaylistDownloadProgress {
-                                entry,
-                                result: result_for_progress,
-                                completed,
-                                total: total_videos,
-                            });
-                        }
-
-                        results.push(download_result);
-                    }
-                    Err(e) => {
-                        results.push(Err(Error::runtime("playlist download task", e)));
-                    }
-                }
+                self.handle_playlist_task_result(
+                    result,
+                    playlist,
+                    total_videos,
+                    completed,
+                    &progress_callback,
+                    &mut results,
+                )
+                .await;
             }
         }
 
@@ -1565,6 +1333,162 @@ impl Downloader {
         );
 
         Ok(results)
+    }
+
+    async fn handle_unavailable_playlist_entry<F>(
+        &self,
+        entry: &crate::model::playlist::PlaylistEntry,
+        playlist: &Playlist,
+        total_videos: usize,
+        completed: usize,
+        progress_callback: &Option<Arc<F>>,
+        results: &mut Vec<crate::error::Result<PathBuf>>,
+    ) where
+        F: Fn(PlaylistDownloadProgress) + Send + Sync + 'static,
+    {
+        tracing::warn!(title = entry.title, id = entry.id, "📋 Skipping unavailable video");
+
+        self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
+            playlist_id: playlist.id.clone(),
+            index: entry.index.unwrap_or(0),
+            total: total_videos,
+            video_id: entry.id.clone(),
+            error: format!("Video {} is not available", entry.id),
+        })
+        .await;
+
+        if let Some(callback) = progress_callback {
+            callback(PlaylistDownloadProgress {
+                entry: entry.clone(),
+                result: Err(format!("Video {} is not available", entry.id)),
+                completed,
+                total: total_videos,
+            });
+        }
+
+        results.push(Err(Error::video_fetch(
+            &entry.url,
+            format!("Video {} is not available", entry.id),
+        )));
+    }
+
+    async fn spawn_playlist_download_task(
+        &self,
+        entry: &crate::model::playlist::PlaylistEntry,
+        output_pattern: &str,
+        playlist: &Playlist,
+        total_videos: usize,
+    ) -> tokio::task::JoinHandle<(crate::model::playlist::PlaylistEntry, crate::error::Result<PathBuf>)> {
+        let entry = entry.clone();
+        let output_pattern = output_pattern.to_string();
+        let youtube = self.clone();
+        let playlist_id = playlist.id.clone();
+
+        self.emit_event(crate::events::DownloadEvent::PlaylistItemStarted {
+            playlist_id,
+            index: entry.index.unwrap_or(0),
+            total: total_videos,
+            video_id: entry.id.clone(),
+        })
+        .await;
+
+        tokio::spawn(async move {
+            tracing::debug!(
+                video_id = entry.id,
+                index = entry.index.unwrap_or(0),
+                "📥 Downloading video from playlist"
+            );
+
+            let video = match youtube.fetch_video_infos(entry.url.clone()).await {
+                Ok(v) => v,
+                Err(e) => return (entry, Err(e)),
+            };
+
+            let filename = output_pattern
+                .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
+                .replace("%(title)s", &entry.title)
+                .replace("%(id)s", &entry.id);
+
+            let download_result = youtube.download_video(&video, &filename).await;
+
+            if download_result.is_ok() {
+                tracing::info!(
+                    title = entry.title,
+                    index = entry.index.unwrap_or(0),
+                    "✅ Downloaded video from playlist"
+                );
+            }
+
+            (entry, download_result)
+        })
+    }
+
+    async fn handle_playlist_task_result<F>(
+        &self,
+        result: std::result::Result<
+            (crate::model::playlist::PlaylistEntry, crate::error::Result<PathBuf>),
+            tokio::task::JoinError,
+        >,
+        playlist: &Playlist,
+        total_videos: usize,
+        completed: usize,
+        progress_callback: &Option<Arc<F>>,
+        results: &mut Vec<crate::error::Result<PathBuf>>,
+    ) where
+        F: Fn(PlaylistDownloadProgress) + Send + Sync + 'static,
+    {
+        match result {
+            Ok((entry, download_result)) => {
+                self.emit_playlist_item_event(&entry, &download_result, playlist, total_videos)
+                    .await;
+
+                if let Some(callback) = progress_callback {
+                    let result_for_progress = download_result.as_ref().map(|p| p.clone()).map_err(|e| e.to_string());
+                    callback(PlaylistDownloadProgress {
+                        entry,
+                        result: result_for_progress,
+                        completed,
+                        total: total_videos,
+                    });
+                }
+
+                results.push(download_result);
+            }
+            Err(e) => {
+                results.push(Err(Error::runtime("playlist download task", e)));
+            }
+        }
+    }
+
+    async fn emit_playlist_item_event(
+        &self,
+        entry: &crate::model::playlist::PlaylistEntry,
+        download_result: &crate::error::Result<PathBuf>,
+        playlist: &Playlist,
+        total_videos: usize,
+    ) {
+        match download_result {
+            Ok(path) => {
+                self.emit_event(crate::events::DownloadEvent::PlaylistItemCompleted {
+                    playlist_id: playlist.id.clone(),
+                    index: entry.index.unwrap_or(0),
+                    total: total_videos,
+                    video_id: entry.id.clone(),
+                    output_path: path.clone(),
+                })
+                .await;
+            }
+            Err(e) => {
+                self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
+                    playlist_id: playlist.id.clone(),
+                    index: entry.index.unwrap_or(0),
+                    total: total_videos,
+                    video_id: entry.id.clone(),
+                    error: e.to_string(),
+                })
+                .await;
+            }
+        }
     }
 
     /// Downloads specific videos from a playlist by their indices.
@@ -1595,11 +1519,7 @@ impl Downloader {
         for &index in indices {
             if let Some(entry) = playlist.get_entry_by_index(index) {
                 if !entry.is_available() {
-                    tracing::warn!(
-                        index = index,
-                        title = entry.title,
-                        "📋 Skipping unavailable video"
-                    );
+                    tracing::warn!(index = index, title = entry.title, "📋 Skipping unavailable video");
                     continue;
                 }
 
@@ -1657,11 +1577,7 @@ impl Downloader {
 
         for entry in entries {
             if !entry.is_available() {
-                tracing::warn!(
-                    title = entry.title,
-                    id = entry.id,
-                    "📋 Skipping unavailable video"
-                );
+                tracing::warn!(title = entry.title, id = entry.id, "📋 Skipping unavailable video");
                 continue;
             }
 
@@ -1724,10 +1640,7 @@ impl Downloader {
         let output_path = self.output_dir.join(output.as_ref());
 
         // Try yt-dlp approach first
-        match self
-            .try_download_partial_ytdlp(video, &time_range, &output_path)
-            .await
-        {
+        match self.try_download_partial_ytdlp(video, &time_range, &output_path).await {
             Ok(path) => {
                 tracing::info!("✅ Partial video downloaded via yt-dlp");
                 Ok(path)
@@ -1736,8 +1649,7 @@ impl Downloader {
                 tracing::warn!(error = %_e, "🔄 yt-dlp partial download failed, trying ffmpeg fallback");
 
                 // Fallback to ffmpeg approach
-                self.download_partial_ffmpeg(video, &time_range, &output_path)
-                    .await
+                self.download_partial_ffmpeg(video, &time_range, &output_path).await
             }
         }
     }
@@ -1783,9 +1695,9 @@ impl Downloader {
         output_path: &Path,
     ) -> crate::error::Result<PathBuf> {
         // Get time range
-        let (start_time, end_time) = range.get_times().ok_or_else(|| {
-            Error::Unknown("Cannot extract time boundaries from partial range".to_string())
-        })?;
+        let (start_time, end_time) = range
+            .get_times()
+            .ok_or_else(|| Error::Unknown("Cannot extract time boundaries from partial range".to_string()))?;
 
         // Download full video to temporary file
         let temp_filename = format!("temp_full_{}.mp4", utils::fs::random_filename(8));
@@ -1861,10 +1773,7 @@ impl Downloader {
         let audio_temp_path = audio_result?;
 
         // Combine audio and video
-        let output_filename = output_path
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("output.mp4");
+        let output_filename = output_path.file_name().and_then(|f| f.to_str()).unwrap_or("output.mp4");
 
         let combined_path = self
             .combine_audio_and_video(&audio_filename, &video_filename, output_filename)
@@ -1873,10 +1782,7 @@ impl Downloader {
         // If the user specified a different directory than output_dir, move the file
         if combined_path != output_path {
             utils::create_parent_dir(output_path).await?;
-            if tokio::fs::rename(&combined_path, output_path)
-                .await
-                .is_err()
-            {
+            if tokio::fs::rename(&combined_path, output_path).await.is_err() {
                 // rename fails across filesystems, fall back to copy+delete
                 tokio::fs::copy(&combined_path, output_path).await?;
                 tokio::fs::remove_file(&combined_path).await?;
@@ -1931,17 +1837,16 @@ impl Downloader {
         // Build FFMETADATA1 file with global metadata and chapters for a single-pass embed.
         // Errors are non-fatal: we fall back to combining without metadata.
         let video_clone = video.clone();
-        let metadata_file = tokio::task::spawn_blocking(move || {
-            MetadataManager::create_combined_metadata_file(&video_clone)
-        })
-        .await
-        .ok()
-        .and_then(|r| {
-            if let Err(ref e) = r {
-                tracing::warn!(error = %e, "Failed to build metadata file for combine");
-            }
-            r.ok()
-        });
+        let metadata_file =
+            tokio::task::spawn_blocking(move || MetadataManager::create_combined_metadata_file(&video_clone))
+                .await
+                .ok()
+                .and_then(|r| {
+                    if let Err(ref e) = r {
+                        tracing::warn!(error = %e, "Failed to build metadata file for combine");
+                    }
+                    r.ok()
+                });
 
         let operation = crate::events::PostProcessOperation::CombineStreams {
             audio_path: audio_temp_path.clone(),

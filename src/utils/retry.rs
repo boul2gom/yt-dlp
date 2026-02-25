@@ -4,6 +4,7 @@
 //! due to network issues or temporary unavailability.
 
 use std::time::Duration;
+
 use tokio::time::sleep;
 use typed_builder::TypedBuilder;
 
@@ -12,8 +13,9 @@ use typed_builder::TypedBuilder;
 /// # Examples
 ///
 /// ```rust
-/// use yt_dlp::utils::retry::RetryPolicy;
 /// use std::time::Duration;
+///
+/// use yt_dlp::utils::retry::RetryPolicy;
 ///
 /// let policy = RetryPolicy::builder()
 ///     .max_attempts(5)
@@ -58,10 +60,12 @@ impl RetryPolicy {
     /// # use yt_dlp::error::Result;
     /// # async fn example() -> Result<String> {
     /// let policy = RetryPolicy::default();
-    /// let result = policy.execute(|| async {
-    ///     // Your async operation here
-    ///     Ok::<_, yt_dlp::error::Error>("success".to_string())
-    /// }).await?;
+    /// let result = policy
+    ///     .execute(|| async {
+    ///         // Your async operation here
+    ///         Ok::<_, yt_dlp::error::Error>("success".to_string())
+    ///     })
+    ///     .await?;
     /// # Ok(result)
     /// # }
     /// ```
@@ -84,11 +88,7 @@ impl RetryPolicy {
     /// # Returns
     ///
     /// The result of the operation, or the last error if all retries fail or a non-retryable error occurs.
-    pub async fn execute_with_condition<F, Fut, T, E, P>(
-        &self,
-        mut operation: F,
-        is_retryable: P,
-    ) -> Result<T, E>
+    pub async fn execute_with_condition<F, Fut, T, E, P>(&self, mut operation: F, is_retryable: P) -> Result<T, E>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, E>>,
@@ -99,11 +99,7 @@ impl RetryPolicy {
 
         for attempt in 0..self.max_attempts {
             if attempt > 0 {
-                tracing::debug!(
-                    attempt = attempt + 1,
-                    max = self.max_attempts,
-                    "🔄 Retry attempt"
-                );
+                tracing::debug!(attempt = attempt + 1, max = self.max_attempts, "🔄 Retry attempt");
             }
 
             match operation().await {
@@ -142,8 +138,7 @@ impl RetryPolicy {
         }
 
         // All retries failed, return the last error
-        Err(last_error
-            .unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
+        Err(last_error.unwrap_or_else(|| unreachable!("retry loop exited without recording an error")))
     }
 
     /// Get the maximum number of attempts.
@@ -198,8 +193,7 @@ impl RetryPolicy {
     /// * `attempt` - The retry attempt number (0-based)
     fn calculate_delay(&self, attempt: u32) -> Duration {
         // Calculate exponential backoff: initial_delay * (backoff_factor ^ attempt)
-        let base_delay =
-            self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
+        let base_delay = self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
 
         // Cap at max_delay
         let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);

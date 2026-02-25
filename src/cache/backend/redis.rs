@@ -4,6 +4,10 @@
 //! distributed environments. Redis handles TTL expiration natively via `SETEX`.
 //! File content is NOT stored in Redis — only metadata. Files are stored on disk.
 
+use std::path::{Path, PathBuf};
+
+use redis::AsyncCommands;
+
 use super::{FileBackend, PlaylistBackend, VideoBackend};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
@@ -11,8 +15,6 @@ use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
-use redis::AsyncCommands;
-use std::path::{Path, PathBuf};
 
 const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
 const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
@@ -49,8 +51,7 @@ impl RedisVideoCache {
 
         tracing::debug!(redis_url = url, "🔧 Connecting to Redis for video cache");
 
-        let client = redis::Client::open(url.as_str())
-            .map_err(|e| crate::error::Error::redis("connect", e))?;
+        let client = redis::Client::open(url.as_str()).map_err(|e| crate::error::Error::redis("connect", e))?;
 
         // Test connection
         let mut conn = client
@@ -97,11 +98,7 @@ impl VideoBackend for RedisVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        tracing::debug!(
-            url = url,
-            video_id = video.id,
-            "⚙️ Caching video to Redis backend"
-        );
+        tracing::debug!(url = url, video_id = video.id, "⚙️ Caching video to Redis backend");
 
         let mut conn = self.conn().await?;
         let cached = CachedVideo::from((url.clone(), video));
@@ -188,8 +185,7 @@ impl RedisPlaylistCache {
     /// Creates a new Redis playlist cache.
     pub async fn new(redis_url: impl Into<String>, ttl: Option<u64>) -> Result<Self> {
         let url = redis_url.into();
-        let client = redis::Client::open(url.as_str())
-            .map_err(|e| crate::error::Error::redis("connect", e))?;
+        let client = redis::Client::open(url.as_str()).map_err(|e| crate::error::Error::redis("connect", e))?;
 
         Ok(Self {
             client,
@@ -226,10 +222,7 @@ impl PlaylistBackend for RedisPlaylistCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(
-            playlist_id = id,
-            "🔍 Looking up playlist by ID in Redis cache"
-        );
+        tracing::debug!(playlist_id = id, "🔍 Looking up playlist by ID in Redis cache");
 
         let mut conn = self.conn().await?;
         let key = id_key(PREFIX_PLAYLIST_ID, id);
@@ -324,11 +317,7 @@ impl PlaylistBackend for RedisPlaylistCache {
             .await
             .map_err(|e| crate::error::Error::redis("scan playlist id keys", e))?;
 
-        let all_keys: Vec<&str> = keys
-            .iter()
-            .chain(keys_id.iter())
-            .map(|s| s.as_str())
-            .collect();
+        let all_keys: Vec<&str> = keys.iter().chain(keys_id.iter()).map(|s| s.as_str()).collect();
         if !all_keys.is_empty() {
             conn.del::<_, ()>(all_keys)
                 .await
@@ -351,14 +340,9 @@ pub struct RedisFileCache {
 
 impl RedisFileCache {
     /// Creates a new Redis file cache.
-    pub async fn new(
-        redis_url: impl Into<String>,
-        cache_dir: PathBuf,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
+    pub async fn new(redis_url: impl Into<String>, cache_dir: PathBuf, ttl: Option<u64>) -> Result<Self> {
         let url = redis_url.into();
-        let client = redis::Client::open(url.as_str())
-            .map_err(|e| crate::error::Error::redis("connect", e))?;
+        let client = redis::Client::open(url.as_str()).map_err(|e| crate::error::Error::redis("connect", e))?;
 
         if !cache_dir.exists() {
             tokio::fs::create_dir_all(&cache_dir).await?;
@@ -398,11 +382,7 @@ impl FileBackend for RedisFileCache {
         None
     }
 
-    async fn get_by_video_and_format(
-        &self,
-        video_id: &str,
-        format_id: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -430,19 +410,12 @@ impl FileBackend for RedisFileCache {
         video_id: &str,
         preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
-        tracing::debug!(
-            video_id = video_id,
-            "🔍 Looking for file by preferences in Redis cache"
-        );
+        tracing::debug!(video_id = video_id, "🔍 Looking for file by preferences in Redis cache");
 
         // Scan all file keys for this video and check preferences
         let mut conn = self.conn().await.ok()?;
         let pattern = format!("{}vf:{}:*", PREFIX_FILE, video_id);
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
-            .await
-            .ok()?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.ok()?;
 
         for key in keys {
             let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
@@ -534,14 +507,8 @@ impl FileBackend for RedisFileCache {
         Ok(())
     }
 
-    async fn get_thumbnail_by_video_id(
-        &self,
-        video_id: &str,
-    ) -> Option<(CachedThumbnail, PathBuf)> {
-        tracing::debug!(
-            video_id = video_id,
-            "🔍 Looking for thumbnail in Redis cache"
-        );
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+        tracing::debug!(video_id = video_id, "🔍 Looking for thumbnail in Redis cache");
 
         let mut conn = self.conn().await.ok()?;
         let key = id_key(PREFIX_THUMBNAIL, video_id);
@@ -558,11 +525,7 @@ impl FileBackend for RedisFileCache {
         None
     }
 
-    async fn put_thumbnail(
-        &self,
-        thumbnail: CachedThumbnail,
-        source_path: &Path,
-    ) -> Result<PathBuf> {
+    async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
         tracing::debug!(
             thumbnail_id = thumbnail.id,
             video_id = thumbnail.video_id,
@@ -593,11 +556,7 @@ impl FileBackend for RedisFileCache {
         Ok(dest_path)
     }
 
-    async fn get_subtitle_by_language(
-        &self,
-        video_id: &str,
-        language: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
             language = language,

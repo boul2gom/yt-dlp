@@ -1,6 +1,5 @@
 use std::fmt;
 use std::path::PathBuf;
-
 use std::time::Duration;
 
 use crate::download::DownloadPriority;
@@ -86,16 +85,10 @@ pub enum DownloadEvent {
     },
 
     /// Metadata has been applied to a file
-    MetadataApplied {
-        path: PathBuf,
-        metadata_type: MetadataType,
-    },
+    MetadataApplied { path: PathBuf, metadata_type: MetadataType },
 
     /// Chapters have been embedded into a file
-    ChaptersEmbedded {
-        path: PathBuf,
-        chapters: Vec<Chapter>,
-    },
+    ChaptersEmbedded { path: PathBuf, chapters: Vec<Chapter> },
 
     /// Post-processing has started
     PostProcessStarted {
@@ -208,10 +201,7 @@ impl fmt::Display for MetadataType {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum PostProcessOperation {
     /// Combining audio and video streams
-    CombineStreams {
-        audio_path: PathBuf,
-        video_path: PathBuf,
-    },
+    CombineStreams { audio_path: PathBuf, video_path: PathBuf },
     /// Converting audio format
     ConvertAudio { target_format: String },
     /// Embedding subtitles
@@ -258,9 +248,7 @@ impl DownloadEvent {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::DownloadCompleted { .. }
-                | Self::DownloadFailed { .. }
-                | Self::DownloadCanceled { .. }
+            Self::DownloadCompleted { .. } | Self::DownloadFailed { .. } | Self::DownloadCanceled { .. }
         )
     }
 

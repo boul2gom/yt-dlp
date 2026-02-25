@@ -6,12 +6,14 @@
 //!
 //! The `Downloader` struct automatically detects and uses the appropriate extractor.
 
+use std::fmt;
+
+use async_trait::async_trait;
+use downcast_rs::{Downcast, impl_downcast};
+
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
-use async_trait::async_trait;
-use downcast_rs::{Downcast, impl_downcast};
-use std::fmt;
 
 /// Identifies which extractor implementation is in use.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -137,13 +139,14 @@ pub trait ExtractorBase: VideoExtractor {
     }
 }
 
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
 pub use detector::detect_extractor_type;
 pub use generic::Generic;
 pub use youtube::Youtube;
 
 use crate::executor::Executor;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 /// Helper to execute the extractor command and parse the output as a Video.
 ///
@@ -166,11 +169,7 @@ use std::time::Duration;
 /// # Errors
 ///
 /// Returns an error if execution fails, JSON parsing fails, or the operation times out
-pub async fn execute_and_parse_video(
-    executable_path: PathBuf,
-    args: &[String],
-    timeout: Duration,
-) -> Result<Video> {
+pub async fn execute_and_parse_video(executable_path: PathBuf, args: &[String], timeout: Duration) -> Result<Video> {
     tracing::debug!(
         executable = ?executable_path,
         arg_count = args.len(),
@@ -183,9 +182,7 @@ pub async fn execute_and_parse_video(
     // Create a temporary directory to store the output JSON
     // This avoids loading the entire JSON into memory as a string
     let temp_dir = tempfile::tempdir()?;
-    let output_path = temp_dir
-        .path()
-        .join(format!("video_{}.json", uuid::Uuid::new_v4()));
+    let output_path = temp_dir.path().join(format!("video_{}.json", uuid::Uuid::new_v4()));
 
     tracing::debug!(
         executable = ?executable_path,
@@ -266,9 +263,7 @@ pub async fn execute_and_parse_playlist(
 
     // Create a temporary directory to store the output JSON
     let temp_dir = tempfile::tempdir()?;
-    let output_path = temp_dir
-        .path()
-        .join(format!("playlist_{}.json", uuid::Uuid::new_v4()));
+    let output_path = temp_dir.path().join(format!("playlist_{}.json", uuid::Uuid::new_v4()));
 
     tracing::debug!(
         executable = ?executable_path,

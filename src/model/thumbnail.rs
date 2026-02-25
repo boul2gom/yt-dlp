@@ -1,8 +1,9 @@
 //! Thumbnails-related models.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use serde::{Deserialize, Serialize};
 
 /// Represents a thumbnail of a YouTube video.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

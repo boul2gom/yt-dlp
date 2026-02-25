@@ -1,11 +1,10 @@
-use crate::Downloader;
+use std::path::PathBuf;
 
+use crate::Downloader;
 use crate::executor::Executor;
 #[cfg(cache)]
 use crate::metadata::MetadataManager;
 use crate::model::format::Format;
-
-use std::path::PathBuf;
 
 impl Downloader {
     /// Embeds subtitle files into a video file using ffmpeg.
@@ -112,10 +111,7 @@ impl Downloader {
         // Add language metadata for each subtitle stream
         for (i, &language_code) in language_codes.iter().enumerate() {
             if i < subtitle_paths.len() {
-                builder = builder.args([
-                    format!("-metadata:s:s:{}", i),
-                    format!("language={}", language_code),
-                ]);
+                builder = builder.args([format!("-metadata:s:s:{}", i), format!("language={}", language_code)]);
 
                 tracing::debug!(
                     language = language_code,
@@ -126,10 +122,7 @@ impl Downloader {
             }
         }
 
-        let args = builder
-            .codec_copy()
-            .output(output_path.to_string_lossy())
-            .build();
+        let args = builder.codec_copy().output(output_path.to_string_lossy()).build();
 
         tracing::debug!(
             args = ?args,

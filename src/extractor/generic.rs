@@ -3,9 +3,10 @@
 //! This extractor provides universal video downloading from 1,800+ sites
 //! with optional authentication support.
 
-use async_trait::async_trait;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use async_trait::async_trait;
 
 use crate::error::Result;
 use crate::extractor::{ExtractorBase, VideoExtractor};
@@ -110,8 +111,7 @@ impl Generic {
             "⚙️ Adding extractor-specific arguments"
         );
 
-        self.args
-            .push(format!("--extractor-args={}:{}", extractor, args));
+        self.args.push(format!("--extractor-args={}:{}", extractor, args));
         self
     }
 

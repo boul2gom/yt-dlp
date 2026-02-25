@@ -172,6 +172,8 @@ jobs:
     needs: [check_updates, check_status]
     if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || github.event.inputs.force_release == 'true') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       resolved_type: ${{ steps.resolve.outputs.resolved_type }}
     steps:
@@ -413,25 +415,3 @@ jobs:
           draft: false
           prerelease: false
           body: ${{ steps.generate_release_notes.outputs.release_notes }}
-
-  trigger-workflow:
-    name: 🚀 Trigger CI-Prod Workflow
-    runs-on: ubuntu-latest
-    needs: create_release
-    permissions:
-      actions: write
-
-    steps:
-      - name: 🔐 Generate ephemeral token from GitHub App
-        id: app-token
-        uses: actions/create-github-app-token@v2.2.1
-        with:
-          app-id: ${{ secrets.CI_APP_ID }}
-          private-key: ${{ secrets.CI_APP_KEY }}
-          
-      - name: 🔌 Trigger CI-Prod Workflow
-        uses: benc-uk/workflow-dispatch@v1.3.1
-        with:
-          workflow: ci-prod.yml
-          token: ${{ steps.app-token.outputs.token }}
-          inputs: '{ "tag": "v${{ needs.create_release.outputs.version }}" }'

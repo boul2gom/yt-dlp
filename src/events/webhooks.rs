@@ -1,8 +1,9 @@
-use reqwest::Client;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+
+use reqwest::Client;
+use serde::Serialize;
 use tokio::sync::{RwLock, mpsc};
 
 use super::{DownloadEvent, EventFilter, RetryStrategy};
@@ -321,11 +322,7 @@ impl WebhookDelivery {
             tracing::debug!("⚙️ Webhook delivery worker stopped");
         });
 
-        Self {
-            client,
-            webhooks,
-            tx,
-        }
+        Self { client, webhooks, tx }
     }
 
     /// Registers a new webhook
@@ -466,11 +463,7 @@ impl WebhookDelivery {
     /// # Returns
     ///
     /// Ok(()) on success, Err with error message on failure
-    async fn send_webhook(
-        client: &Client,
-        config: &WebhookConfig,
-        payload: &WebhookPayload,
-    ) -> Result<(), String> {
+    async fn send_webhook(client: &Client, config: &WebhookConfig, payload: &WebhookPayload) -> Result<(), String> {
         tracing::debug!(
             url = %config.url,
             method = ?config.method,
@@ -499,10 +492,7 @@ impl WebhookDelivery {
         request = request.timeout(config.timeout);
 
         // Send request
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {}", e))?;
+        let response = request.send().await.map_err(|e| format!("Request failed: {}", e))?;
 
         // Check status code
         if !response.status().is_success() {

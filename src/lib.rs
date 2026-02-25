@@ -1,20 +1,21 @@
 #![doc = include_str!("../README.md")]
 
+use std::fmt::{self, Display};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+#[cfg(cache)]
+use cache::{CacheConfig, CacheLayer, DownloadCache};
+
 use crate::client::deps::{Libraries, LibraryInstaller};
 use crate::download::PostProcessConfig;
 use crate::download::manager::ManagerConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::extractor::ExtractorConfig;
-use crate::extractor::ExtractorName;
+use crate::extractor::{ExtractorConfig, ExtractorName};
 use crate::metadata::MetadataManager;
 use crate::utils::fs;
-#[cfg(cache)]
-use cache::{CacheConfig, CacheLayer, DownloadCache};
-use std::fmt::{self, Display};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
 
 // Core modules
 #[cfg(cache)]
@@ -45,18 +46,15 @@ pub mod macros;
 pub mod prelude;
 
 // Re-export of common traits to facilitate their use
-use crate::model::Video;
-use crate::model::format::Format;
-use crate::model::format::FormatType;
-use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
 pub use client::streams::selection::VideoSelection;
-pub use model::utils::{AllTraits, CommonTraits};
-
 // Re-export main types for easy access
 pub use client::{DownloadBuilder, DownloaderBuilder};
 pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
+pub use model::utils::{AllTraits, CommonTraits};
+
+use crate::model::Video;
+use crate::model::format::{Format, FormatType};
+use crate::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 
 /// Universal video downloader supporting 1,800+ sites via yt-dlp.
 ///
@@ -82,12 +80,12 @@ pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
-/// let downloader = Downloader::builder(libraries, "output")
-///     .build()
-///     .await?;
+/// let downloader = Downloader::builder(libraries, "output").build().await?;
 ///
 /// // YouTube is automatically detected and optimized
-/// let video = downloader.fetch_video_infos("https://youtube.com/watch?v=...".to_string()).await?;
+/// let video = downloader
+///     .fetch_video_infos("https://youtube.com/watch?v=...".to_string())
+///     .await?;
 /// downloader.download_video(&video, "video.mp4").await?;
 /// # Ok(())
 /// # }
@@ -202,11 +200,7 @@ pub struct Downloader {
 ///
 /// The optional `audio_codec` hint (e.g. `"mp4a.40.2"`, `"opus"`) takes precedence over
 /// the file extension heuristic, providing robustness against extension deserialization issues.
-fn audio_codec_for_mux(
-    audio_path: &Path,
-    output_path: &Path,
-    audio_codec: Option<&str>,
-) -> &'static str {
+fn audio_codec_for_mux(audio_path: &Path, output_path: &Path, audio_codec: Option<&str>) -> &'static str {
     let audio_ext = audio_path
         .extension()
         .and_then(|e| e.to_str())
@@ -328,11 +322,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn download<'a>(
-        &'a self,
-        video: &'a Video,
-        output: impl Into<PathBuf>,
-    ) -> DownloadBuilder<'a> {
+    pub fn download<'a>(&'a self, video: &'a Video, output: impl Into<PathBuf>) -> DownloadBuilder<'a> {
         DownloadBuilder::new(self, video, output)
     }
 
@@ -359,10 +349,10 @@ impl Downloader {
     /// let executables_dir = PathBuf::from("libs");
     /// let output_dir = PathBuf::from("output");
     ///
-    /// let downloader = Downloader::with_new_binaries(
-    ///     executables_dir,
-    ///     output_dir
-    /// ).await?.build().await?;
+    /// let downloader = Downloader::with_new_binaries(executables_dir, output_dir)
+    ///     .await?
+    ///     .build()
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -494,9 +484,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// let args = vec!["--no-progress".to_string()];
     /// downloader.with_args(args);
@@ -529,9 +517,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// // Set a longer timeout for large videos
     /// downloader.with_timeout(Duration::from_secs(300));
@@ -563,9 +549,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// downloader.with_arg("--no-progress");
     /// # Ok(())
@@ -603,10 +587,7 @@ impl Downloader {
     ///
     /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
     pub fn with_cookies_from_browser(&mut self, browser: impl AsRef<str>) -> &mut Self {
-        tracing::debug!(
-            browser = browser.as_ref(),
-            "🔧 Configuring browser cookie extraction"
-        );
+        tracing::debug!(browser = browser.as_ref(), "🔧 Configuring browser cookie extraction");
         let b = browser.as_ref();
         self.youtube_extractor.with_cookies_from_browser(b);
         self.generic_extractor.with_cookies_from_browser(b);
@@ -649,9 +630,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// downloader.update_downloader().await?;
     /// # Ok(())
@@ -662,11 +641,7 @@ impl Downloader {
 
         let args = vec!["--update"];
 
-        let executor = Executor::new(
-            self.libraries.youtube.clone(),
-            utils::to_owned(args),
-            self.timeout,
-        );
+        let executor = Executor::new(self.libraries.youtube.clone(), utils::to_owned(args), self.timeout);
 
         executor.execute().await?;
         Ok(())
@@ -699,20 +674,24 @@ impl Downloader {
     /// # let yt_dlp = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(yt_dlp, ffmpeg);
-    /// let downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     /// let video = downloader.fetch_video_infos(url).await?;
     ///
     /// let audio_format = video.best_audio_format().unwrap();
-    /// let audio_path = downloader.download_format(&audio_format, "audio-stream.mp3").await?;
+    /// let audio_path = downloader
+    ///     .download_format(&audio_format, "audio-stream.mp3")
+    ///     .await?;
     ///
     /// let video_format = video.worst_video_format().unwrap();
-    /// let format_path = downloader.download_format(&video_format, "video-stream.mp4").await?;
+    /// let format_path = downloader
+    ///     .download_format(&video_format, "video-stream.mp4")
+    ///     .await?;
     ///
-    /// let output_path = downloader.combine_audio_and_video("audio-stream.mp3", "video-stream.mp4", "my-output.mp4").await?;
+    /// let output_path = downloader
+    ///     .combine_audio_and_video("audio-stream.mp3", "video-stream.mp4", "my-output.mp4")
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -902,8 +881,7 @@ impl Downloader {
         let video_path: PathBuf = video_path.into();
         let output_path: PathBuf = output_path.into();
 
-        let video_id =
-            self.extract_video_id_from_file_paths(video_path.as_path(), audio_path.as_path());
+        let video_id = self.extract_video_id_from_file_paths(video_path.as_path(), audio_path.as_path());
 
         if let Some(video_id) = video_id
             && let Some(video) = self.get_video_by_id(&video_id).await
@@ -1066,9 +1044,7 @@ impl Downloader {
     /// # let youtube = libraries_dir.join("yt-dlp");
     /// # let ffmpeg = libraries_dir.join("ffmpeg");
     /// # let libraries = Libraries::new(youtube, ffmpeg);
-    /// let mut downloader = Downloader::builder(libraries, output_dir)
-    ///     .build()
-    ///     .await?;
+    /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// // Enable caching with default TTLs
     /// let config = CacheConfig::builder()
@@ -1163,10 +1139,7 @@ impl Downloader {
         let url = format.url()?;
 
         // Add to download queue
-        let download_id = self
-            .download_manager
-            .enqueue(url, output_path, priority)
-            .await;
+        let download_id = self.download_manager.enqueue(url, output_path, priority).await;
 
         tracing::debug!(
             video_id = video.id,
@@ -1256,12 +1229,7 @@ impl Downloader {
         // Add to download queue with progress callback
         let download_id = self
             .download_manager
-            .enqueue_with_progress(
-                url,
-                output_path,
-                Some(DownloadPriority::Normal),
-                progress_callback,
-            )
+            .enqueue_with_progress(url, output_path, Some(DownloadPriority::Normal), progress_callback)
             .await;
 
         tracing::debug!(
@@ -1578,12 +1546,11 @@ impl Downloader {
             stream_type_name
         );
 
-        let format =
-            select_format(video, quality, codec).ok_or_else(|| Error::FormatNotAvailable {
-                video_id: video.id.clone(),
-                format_type,
-                available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
-            })?;
+        let format = select_format(video, quality, codec).ok_or_else(|| Error::FormatNotAvailable {
+            video_id: video.id.clone(),
+            format_type,
+            available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
+        })?;
 
         self.download_format_to_path(&format, &output).await
     }
@@ -1606,15 +1573,9 @@ impl Downloader {
         quality: VideoQuality,
         codec: VideoCodecPreference,
     ) -> Result<PathBuf> {
-        self.download_stream_with_quality(
-            video,
-            output,
-            quality,
-            codec,
-            "video",
-            FormatType::Video,
-            |v, q, c| v.select_video_format(q, c).cloned(),
-        )
+        self.download_stream_with_quality(video, output, quality, codec, "video", FormatType::Video, |v, q, c| {
+            v.select_video_format(q, c).cloned()
+        })
         .await
     }
 
@@ -1683,15 +1644,9 @@ impl Downloader {
         quality: AudioQuality,
         codec: AudioCodecPreference,
     ) -> Result<PathBuf> {
-        self.download_stream_with_quality(
-            video,
-            output,
-            quality,
-            codec,
-            "audio",
-            FormatType::Audio,
-            |v, q, c| v.select_audio_format(q, c).cloned(),
-        )
+        self.download_stream_with_quality(video, output, quality, codec, "audio", FormatType::Audio, |v, q, c| {
+            v.select_audio_format(q, c).cloned()
+        })
         .await
     }
 
@@ -1762,8 +1717,7 @@ impl Downloader {
     pub async fn detect_extractor(&self, url: &str) -> Result<ExtractorName> {
         tracing::debug!(url = url, "📡 Detecting extractor for URL");
 
-        let extractor =
-            extractor::detector::detect_extractor_type(url, &self.libraries.youtube).await?;
+        let extractor = extractor::detector::detect_extractor_type(url, &self.libraries.youtube).await?;
 
         tracing::debug!(
             url = url,
@@ -1845,16 +1799,13 @@ impl Downloader {
     ///     .fetch("https://youtube.com/watch?v=gXtp6C-3JKo")
     ///     .await?;
     ///
-    /// downloader.download_and_continue(&video, "output.mp4")
+    /// downloader
+    ///     .download_and_continue(&video, "output.mp4")
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn download_and_continue(
-        self,
-        video: &Video,
-        output: impl AsRef<str>,
-    ) -> Result<Self> {
+    pub async fn download_and_continue(self, video: &Video, output: impl AsRef<str>) -> Result<Self> {
         tracing::debug!(
             video_id = video.id,
             video_title = video.title,
@@ -1878,11 +1829,7 @@ impl Downloader {
     ///
     /// * `video` - The video to download
     /// * `output` - The full output path
-    pub async fn download_and_continue_to_path(
-        self,
-        video: &Video,
-        output: impl Into<PathBuf>,
-    ) -> Result<Self> {
+    pub async fn download_and_continue_to_path(self, video: &Video, output: impl Into<PathBuf>) -> Result<Self> {
         let output_path = output.into();
 
         tracing::debug!(
@@ -1894,10 +1841,7 @@ impl Downloader {
 
         self.download_video_to_path(video, output_path).await?;
 
-        tracing::debug!(
-            video_id = video.id,
-            "✅ Video downloaded to path (fluent API)"
-        );
+        tracing::debug!(video_id = video.id, "✅ Video downloaded to path (fluent API)");
 
         Ok(self)
     }
@@ -1918,10 +1862,13 @@ impl Downloader {
     /// Downloader::builder(libs, "output")
     ///     .build()
     ///     .await?
-    ///     .pipeline("https://youtube.com/watch?v=gXtp6C-3JKo", |yt, video| async move {
-    ///         yt.download_video(&video, "video.mp4").await?;
-    ///         Ok(yt)
-    ///     })
+    ///     .pipeline(
+    ///         "https://youtube.com/watch?v=gXtp6C-3JKo",
+    ///         |yt, video| async move {
+    ///             yt.download_video(&video, "video.mp4").await?;
+    ///             Ok(yt)
+    ///         },
+    ///     )
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -2010,8 +1957,7 @@ impl Downloader {
             "✂️ Applying post-processing to video"
         );
 
-        self.postprocess_video_to_path(input, output_path, config)
-            .await
+        self.postprocess_video_to_path(input, output_path, config).await
     }
 
     /// Applies post-processing to a video file, saving to a specific path.
@@ -2045,14 +1991,9 @@ impl Downloader {
             "✂️ Applying post-processing to video file"
         );
 
-        let result = metadata::postprocess::apply_postprocess(
-            input_path,
-            output_path,
-            &config,
-            &self.libraries,
-            self.timeout,
-        )
-        .await?;
+        let result =
+            metadata::postprocess::apply_postprocess(input_path, output_path, &config, &self.libraries, self.timeout)
+                .await?;
 
         tracing::info!(
             output = ?result,
@@ -2207,10 +2148,7 @@ impl Downloader {
     /// # }
     /// ```
     pub async fn register_hook(&mut self, hook: impl events::EventHook + 'static) {
-        tracing::debug!(
-            has_registry = self.hook_registry.is_some(),
-            "🔔 Registering event hook"
-        );
+        tracing::debug!(has_registry = self.hook_registry.is_some(), "🔔 Registering event hook");
 
         if let Some(ref mut registry) = self.hook_registry {
             registry.register(hook).await;

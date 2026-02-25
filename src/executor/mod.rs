@@ -5,12 +5,13 @@
 pub mod ffmpeg;
 pub mod process;
 
+use std::path::PathBuf;
+use std::time::Duration;
+
 pub use ffmpeg::{FfmpegArgs, run_ffmpeg_with_tempfile};
 pub use process::{ProcessOutput, execute_command};
 
 use crate::error::Result;
-use std::path::PathBuf;
-use std::time::Duration;
 
 /// Represents a command executor.
 ///
@@ -182,13 +183,8 @@ impl Executor {
             "⚙️ Executing command to file"
         );
 
-        let result = process::execute_command_to_file(
-            &self.executable_path,
-            &self.args,
-            self.timeout,
-            &output_path,
-        )
-        .await;
+        let result =
+            process::execute_command_to_file(&self.executable_path, &self.args, self.timeout, &output_path).await;
 
         match &result {
             Ok(output) => tracing::debug!(

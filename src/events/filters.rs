@@ -1,5 +1,6 @@
-use super::types::DownloadEvent;
 use std::sync::Arc;
+
+use super::types::DownloadEvent;
 
 /// Type alias for event filter predicates
 type FilterPredicate = Arc<dyn Fn(&DownloadEvent) -> bool + Send + Sync>;
@@ -21,9 +22,7 @@ impl EventFilter {
     pub fn all() -> Self {
         tracing::debug!("⚙️ Creating EventFilter that accepts all events");
 
-        Self {
-            predicates: Vec::new(),
-        }
+        Self { predicates: Vec::new() }
     }
 
     /// Creates a filter that only accepts events with the specified download ID
@@ -54,9 +53,7 @@ impl EventFilter {
         tracing::debug!("⚙️ Creating EventFilter for terminal events");
 
         let mut filter = Self::all();
-        filter
-            .predicates
-            .push(Arc::new(|event| event.is_terminal()));
+        filter.predicates.push(Arc::new(|event| event.is_terminal()));
         filter
     }
 
@@ -84,9 +81,9 @@ impl EventFilter {
         tracing::debug!("⚙️ Creating EventFilter for failed downloads");
 
         let mut filter = Self::all();
-        filter.predicates.push(Arc::new(|event| {
-            matches!(event, DownloadEvent::DownloadFailed { .. })
-        }));
+        filter
+            .predicates
+            .push(Arc::new(|event| matches!(event, DownloadEvent::DownloadFailed { .. })));
         filter
     }
 
@@ -99,9 +96,7 @@ impl EventFilter {
         tracing::debug!("⚙️ Creating EventFilter for progress events");
 
         let mut filter = Self::all();
-        filter
-            .predicates
-            .push(Arc::new(|event| event.is_progress()));
+        filter.predicates.push(Arc::new(|event| event.is_progress()));
         filter
     }
 
@@ -193,11 +188,7 @@ impl EventFilter {
 
     /// Creates a filter for post-processing events
     pub fn only_post_process() -> Self {
-        Self::any_of(&[
-            "post_process_started",
-            "post_process_completed",
-            "post_process_failed",
-        ])
+        Self::any_of(&["post_process_started", "post_process_completed", "post_process_failed"])
     }
 }
 

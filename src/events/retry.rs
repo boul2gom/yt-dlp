@@ -96,8 +96,7 @@ impl RetryStrategy {
             return Duration::from_secs(0);
         }
 
-        let delay_secs =
-            self.initial_delay.as_secs_f64() * self.backoff_multiplier.powi(attempt as i32);
+        let delay_secs = self.initial_delay.as_secs_f64() * self.backoff_multiplier.powi(attempt as i32);
 
         let result = Duration::from_secs_f64(delay_secs.min(self.max_delay.as_secs_f64()));
 

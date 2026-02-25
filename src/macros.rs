@@ -17,18 +17,14 @@
 #[macro_export]
 macro_rules! youtube {
     ($yt_dlp:expr, $ffmpeg:expr, $output:expr) => {{
-        let libraries = $crate::client::Libraries::new(
-            std::path::PathBuf::from($yt_dlp),
-            std::path::PathBuf::from($ffmpeg),
-        );
+        let libraries =
+            $crate::client::Libraries::new(std::path::PathBuf::from($yt_dlp), std::path::PathBuf::from($ffmpeg));
         $crate::Downloader::builder(libraries, $output).build()
     }};
 
     ($yt_dlp:expr, $ffmpeg:expr, $output:expr, cache: $cache:expr) => {{
-        let libraries = $crate::client::Libraries::new(
-            std::path::PathBuf::from($yt_dlp),
-            std::path::PathBuf::from($ffmpeg),
-        );
+        let libraries =
+            $crate::client::Libraries::new(std::path::PathBuf::from($yt_dlp), std::path::PathBuf::from($ffmpeg));
         $crate::Downloader::builder(libraries, $output)
             .with_cache($cache)
             .build()
@@ -73,6 +69,7 @@ macro_rules! ytdlp_args {
 macro_rules! install_libraries {
     ($dir:expr) => {{
         use std::path::PathBuf;
+
         use $crate::client::Libraries;
         use $crate::client::deps::LibraryInstaller;
 
@@ -88,6 +85,7 @@ macro_rules! install_libraries {
 
     ($dir:expr, token: $token:expr) => {{
         use std::path::PathBuf;
+
         use $crate::client::Libraries;
         use $crate::client::deps::LibraryInstaller;
 

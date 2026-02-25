@@ -1,13 +1,15 @@
+use std::cmp::Ordering;
+
+use ordered_float::OrderedFloat;
+
 use crate::Downloader;
 use crate::model::Video;
 use crate::model::format::{Format, FormatType};
 use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference,
-    VideoQuality, matches_audio_codec, matches_video_codec,
+    AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference, VideoQuality,
+    matches_audio_codec, matches_video_codec,
 };
 use crate::model::thumbnail::Thumbnail;
-use ordered_float::OrderedFloat;
-use std::cmp::Ordering;
 
 /// Trait for selecting video, audio, and storyboard formats from a Video.
 pub trait VideoSelection {
@@ -88,11 +90,7 @@ pub trait VideoSelection {
     /// # Returns
     ///
     /// The best-matching video format, or `None` if no video formats exist.
-    fn select_video_format(
-        &self,
-        quality: VideoQuality,
-        codec: VideoCodecPreference,
-    ) -> Option<&Format>;
+    fn select_video_format(&self, quality: VideoQuality, codec: VideoCodecPreference) -> Option<&Format>;
 
     /// Selects an audio format based on quality and codec preferences.
     ///
@@ -107,11 +105,7 @@ pub trait VideoSelection {
     /// # Returns
     ///
     /// The best-matching audio format, or `None` if no audio formats exist.
-    fn select_audio_format(
-        &self,
-        quality: AudioQuality,
-        codec: AudioCodecPreference,
-    ) -> Option<&Format>;
+    fn select_audio_format(&self, quality: AudioQuality, codec: AudioCodecPreference) -> Option<&Format>;
 
     /// Returns all storyboard formats, ordered from best to worst quality.
     ///
@@ -287,11 +281,7 @@ impl VideoSelection for Video {
     }
 
     /// Selects a video format based on quality preference and codec preference.
-    fn select_video_format(
-        &self,
-        quality: VideoQuality,
-        codec: VideoCodecPreference,
-    ) -> Option<&Format> {
+    fn select_video_format(&self, quality: VideoQuality, codec: VideoCodecPreference) -> Option<&Format> {
         tracing::debug!(
             video_id = %self.id,
             quality = ?quality,
@@ -320,41 +310,23 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_video_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() {
-                &video_formats
-            } else {
-                &filtered
-            }
+            if filtered.is_empty() { &video_formats } else { &filtered }
         };
 
         // Select based on quality preference
         match quality {
-            VideoQuality::Best => active
-                .iter()
-                .copied()
-                .max_by(|a, b| self.compare_video_formats(a, b)),
-            VideoQuality::Worst => active
-                .iter()
-                .copied()
-                .min_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Best => active.iter().copied().max_by(|a, b| self.compare_video_formats(a, b)),
+            VideoQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_video_formats(a, b)),
             VideoQuality::High => select_closest_video_height(active.iter().copied(), 1080, self),
             VideoQuality::Medium => select_closest_video_height(active.iter().copied(), 720, self),
             VideoQuality::Low => select_closest_video_height(active.iter().copied(), 480, self),
-            VideoQuality::CustomHeight(height) => {
-                select_closest_video_height(active.iter().copied(), height, self)
-            }
-            VideoQuality::CustomWidth(width) => {
-                select_closest_video_width(active.iter().copied(), width, self)
-            }
+            VideoQuality::CustomHeight(height) => select_closest_video_height(active.iter().copied(), height, self),
+            VideoQuality::CustomWidth(width) => select_closest_video_width(active.iter().copied(), width, self),
         }
     }
 
     /// Selects an audio format based on quality preference and codec preference.
-    fn select_audio_format(
-        &self,
-        quality: AudioQuality,
-        codec: AudioCodecPreference,
-    ) -> Option<&Format> {
+    fn select_audio_format(&self, quality: AudioQuality, codec: AudioCodecPreference) -> Option<&Format> {
         tracing::debug!(
             video_id = %self.id,
             quality = ?quality,
@@ -383,29 +355,17 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_audio_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() {
-                &audio_formats
-            } else {
-                &filtered
-            }
+            if filtered.is_empty() { &audio_formats } else { &filtered }
         };
 
         // Select based on quality preference
         match quality {
-            AudioQuality::Best => active
-                .iter()
-                .copied()
-                .max_by(|a, b| self.compare_audio_formats(a, b)),
-            AudioQuality::Worst => active
-                .iter()
-                .copied()
-                .min_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Best => active.iter().copied().max_by(|a, b| self.compare_audio_formats(a, b)),
+            AudioQuality::Worst => active.iter().copied().min_by(|a, b| self.compare_audio_formats(a, b)),
             AudioQuality::High => select_closest_audio_bitrate(active.iter().copied(), 192, self),
             AudioQuality::Medium => select_closest_audio_bitrate(active.iter().copied(), 128, self),
             AudioQuality::Low => select_closest_audio_bitrate(active.iter().copied(), 96, self),
-            AudioQuality::CustomBitrate(bitrate) => {
-                select_closest_audio_bitrate(active.iter().copied(), bitrate, self)
-            }
+            AudioQuality::CustomBitrate(bitrate) => select_closest_audio_bitrate(active.iter().copied(), bitrate, self),
         }
     }
 
@@ -429,10 +389,8 @@ impl VideoSelection for Video {
         formats.sort_by(|a, b| {
             let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, |v| v.len());
             let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, |v| v.len());
-            let a_area = a.video_resolution.width.unwrap_or(0) as u64
-                * a.video_resolution.height.unwrap_or(0) as u64;
-            let b_area = b.video_resolution.width.unwrap_or(0) as u64
-                * b.video_resolution.height.unwrap_or(0) as u64;
+            let a_area = a.video_resolution.width.unwrap_or(0) as u64 * a.video_resolution.height.unwrap_or(0) as u64;
+            let b_area = b.video_resolution.width.unwrap_or(0) as u64 * b.video_resolution.height.unwrap_or(0) as u64;
             b_frags.cmp(&a_frags).then_with(|| b_area.cmp(&a_area))
         });
 
@@ -458,10 +416,7 @@ impl VideoSelection for Video {
     }
 
     /// Selects a thumbnail based on quality preference.
-    fn select_thumbnail(
-        &self,
-        quality: ThumbnailQuality,
-    ) -> Option<&crate::model::thumbnail::Thumbnail> {
+    fn select_thumbnail(&self, quality: ThumbnailQuality) -> Option<&crate::model::thumbnail::Thumbnail> {
         tracing::debug!(
             video_id = %self.id,
             quality = ?quality,
@@ -472,9 +427,7 @@ impl VideoSelection for Video {
         match quality {
             ThumbnailQuality::Best => self.best_thumbnail(),
             ThumbnailQuality::Worst => self.worst_thumbnail(),
-            ThumbnailQuality::MinimumResolution(width, height) => {
-                self.thumbnail_for_size(width, height)
-            }
+            ThumbnailQuality::MinimumResolution(width, height) => self.thumbnail_for_size(width, height),
         }
     }
 }
@@ -490,11 +443,7 @@ impl VideoSelection for Video {
 /// # Returns
 ///
 /// The format with the closest height to the target, or None if no formats available
-fn select_closest_video_height<'a, I>(
-    formats: I,
-    target_height: u32,
-    video: &Video,
-) -> Option<&'a Format>
+fn select_closest_video_height<'a, I>(formats: I, target_height: u32, video: &Video) -> Option<&'a Format>
 where
     I: Iterator<Item = &'a Format> + Clone,
 {
@@ -506,28 +455,13 @@ where
 
     let closest_above = formats
         .clone()
-        .filter(|format| {
-            format
-                .video_resolution
-                .height
-                .is_some_and(|h| h >= target_height)
-        })
+        .filter(|format| format.video_resolution.height.is_some_and(|h| h >= target_height))
         .min_by(|a, b| {
-            let a_diff = a
-                .video_resolution
-                .height
-                .unwrap_or(0)
-                .saturating_sub(target_height);
-            let b_diff = b
-                .video_resolution
-                .height
-                .unwrap_or(0)
-                .saturating_sub(target_height);
+            let a_diff = a.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
+            let b_diff = b.video_resolution.height.unwrap_or(0).saturating_sub(target_height);
 
             // Compare difference then quality
-            a_diff
-                .cmp(&b_diff)
-                .then_with(|| video.compare_video_formats(a, b))
+            a_diff.cmp(&b_diff).then_with(|| video.compare_video_formats(a, b))
         });
 
     if let Some(closest) = closest_above {
@@ -540,9 +474,7 @@ where
         let b_height = b.video_resolution.height.unwrap_or(0);
 
         // Compare height then quality
-        a_height
-            .cmp(&b_height)
-            .then_with(|| video.compare_video_formats(a, b))
+        a_height.cmp(&b_height).then_with(|| video.compare_video_formats(a, b))
     })
 }
 
@@ -557,11 +489,7 @@ where
 /// # Returns
 ///
 /// The format with the closest width to the target, or None if no formats available
-fn select_closest_video_width<'a, I>(
-    formats: I,
-    target_width: u32,
-    video: &Video,
-) -> Option<&'a Format>
+fn select_closest_video_width<'a, I>(formats: I, target_width: u32, video: &Video) -> Option<&'a Format>
 where
     I: Iterator<Item = &'a Format> + Clone,
 {
@@ -573,28 +501,13 @@ where
 
     let closest_above = formats
         .clone()
-        .filter(|format| {
-            format
-                .video_resolution
-                .width
-                .is_some_and(|w| w >= target_width)
-        })
+        .filter(|format| format.video_resolution.width.is_some_and(|w| w >= target_width))
         .min_by(|a, b| {
-            let a_diff = a
-                .video_resolution
-                .width
-                .unwrap_or(0)
-                .saturating_sub(target_width);
-            let b_diff = b
-                .video_resolution
-                .width
-                .unwrap_or(0)
-                .saturating_sub(target_width);
+            let a_diff = a.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
+            let b_diff = b.video_resolution.width.unwrap_or(0).saturating_sub(target_width);
 
             // Compare difference then quality
-            a_diff
-                .cmp(&b_diff)
-                .then_with(|| video.compare_video_formats(a, b))
+            a_diff.cmp(&b_diff).then_with(|| video.compare_video_formats(a, b))
         });
 
     if let Some(closest) = closest_above {
@@ -607,9 +520,7 @@ where
         let b_width = b.video_resolution.width.unwrap_or(0);
 
         // Compare width then quality
-        a_width
-            .cmp(&b_width)
-            .then_with(|| video.compare_video_formats(a, b))
+        a_width.cmp(&b_width).then_with(|| video.compare_video_formats(a, b))
     })
 }
 
@@ -624,11 +535,7 @@ where
 /// # Returns
 ///
 /// The format with the closest bitrate to the target, or None if no formats available
-fn select_closest_audio_bitrate<'a, I>(
-    formats: I,
-    target_bitrate: u32,
-    video: &Video,
-) -> Option<&'a Format>
+fn select_closest_audio_bitrate<'a, I>(formats: I, target_bitrate: u32, video: &Video) -> Option<&'a Format>
 where
     I: Iterator<Item = &'a Format> + Clone,
 {
@@ -642,12 +549,7 @@ where
 
     let closest_above = formats
         .clone()
-        .filter(|format| {
-            format
-                .rates_info
-                .audio_rate
-                .is_some_and(|r| r >= target_float)
-        })
+        .filter(|format| format.rates_info.audio_rate.is_some_and(|r| r >= target_float))
         .min_by(|a, b| {
             let a_rate = a.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
             let b_rate = b.rates_info.audio_rate.unwrap_or(OrderedFloat(0.0));
@@ -723,7 +625,6 @@ impl Downloader {
     ///
     /// `true` if subtitles or automatic captions are available in the specified language.
     pub fn has_subtitle_language(&self, video: &Video, language_code: &str) -> bool {
-        video.subtitles.contains_key(language_code)
-            || video.automatic_captions.contains_key(language_code)
+        video.subtitles.contains_key(language_code) || video.automatic_captions.contains_key(language_code)
     }
 }

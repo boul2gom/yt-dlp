@@ -2,6 +2,8 @@
 //!
 //! This module provides a simple file-system based cache where metadata is stored as JSON files.
 
+use std::path::{Path, PathBuf};
+
 use super::{FileBackend, PlaylistBackend, VideoBackend};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
@@ -10,17 +12,16 @@ use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
-use std::path::Path;
-use std::path::PathBuf;
 
 /// JSON-backed video cache implementation.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use yt_dlp::cache::backend::json::JsonVideoCache;
-/// use yt_dlp::cache::backend::VideoBackend;
 /// use std::path::PathBuf;
+///
+/// use yt_dlp::cache::backend::VideoBackend;
+/// use yt_dlp::cache::backend::json::JsonVideoCache;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -148,8 +149,8 @@ impl VideoBackend for JsonVideoCache {
         let file_path = self.cache_dir.join(format!("{}.json", id));
         if file_path.exists() {
             let content = tokio::fs::read_to_string(file_path).await?;
-            let cached: CachedVideo = serde_json::from_str(&content)
-                .map_err(|e| crate::error::Error::json("Deserialize cached video", e))?;
+            let cached: CachedVideo =
+                serde_json::from_str(&content).map_err(|e| crate::error::Error::json("Deserialize cached video", e))?;
 
             if is_expired(cached.cached_at, self.ttl) {
                 return Err(crate::error::Error::Unknown("Expired".to_string()));
@@ -165,9 +166,10 @@ impl VideoBackend for JsonVideoCache {
 /// # Examples
 ///
 /// ```rust
-/// use yt_dlp::cache::backend::json::JsonPlaylistCache;
-/// use yt_dlp::cache::backend::PlaylistBackend;
 /// use std::path::PathBuf;
+///
+/// use yt_dlp::cache::backend::PlaylistBackend;
+/// use yt_dlp::cache::backend::json::JsonPlaylistCache;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -320,9 +322,10 @@ impl PlaylistBackend for JsonPlaylistCache {
 /// # Examples
 ///
 /// ```rust
-/// use yt_dlp::cache::backend::json::JsonFileCache;
-/// use yt_dlp::cache::backend::FileBackend;
 /// use std::path::PathBuf;
+///
+/// use yt_dlp::cache::backend::FileBackend;
+/// use yt_dlp::cache::backend::json::JsonFileCache;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -363,6 +366,56 @@ impl JsonFileCache {
             ttl: ttl.unwrap_or(7 * 24 * 60 * 60),
         })
     }
+
+    async fn clean_expired_files(&self) -> Result<()> {
+        let meta_dir = self.cache_dir.join("files_meta");
+        let mut entries = tokio::fs::read_dir(&meta_dir).await?;
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.path().extension().is_none_or(|ext| ext != "json") {
+                continue;
+            }
+
+            let content = tokio::fs::read_to_string(entry.path()).await?;
+            if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
+                && is_expired(cached.cached_at, self.ttl)
+            {
+                let file_path = self.cache_dir.join(&cached.relative_path);
+                if file_path.exists() {
+                    let _ = tokio::fs::remove_file(file_path).await;
+                }
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn clean_expired_thumbnails(&self) -> Result<()> {
+        let thumb_meta_dir = self.cache_dir.join("thumbnails_meta");
+        let Ok(mut entries) = tokio::fs::read_dir(&thumb_meta_dir).await else {
+            return Ok(());
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.path().extension().is_none_or(|ext| ext != "json") {
+                continue;
+            }
+
+            let content = tokio::fs::read_to_string(entry.path()).await?;
+            if let Ok(cached) = serde_json::from_str::<CachedThumbnail>(&content)
+                && is_expired(cached.cached_at, self.ttl)
+            {
+                let file_path = self.cache_dir.join(&cached.relative_path);
+                if file_path.exists() {
+                    let _ = tokio::fs::remove_file(file_path).await;
+                }
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl FileBackend for JsonFileCache {
@@ -373,10 +426,7 @@ impl FileBackend for JsonFileCache {
             ttl = self.ttl,
             "🔍 Looking for file in JSON cache by hash"
         );
-        let meta_path = self
-            .cache_dir
-            .join("files_meta")
-            .join(format!("{}.json", hash));
+        let meta_path = self.cache_dir.join("files_meta").join(format!("{}.json", hash));
         if meta_path.exists() {
             let content = tokio::fs::read_to_string(meta_path).await.ok()?;
             let cached: CachedFile = serde_json::from_str(&content).ok()?;
@@ -405,11 +455,7 @@ impl FileBackend for JsonFileCache {
         None
     }
 
-    async fn get_by_video_and_format(
-        &self,
-        video_id: &str,
-        format_id: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(video_id = video_id, format_id = format_id, cache_dir = ?self.cache_dir, "🔍 Looking for file by video and format in JSON cache");
 
         let meta_dir = self.cache_dir.join("files_meta");
@@ -483,10 +529,7 @@ impl FileBackend for JsonFileCache {
         tokio::fs::copy(source_path, &file_path).await?;
 
         // Write metadata
-        let meta_path = self
-            .cache_dir
-            .join("files_meta")
-            .join(format!("{}.json", file.id));
+        let meta_path = self.cache_dir.join("files_meta").join(format!("{}.json", file.id));
         let meta_json = serde_json::to_string(&file)?;
         tokio::fs::write(meta_path, meta_json).await?;
 
@@ -499,10 +542,7 @@ impl FileBackend for JsonFileCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Removing file from JSON cache"
         );
-        let meta_path = self
-            .cache_dir
-            .join("files_meta")
-            .join(format!("{}.json", id));
+        let meta_path = self.cache_dir.join("files_meta").join(format!("{}.json", id));
         if meta_path.exists() {
             // Read to get relative path and delete file
             let content = tokio::fs::read_to_string(&meta_path).await?;
@@ -523,50 +563,14 @@ impl FileBackend for JsonFileCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Cleaning JSON file cache"
         );
-        let meta_dir = self.cache_dir.join("files_meta");
-        let mut entries = tokio::fs::read_dir(&meta_dir).await?;
 
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await?;
-                if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
-                    && is_expired(cached.cached_at, self.ttl)
-                {
-                    let file_path = self.cache_dir.join(&cached.relative_path);
-                    if file_path.exists() {
-                        let _ = tokio::fs::remove_file(file_path).await;
-                    }
-                    let _ = tokio::fs::remove_file(entry.path()).await;
-                }
-            }
-        }
-
-        // Also clean thumbnails
-        let thumb_meta_dir = self.cache_dir.join("thumbnails_meta");
-        if let Ok(mut entries) = tokio::fs::read_dir(&thumb_meta_dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry.path().extension().is_some_and(|ext| ext == "json") {
-                    let content = tokio::fs::read_to_string(entry.path()).await?;
-                    if let Ok(cached) = serde_json::from_str::<CachedThumbnail>(&content)
-                        && is_expired(cached.cached_at, self.ttl)
-                    {
-                        let file_path = self.cache_dir.join(&cached.relative_path);
-                        if file_path.exists() {
-                            let _ = tokio::fs::remove_file(file_path).await;
-                        }
-                        let _ = tokio::fs::remove_file(entry.path()).await;
-                    }
-                }
-            }
-        }
+        self.clean_expired_files().await?;
+        self.clean_expired_thumbnails().await?;
 
         Ok(())
     }
 
-    async fn get_thumbnail_by_video_id(
-        &self,
-        video_id: &str,
-    ) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
         tracing::debug!(video_id = video_id, cache_dir = ?self.cache_dir, "🔍 Looking for thumbnail by video ID in JSON cache");
 
         let meta_dir = self.cache_dir.join("thumbnails_meta");
@@ -591,11 +595,7 @@ impl FileBackend for JsonFileCache {
         None
     }
 
-    async fn put_thumbnail(
-        &self,
-        thumbnail: CachedThumbnail,
-        source_path: &Path,
-    ) -> Result<PathBuf> {
+    async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
         let file_path = self.cache_dir.join(&thumbnail.relative_path);
         if let Some(parent) = file_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -614,11 +614,7 @@ impl FileBackend for JsonFileCache {
         Ok(file_path)
     }
 
-    async fn get_subtitle_by_language(
-        &self,
-        video_id: &str,
-        language: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(video_id = video_id, language = language, cache_dir = ?self.cache_dir, "🔍 Looking for subtitle by language in JSON cache");
 
         let meta_dir = self.cache_dir.join("files_meta");
@@ -631,9 +627,7 @@ impl FileBackend for JsonFileCache {
                     continue;
                 };
 
-                if cached.video_id.as_deref() == Some(video_id)
-                    && cached.language_code.as_deref() == Some(language)
-                {
+                if cached.video_id.as_deref() == Some(video_id) && cached.language_code.as_deref() == Some(language) {
                     if is_expired(cached.cached_at, self.ttl) {
                         continue;
                     }

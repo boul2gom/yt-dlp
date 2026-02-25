@@ -1,20 +1,20 @@
 //! The fetchers for required dependencies.
 
+use std::fmt;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::PathBuf;
+
+use derive_more::Constructor;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
 use crate::client::deps::ffmpeg::BuildFetcher;
 use crate::client::deps::ytdlp::YoutubeFetcher;
 use crate::download::Fetcher;
 use crate::error::Result;
 use crate::utils::fs;
 use crate::{ternary, utils};
-
-use derive_more::Constructor;
-use serde::Deserialize;
-use std::fmt;
-use std::path::PathBuf;
-
-use sha2::{Digest, Sha256};
-use std::fs::File;
-use std::io::{BufReader, Read};
 
 pub mod ffmpeg;
 pub mod github;
@@ -45,11 +45,7 @@ pub struct LibraryInstaller {
 
 impl fmt::Display for LibraryInstaller {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "LibraryInstaller(destination={})",
-            self.destination.display()
-        )
+        write!(f, "LibraryInstaller(destination={})", self.destination.display())
     }
 }
 
@@ -192,10 +188,7 @@ impl Libraries {
     /// # Arguments
     ///
     /// * `auth_token` - The authentication token to use for downloading the dependencies.
-    pub async fn install_dependencies_with_token(
-        &self,
-        auth_token: impl Into<String>,
-    ) -> Result<Self> {
+    pub async fn install_dependencies_with_token(&self, auth_token: impl Into<String>) -> Result<Self> {
         tracing::info!(
             youtube_path = ?self.youtube,
             ffmpeg_path = ?self.ffmpeg,
@@ -216,10 +209,7 @@ impl Libraries {
     }
 
     /// Install yt-dlp with an authentication token.
-    pub async fn install_youtube_with_token(
-        &self,
-        auth_token: impl Into<String>,
-    ) -> Result<PathBuf> {
+    pub async fn install_youtube_with_token(&self, auth_token: impl Into<String>) -> Result<PathBuf> {
         self.install_youtube_internal(Some(auth_token.into())).await
     }
 
@@ -252,10 +242,7 @@ impl Libraries {
     }
 
     /// Install ffmpeg with an authentication token.
-    pub async fn install_ffmpeg_with_token(
-        &self,
-        auth_token: impl Into<String>,
-    ) -> Result<PathBuf> {
+    pub async fn install_ffmpeg_with_token(&self, auth_token: impl Into<String>) -> Result<PathBuf> {
         self.install_ffmpeg_internal(Some(auth_token.into())).await
     }
 
@@ -291,12 +278,7 @@ pub struct Release {
 
 impl fmt::Display for Release {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Release(tag={}, assets={})",
-            self.tag_name,
-            self.assets.len()
-        )
+        write!(f, "Release(tag={}, assets={})", self.tag_name, self.assets.len())
     }
 }
 
@@ -374,24 +356,15 @@ impl WantedRelease {
 
             let dest_path = destination.clone();
             let actual_checksum = tokio::task::spawn_blocking(move || {
-                let file = File::open(&dest_path).map_err(|e| {
-                    crate::error::Error::io_with_path(
-                        "open file for checksum",
-                        dest_path.clone(),
-                        e,
-                    )
-                })?;
+                let file = File::open(&dest_path)
+                    .map_err(|e| crate::error::Error::io_with_path("open file for checksum", dest_path.clone(), e))?;
                 let mut reader = BufReader::new(file);
                 let mut hasher = Sha256::new();
                 let mut buffer = [0; 8192];
 
                 loop {
                     let count = reader.read(&mut buffer).map_err(|e| {
-                        crate::error::Error::io_with_path(
-                            "read file for checksum",
-                            dest_path.clone(),
-                            e,
-                        )
+                        crate::error::Error::io_with_path("read file for checksum", dest_path.clone(), e)
                     })?;
                     if count == 0 {
                         break;

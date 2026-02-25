@@ -1,10 +1,11 @@
 //! Process execution and output handling.
 
-use crate::error::{Error, Result};
-use std::{path::PathBuf, time::Duration};
-
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use crate::error::{Error, Result};
 
 /// Represents the output of a process.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,24 +135,20 @@ async fn execute_command_internal(
 
     // Read streams asynchronously
     let stdout_task = if output_path.is_none() {
-        let stdout = child.stdout.take().ok_or_else(|| {
-            Error::io(
-                "capture stdout",
-                std::io::Error::other("stdout stream not available"),
-            )
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::io("capture stdout", std::io::Error::other("stdout stream not available")))?;
 
         Some(tokio::spawn(read_stream(stdout)))
     } else {
         None
     };
 
-    let stderr = child.stderr.take().ok_or_else(|| {
-        Error::io(
-            "capture stderr",
-            std::io::Error::other("stderr stream not available"),
-        )
-    })?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::io("capture stderr", std::io::Error::other("stderr stream not available")))?;
 
     let stderr_task = tokio::spawn(read_stream(stderr));
 
@@ -236,11 +233,7 @@ async fn execute_command_internal(
             "✅ Command execution succeeded"
         );
 
-        return Ok(ProcessOutput {
-            stdout,
-            stderr,
-            code,
-        });
+        return Ok(ProcessOutput { stdout, stderr, code });
     }
 
     tracing::warn!(
@@ -279,8 +272,7 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let mut buffer = Vec::new();
-    let bytes_read =
-        tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
+    let bytes_read = tokio::io::copy(&mut tokio::io::BufReader::new(&mut stream), &mut buffer).await?;
 
     tracing::trace!(bytes_read, "Stream read completed");
     Ok(buffer)

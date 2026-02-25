@@ -12,11 +12,50 @@ import gzip
 import os
 import argparse
 
+# Alloc frames to hide in DHAT stack traces
+ALLOC_NOISE = ("alloc::", "dhat::")
+
+
+def clean_symbol(name):
+    """Strip the Rust hash suffix (::h...) from a symbol name."""
+    return name.split("::h")[0]
+
+
+# ── DHAT Analysis ────────────────────────────────────────────────────────────
+
+def resolve_allocator_stack(pp, frames):
+    """Resolve the stack trace for a single allocation point, filtering noise."""
+    stack = []
+    for f_idx in pp.get('fs', [])[:15]:
+        if not isinstance(f_idx, int) or f_idx >= len(frames):
+            continue
+        name = clean_symbol(frames[f_idx])
+        if not any(noise in name for noise in ALLOC_NOISE):
+            stack.append(name)
+    return stack
+
+
+def print_top_allocators(pps, frames, total_bytes, limit=10):
+    """Print the top N allocators sorted by total bytes."""
+    print("Top 10 Allocators (by total bytes):")
+
+    for pp in pps[:limit]:
+        tb = pp.get('tb', 0)
+        tbk = pp.get('tbk', 0)
+        stack = resolve_allocator_stack(pp, frames)
+        name = stack[0] if stack else "Unknown"
+        pct = (tb / total_bytes * 100) if total_bytes > 0 else 0
+
+        print(f"- {tb:12,} bytes ({pct:5.1f}%) | {tbk:8,} allocs | {name}")
+        for s in stack[1:4]:
+            print(f"    <- {s}")
+
+
 def analyze_dhat(dhat_path="dhat-heap.json"):
     print("╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ DHAT MEMORY ANALYSIS                                                       │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
-    
+
     if not os.path.exists(dhat_path):
         print(f"{dhat_path} not found!\n")
         return
@@ -24,50 +63,119 @@ def analyze_dhat(dhat_path="dhat-heap.json"):
     try:
         with open(dhat_path) as f:
             d = json.load(f)
-        
+
         frames = d.get('ftbl', [])
         pps = d.get('pps', [])
-        
-        # Calculate total
+
         total_bytes = sum(p.get('tb', 0) for p in pps)
         total_blocks = sum(p.get('tbk', 0) for p in pps)
-        
         print(f"Total Allocated: {total_bytes:,} bytes in {total_blocks:,} blocks\n")
-        
-        # Sort by total bytes
+
         pps.sort(key=lambda x: x.get('tb', 0), reverse=True)
-        
-        print("Top 10 Allocators (by total bytes):")
-        for p in pps[:10]:
-            tb = p.get('tb', 0)
-            tbk = p.get('tbk', 0)
-            fs = p.get('fs', [])
-            
-            # Reconstruct stack trace
-            stack = []
-            for f_idx in fs[:15]: 
-                if isinstance(f_idx, int) and f_idx < len(frames):
-                    name = frames[f_idx]
-                    name = name.split("::h")[0] 
-                    # Hide basic alloc frames
-                    if not any(x in name for x in ["alloc::", "dhat::"]):
-                        stack.append(name)
-            
-            name = stack[0] if stack else "Unknown"
-            pct = (tb / total_bytes * 100) if total_bytes > 0 else 0
-            print(f"- {tb:12,} bytes ({pct:5.1f}%) | {tbk:8,} allocs | {name}")
-            if len(stack) > 1:
-                for s in stack[1:4]:
-                    print(f"    <- {s}")
-                
+        print_top_allocators(pps, frames, total_bytes)
+
     except Exception as e:
         print(f"Error analyzing DHAT: {e}")
+
+
+# ── Samply Analysis ──────────────────────────────────────────────────────────
+
+def build_thread_tables(thread):
+    """Extract the lookup tables needed for stack resolution from a thread."""
+    return {
+        "strings": thread.get('stringArray', []),
+        "f_func": thread.get('frameTable', {}).get('func', []),
+        "fn_name": thread.get('funcTable', {}).get('name', []),
+        "st_frame": thread.get('stackTable', {}).get('frame', []),
+        "st_prefix": thread.get('stackTable', {}).get('prefix', []),
+    }
+
+
+def resolve_func_name(frame_idx, tables):
+    """Resolve a frame index to a cleaned function name, or None."""
+    f_func = tables["f_func"]
+    fn_name = tables["fn_name"]
+    strings = tables["strings"]
+
+    if frame_idx is None or frame_idx >= len(f_func):
+        return None
+
+    func_idx = f_func[frame_idx]
+    if func_idx is None or func_idx >= len(fn_name):
+        return None
+
+    name_idx = fn_name[func_idx]
+    if name_idx is None or name_idx >= len(strings):
+        return None
+
+    return clean_symbol(strings[name_idx])
+
+
+def count_samples(stack_data, tables):
+    """Walk all stacks and compute self-time and total-time counts per function."""
+    st_frame = tables["st_frame"]
+    st_prefix = tables["st_prefix"]
+    self_counts = {}
+    total_counts = {}
+
+    for stack_idx in stack_data:
+        if stack_idx is None:
+            continue
+
+        curr = stack_idx
+        is_leaf = True
+        seen = set()
+
+        while curr is not None and curr < len(st_frame):
+            func_name = resolve_func_name(st_frame[curr], tables)
+            if func_name is not None:
+                if is_leaf:
+                    self_counts[func_name] = self_counts.get(func_name, 0) + 1
+                    is_leaf = False
+                if func_name not in seen:
+                    total_counts[func_name] = total_counts.get(func_name, 0) + 1
+                    seen.add(func_name)
+
+            curr = st_prefix[curr] if curr < len(st_prefix) else None
+
+    return self_counts, total_counts
+
+
+def print_top_functions(counts, total_samples, header, limit=10):
+    """Print the top N functions by sample count."""
+    print(header)
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    for func, count in sorted_items[:limit]:
+        print(f"  - {count:5} samples ({count / total_samples * 100:5.1f}%) : {func}")
+
+
+def analyze_thread(thread):
+    """Analyze a single samply thread and print its CPU profile."""
+    samples = thread.get('samples', {})
+    stack_data = samples.get('stack', [])
+
+    if not stack_data or len(stack_data) < 100:
+        return
+
+    name = thread.get('name', 'Unknown')
+    is_main = thread.get('isMainThread', False)
+    total_samples = len(stack_data)
+    print(f"\nThread: {name} (Main: {is_main}) - {total_samples} samples")
+
+    tables = build_thread_tables(thread)
+    self_counts, total_counts = count_samples(stack_data, tables)
+
+    print_top_functions(self_counts, total_samples,
+                        "  Top functions by SELF time (where execution was bottlenecked):")
+    print_top_functions(total_counts, total_samples,
+                        "\n  Top functions by TOTAL time (execution + children):")
+
 
 def analyze_samply(samply_path="profile.json.gz"):
     print("\n╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ SAMPLY CPU ANALYSIS                                                        │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
-    
+
     if not os.path.exists(samply_path):
         print(f"{samply_path} not found!\n")
         return
@@ -75,120 +183,35 @@ def analyze_samply(samply_path="profile.json.gz"):
     try:
         with gzip.open(samply_path, 'rt') as f:
             prof = json.load(f)
-            
-        threads = prof.get('threads', [])
-        
-        for t in threads:
-            name = t.get('name', 'Unknown')
-            is_main = t.get('isMainThread', False)
-            
-            samples = t.get('samples', {})
-            stack_data = samples.get('stack', [])
 
-            if not stack_data or len(stack_data) < 100:
-                continue # Skip idle threads
-                
-            print(f"\nThread: {name} (Main: {is_main}) - {len(stack_data)} samples")
-            
-            string_array = t.get('stringArray', [])
-            
-            frame_table = t.get('frameTable', {})
-            f_func = frame_table.get('func', [])
-            
-            func_table = t.get('funcTable', {})
-            fn_name = func_table.get('name', [])
-            
-            stack_table = t.get('stackTable', {})
-            st_frame = stack_table.get('frame', [])
-            st_prefix = stack_table.get('prefix', [])
-            
-            self_counts = {}
-            total_counts = {}
-            
-            for stack_idx in stack_data:
-                if stack_idx is None: continue
-                
-                curr_st = stack_idx
-                is_leaf = True
-                seen_in_this_sample = set()
-                
-                while curr_st is not None:
-                    try:
-                        if curr_st >= len(st_frame): break
-                        frame_idx = st_frame[curr_st]
-                        prefix_idx = st_prefix[curr_st] if curr_st < len(st_prefix) else None
-                        
-                        if frame_idx is not None and frame_idx < len(f_func):
-                            func_idx = f_func[frame_idx]
-                            
-                            if func_idx is not None and func_idx < len(fn_name):
-                                name_idx = fn_name[func_idx]
-                                
-                                if name_idx is not None and name_idx < len(string_array):
-                                    func_name = string_array[name_idx]
-                                    func_name = func_name.split("::h")[0]
-                                    
-                                    if is_leaf:
-                                        self_counts[func_name] = self_counts.get(func_name, 0) + 1
-                                        is_leaf = False
-                                        
-                                    if func_name not in seen_in_this_sample:
-                                        total_counts[func_name] = total_counts.get(func_name, 0) + 1
-                                        seen_in_this_sample.add(func_name)
-                                        
-                        curr_st = prefix_idx
-                    except IndexError:
-                        break
-            
-            total_samples = len(stack_data)
-            
-            print("  Top functions by SELF time (where execution was bottlenecked):")
-            sorted_self = sorted(self_counts.items(), key=lambda x: x[1], reverse=True)
-            for func, count in sorted_self[:10]:
-                print(f"  - {count:5} samples ({count/total_samples*100:5.1f}%) : {func}")
-            
-            print("\n  Top functions by TOTAL time (execution + children):")
-            sorted_total = sorted(total_counts.items(), key=lambda x: x[1], reverse=True)
-            for func, count in sorted_total[:10]:
-                print(f"  - {count:5} samples ({count/total_samples*100:5.1f}%) : {func}")
-                
+        for thread in prof.get('threads', []):
+            analyze_thread(thread)
+
     except Exception as e:
         print(f"Error analyzing profile.json.gz: {e}")
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
         description="Parse and analyze DHAT and Samply profiles to identify memory and CPU bottlenecks."
     )
-    parser.add_argument(
-        '--dhat-file',
-        type=str,
-        default='dhat-heap.json',
-        help="Path to DHAT heap profile (default: dhat-heap.json)"
-    )
-    parser.add_argument(
-        '--samply-file',
-        type=str,
-        default='profile.json.gz',
-        help="Path to Samply profile (default: profile.json.gz)"
-    )
-    parser.add_argument(
-        '--no-dhat',
-        action='store_true',
-        help="Skip DHAT memory analysis"
-    )
-    parser.add_argument(
-        '--no-samply',
-        action='store_true',
-        help="Skip Samply CPU analysis"
-    )
+    parser.add_argument('--dhat-file', type=str, default='dhat-heap.json',
+                        help="Path to DHAT heap profile (default: dhat-heap.json)")
+    parser.add_argument('--samply-file', type=str, default='profile.json.gz',
+                        help="Path to Samply profile (default: profile.json.gz)")
+    parser.add_argument('--no-dhat', action='store_true', help="Skip DHAT memory analysis")
+    parser.add_argument('--no-samply', action='store_true', help="Skip Samply CPU analysis")
 
     args = parser.parse_args()
 
     if not args.no_dhat:
         analyze_dhat(args.dhat_file)
-    
+
     if not args.no_samply:
         analyze_samply(args.samply_file)
+
 
 if __name__ == '__main__':
     main()

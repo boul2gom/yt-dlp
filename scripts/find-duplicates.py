@@ -11,27 +11,66 @@ import os
 import argparse
 from collections import defaultdict
 
+
 def get_files(root_dir):
     for dirpath, _, filenames in os.walk(root_dir):
         for f in filenames:
             if f.endswith('.rs'):
                 yield os.path.join(dirpath, f)
 
-def get_blocks(file_path, window_size=15):
+
+def normalize_lines(file_path):
+    """Read a file and return significant (non-empty, non-comment, non-attribute) lines."""
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    
-    # Normalize lines: strip whitespace, ignore empty or very short lines
-    normalized = []
+
+    result = []
     for i, line in enumerate(lines):
         cl = line.strip()
         if cl and not cl.startswith('//') and not cl.startswith('#[') and len(cl) > 3:
-            normalized.append((i+1, cl))
-            
+            result.append((i + 1, cl))
+    return result
+
+
+def get_blocks(file_path, window_size=15):
+    normalized = normalize_lines(file_path)
+
     for i in range(len(normalized) - window_size + 1):
-        block = tuple(n[1] for n in normalized[i:i+window_size])
+        block = tuple(n[1] for n in normalized[i:i + window_size])
         start_line = normalized[i][0]
         yield block, (file_path, start_line)
+
+
+def is_genuine_duplicate(loc_a, loc_b):
+    """Check if two locations represent a genuine duplicate (different files or far apart)."""
+    f1, l1 = loc_a
+    f2, l2 = loc_b
+    return f1 != f2 or abs(l1 - l2) > 20
+
+
+def find_duplicate_pairs(duplicate_blocks):
+    """Extract unique pairs of genuine duplicates from the block map."""
+    reported_pairs = set()
+    pairs = []
+
+    for occurrences in duplicate_blocks.values():
+        if len(occurrences) <= 1:
+            continue
+
+        for i in range(len(occurrences)):
+            for j in range(i + 1, len(occurrences)):
+                if not is_genuine_duplicate(occurrences[i], occurrences[j]):
+                    continue
+
+                pair_key = tuple(sorted([occurrences[i], occurrences[j]]))
+                if pair_key in reported_pairs:
+                    continue
+
+                reported_pairs.add(pair_key)
+                pairs.append((occurrences[i], occurrences[j]))
+
+    return pairs
+
 
 def main():
     parser = argparse.ArgumentParser(description="Scan a directory for duplicated blocks of code.")
@@ -47,48 +86,32 @@ def main():
         default='src',
         help="Directory to scan (default: 'src')"
     )
-    
+
     args = parser.parse_args()
 
-    print(f"╭────────────────────────────────────────────────────────────────────────────╮")
-    print(f"│ CODE DUPLICATION ANALYSIS                                                  │")
-    print(f"╰────────────────────────────────────────────────────────────────────────────╯")
+    print("╭────────────────────────────────────────────────────────────────────────────╮")
+    print("│ CODE DUPLICATION ANALYSIS                                                  │")
+    print("╰────────────────────────────────────────────────────────────────────────────╯")
     print(f"Scanning directory '{args.dir}' for duplicated blocks of {args.window_size}+ significant lines...\n")
-    
+
     duplicate_blocks = defaultdict(list)
     for f in get_files(args.dir):
         for block, loc in get_blocks(f, window_size=args.window_size):
             duplicate_blocks[block].append(loc)
 
-    # Filter out blocks that are just subsets of larger duplicated blocks
-    # To keep the output clean, we will print unique files/line pairs that share a block.
-    
-    reported_pairs = set()
-    matches_found = 0
-    
-    for block, occurrences in duplicate_blocks.items():
-        if len(occurrences) > 1:
-            # Check if occurrences are far apart or in different files
-            is_valid_duplicate = False
-            for i in range(len(occurrences)):
-                for j in range(i + 1, len(occurrences)):
-                    f1, l1 = occurrences[i]
-                    f2, l2 = occurrences[j]
-                    if f1 != f2 or abs(l1 - l2) > 20:
-                        is_valid_duplicate = True
-                        pair_key = tuple(sorted([(f1, l1), (f2, l2)]))
-                        if pair_key not in reported_pairs:
-                            reported_pairs.add(pair_key)
-                            print(f"Match found:")
-                            print(f"  - {f1}:{l1}")
-                            print(f"  - {f2}:{l2}")
-                            print()
-                            matches_found += 1
+    pairs = find_duplicate_pairs(duplicate_blocks)
 
-    if matches_found == 0:
+    for (f1, l1), (f2, l2) in pairs:
+        print("Match found:")
+        print(f"  - {f1}:{l1}")
+        print(f"  - {f2}:{l2}")
+        print()
+
+    if not pairs:
         print("No duplicates found!")
     else:
-        print(f"Total unique duplicated blocks found: {matches_found}")
+        print(f"Total unique duplicated blocks found: {len(pairs)}")
+
 
 if __name__ == '__main__':
     main()

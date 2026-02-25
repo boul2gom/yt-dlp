@@ -1,10 +1,11 @@
 //! Fetch releases and assets from a GitHub repository.
 
+use std::fmt;
+
 use crate::client::deps::{Asset, Release, WantedRelease};
 use crate::download::Fetcher;
 use crate::error::{Error, Result};
 use crate::utils::platform::{Architecture, Platform};
-use std::fmt;
 
 /// The GitHub fetcher is responsible for fetching the latest release of a project from a GitHub repository.
 /// It can also select the correct asset for the current platform and architecture.
@@ -64,11 +65,7 @@ impl GitHubFetcher {
     /// # Errors
     ///
     /// This function will return an error if the release could not be fetched or if no asset was found for the current platform.
-    pub async fn fetch_release<F>(
-        &self,
-        auth_token: Option<String>,
-        selector: F,
-    ) -> Result<WantedRelease>
+    pub async fn fetch_release<F>(&self, auth_token: Option<String>, selector: F) -> Result<WantedRelease>
     where
         F: for<'a> Fn(&'a Release, &Platform, &Architecture) -> Option<&'a Asset>,
     {
@@ -135,11 +132,7 @@ impl GitHubFetcher {
             architecture: architecture.clone(),
         })?;
 
-        let checksum = self
-            .fetch_checksum(&release, &asset.name)
-            .await
-            .ok()
-            .flatten();
+        let checksum = self.fetch_checksum(&release, &asset.name).await.ok().flatten();
 
         Ok(WantedRelease {
             name: asset.name.clone(),

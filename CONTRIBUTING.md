@@ -81,9 +81,9 @@ src/
 ├── events/             # 🔔 EventBus, DownloadEvent, EventFilter, hooks, webhooks
 ├── executor/           # ⚙️ Process runner, FfmpegArgs builder, temp-file+rename
 ├── extractor/          # 📡 VideoExtractor trait, Youtube & Generic extractors
-├── metadata/           # 🏷️ MP3/MP4/FFmpeg metadata writing, chapter injection
+├── metadata/           # 🏷️ MP3/MP4/FFmpeg/Lofty metadata writing, chapter injection
 ├── model/              # 📊 Data types: Video, Format, Chapter, Playlist, Caption, etc.
-│   ├── utils/          #    CommonTraits, AllTraits blanket traits, serde helpers
+│   ├── utils/          #    Serde helpers
 │   └── selector.rs     #    VideoQuality, AudioQuality, StoryboardQuality enums
 ├── cache/              # 🔍 VideoCache, DownloadCache, PlaylistCache (feature-gated)
 │   └── backend/        #    Backend trait + implementations (memory/moka, json, redb, redis)
@@ -330,12 +330,6 @@ impl Hash for Video {
 }
 ```
 
-### Blanket traits
-
-The crate defines two convenience super-traits in `model/utils/mod.rs`:
-- `CommonTraits: Debug + Clone + PartialEq + Display` — auto-impl for all qualifying types
-- `AllTraits: CommonTraits + Eq + Hash` — auto-impl for all qualifying types
-
 ---
 
 ## 🧬 Trait Design
@@ -475,6 +469,7 @@ MyNewEvent(u64, String),
 | `statistics` | Real-time analytics | None |
 | `profiling` | Heap profiler | `dhat` |
 | `rustls` | TLS backend | `reqwest/rustls` |
+| `hickory-dns` | Async DNS resolver | `reqwest/hickory-dns` |
 
 ### ⚙️ `cache` cfg is emitted by `build.rs`
 

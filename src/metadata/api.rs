@@ -3,14 +3,13 @@
 //! This module provides the high-level public API for adding metadata
 //! and thumbnails to downloaded files.
 
-use crate::error::Result;
-use crate::model::Video;
-use crate::model::format::{Extension, Format};
 use std::path::PathBuf;
-
 use std::str::FromStr;
 
 use super::MetadataManager;
+use crate::error::Result;
+use crate::model::Video;
+use crate::model::format::{Extension, Format};
 
 impl MetadataManager {
     /// Add metadata to a file based on its format.
@@ -65,12 +64,10 @@ impl MetadataManager {
 
         let result = match extension {
             Extension::Mp3 => Self::add_metadata_to_mp3(&file_path, video, None, None).await,
-            Extension::M4A | Extension::Mp4 => {
-                Self::add_metadata_to_m4a(&file_path, video, None, None, None).await
-            }
-            Extension::Webm => {
-                self.add_metadata_to_webm(&file_path, video, None, None, None)
-                    .await
+            Extension::M4A | Extension::Mp4 => Self::add_metadata_to_m4a(&file_path, video, None, None, None).await,
+            Extension::Webm => self.add_metadata_to_webm(&file_path, video, None, None, None).await,
+            Extension::Flac | Extension::Ogg | Extension::Wav | Extension::Aac | Extension::Aiff => {
+                Self::add_metadata_with_lofty(&file_path, video, None, None, &file_format).await
             }
             _ => {
                 self.add_ffmpeg_metadata(&file_path, video, &file_format, None, None, None)
@@ -141,9 +138,7 @@ impl MetadataManager {
         );
 
         let result = match extension {
-            Extension::Mp3 => {
-                Self::add_metadata_to_mp3(&file_path, video, audio_format, None).await
-            }
+            Extension::Mp3 => Self::add_metadata_to_mp3(&file_path, video, audio_format, None).await,
             Extension::M4A | Extension::Mp4 => {
                 Self::add_metadata_to_m4a(&file_path, video, audio_format, video_format, None).await
             }
@@ -151,16 +146,12 @@ impl MetadataManager {
                 self.add_metadata_to_webm(&file_path, video, video_format, audio_format, None)
                     .await
             }
+            Extension::Flac | Extension::Ogg | Extension::Wav | Extension::Aac | Extension::Aiff => {
+                Self::add_metadata_with_lofty(&file_path, video, audio_format, None, &file_format).await
+            }
             _ => {
-                self.add_ffmpeg_metadata(
-                    &file_path,
-                    video,
-                    &file_format,
-                    video_format,
-                    audio_format,
-                    None,
-                )
-                .await
+                self.add_ffmpeg_metadata(&file_path, video, &file_format, video_format, audio_format, None)
+                    .await
             }
         };
 
@@ -202,7 +193,9 @@ impl MetadataManager {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let manager = MetadataManager::new();
-    /// manager.add_thumbnail_to_file("video.mp3", "cover.jpg").await?;
+    /// manager
+    ///     .add_thumbnail_to_file("video.mp3", "cover.jpg")
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -233,12 +226,10 @@ impl MetadataManager {
 
         let result = match extension {
             Extension::Mp3 => Self::add_thumbnail_to_mp3(&file_path, &thumbnail_path).await,
-            Extension::M4A | Extension::Mp4 => {
-                Self::add_thumbnail_to_m4a(&file_path, &thumbnail_path).await
-            }
-            Extension::Webm => {
-                self.add_thumbnail_to_webm(&file_path, &thumbnail_path)
-                    .await
+            Extension::M4A | Extension::Mp4 => Self::add_thumbnail_to_m4a(&file_path, &thumbnail_path).await,
+            Extension::Webm => self.add_thumbnail_to_webm(&file_path, &thumbnail_path).await,
+            Extension::Flac | Extension::Ogg | Extension::Wav | Extension::Aac | Extension::Aiff => {
+                Self::add_thumbnail_with_lofty(&file_path, &thumbnail_path, &file_format).await
             }
             _ => {
                 tracing::debug!(

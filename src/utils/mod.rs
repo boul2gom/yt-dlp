@@ -5,8 +5,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::error::Result;
 use tokio::task::JoinHandle;
+
+use crate::error::Result;
 
 pub mod fs;
 pub mod http;
@@ -104,10 +105,7 @@ where
     let result_vec: Result<Vec<T>> = results.into_iter().collect();
 
     if let Ok(ref vec) = result_vec {
-        tracing::debug!(
-            completed_count = vec.len(),
-            "✅ All futures completed successfully"
-        );
+        tracing::debug!(completed_count = vec.len(), "✅ All futures completed successfully");
     }
 
     result_vec

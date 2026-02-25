@@ -1,12 +1,13 @@
 //! Fetch the latest release of 'ffmpeg' from static builds.
 
+use std::fmt;
+use std::path::PathBuf;
+
 use crate::client::deps::WantedRelease;
 use crate::client::deps::github::GitHubFetcher;
 use crate::error::{Error, Result};
 use crate::utils::fs;
 use crate::utils::platform::{Architecture, Platform};
-use std::fmt;
-use std::path::PathBuf;
 
 /// Information about FFmpeg binary extraction based on platform
 #[derive(Debug, Clone)]
@@ -100,22 +101,14 @@ impl BuildFetcher {
             Platform::Windows | Platform::Linux | Platform::Mac => {
                 let fetcher = GitHubFetcher::new("boul2gom", "ffmpeg-builds");
                 fetcher
-                    .fetch_release_for_platform(
-                        platform,
-                        architecture,
-                        None,
-                        |release, platform, architecture| {
-                            let os_str = platform.as_str();
-                            let arch_str = architecture.as_str();
+                    .fetch_release_for_platform(platform, architecture, None, |release, platform, architecture| {
+                        let os_str = platform.as_str();
+                        let arch_str = architecture.as_str();
 
-                            let target_name = format!("ffmpeg-{}-{}.zip", os_str, arch_str);
+                        let target_name = format!("ffmpeg-{}-{}.zip", os_str, arch_str);
 
-                            release
-                                .assets
-                                .iter()
-                                .find(|asset| asset.name == target_name)
-                        },
-                    )
+                        release.assets.iter().find(|asset| asset.name == target_name)
+                    })
                     .await
             }
             _ => Err(Error::NoBinaryRelease {
@@ -141,8 +134,7 @@ impl BuildFetcher {
         let platform = Platform::detect();
         let architecture = Architecture::detect();
 
-        self.extract_binary_for_platform(archive, platform, architecture)
-            .await
+        self.extract_binary_for_platform(archive, platform, architecture).await
     }
 
     /// Extract the ffmpeg binary from the downloaded archive, for the given platform and architecture.
@@ -171,13 +163,13 @@ impl BuildFetcher {
         let archive_path = archive.clone();
         let destination = archive_path.with_extension("");
 
-        let extraction_info =
-            self.get_extraction_info(&platform, &architecture)
-                .ok_or(Error::NoBinaryRelease {
-                    binary: "ffmpeg".to_string(),
-                    platform: platform.clone(),
-                    architecture: architecture.clone(),
-                })?;
+        let extraction_info = self
+            .get_extraction_info(&platform, &architecture)
+            .ok_or(Error::NoBinaryRelease {
+                binary: "ffmpeg".to_string(),
+                platform: platform.clone(),
+                architecture: architecture.clone(),
+            })?;
 
         self.extract_archive(archive_path, destination, extraction_info, platform)
             .await
@@ -193,11 +185,7 @@ impl BuildFetcher {
     /// # Returns
     ///
     /// Extraction information if the platform is supported, None otherwise
-    fn get_extraction_info(
-        &self,
-        platform: &Platform,
-        architecture: &Architecture,
-    ) -> Option<Extraction> {
+    fn get_extraction_info(&self, platform: &Platform, architecture: &Architecture) -> Option<Extraction> {
         match (platform, architecture) {
             (Platform::Windows, _) => Some(Extraction {
                 executable_path: PathBuf::from("ffmpeg.exe"),

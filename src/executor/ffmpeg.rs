@@ -3,12 +3,12 @@
 //! Provides a builder pattern for constructing FFmpeg arguments
 //! and a helper for the common temp-file + rename execution pattern.
 
-use crate::error::{Error, Result};
-use crate::utils::fs::remove_temp_file;
 use std::path::Path;
 use std::time::Duration;
 
 use super::Executor;
+use crate::error::{Error, Result};
+use crate::utils::fs::remove_temp_file;
 
 /// Builder for constructing FFmpeg command arguments.
 ///

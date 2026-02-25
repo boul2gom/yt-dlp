@@ -1,0 +1,17 @@
+# Rust edition (must match Cargo.toml)
+edition = "2024"
+
+# Import organization
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Code style
+use_field_init_shorthand = true
+use_try_shorthand = true
+condense_wildcard_suffixes = true
+normalize_doc_attributes = true
+format_code_in_doc_comments = true
+
+# Formatting limits
+max_width = 120

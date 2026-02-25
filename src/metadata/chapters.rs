@@ -3,18 +3,19 @@
 //! This module provides functions to create and embed chapter markers
 //! in video files using FFmpeg metadata format.
 
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use uuid::Uuid;
+
+use super::{BaseMetadata, MetadataManager};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::model::Video;
 use crate::model::chapter::Chapter;
 use crate::utils::fs::remove_temp_file;
-use std::fs;
-use std::io::Write;
-use std::path::PathBuf;
-use std::time::Duration;
-use uuid::Uuid;
-
-use super::{BaseMetadata, MetadataManager};
 
 impl MetadataManager {
     /// Add both regular metadata and chapters to a video file.
@@ -86,11 +87,7 @@ impl MetadataManager {
     /// # Returns
     ///
     /// Ok(()) if chapters were successfully embedded
-    pub async fn add_chapters_metadata(
-        &self,
-        file_path: impl Into<PathBuf>,
-        chapters: &[Chapter],
-    ) -> Result<()> {
+    pub async fn add_chapters_metadata(&self, file_path: impl Into<PathBuf>, chapters: &[Chapter]) -> Result<()> {
         let path: PathBuf = file_path.into();
 
         if chapters.is_empty() {
@@ -111,8 +108,7 @@ impl MetadataManager {
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
 
         // Create temporary metadata file
-        let temp_metadata_path =
-            std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
+        let temp_metadata_path = std::env::temp_dir().join(format!("chapters_{}.txt", Uuid::new_v4()));
 
         let chapters_clone = chapters.to_vec();
         let metadata_path_clone = temp_metadata_path.clone();
@@ -152,11 +148,7 @@ impl MetadataManager {
             "✂️ Running FFmpeg to embed chapters"
         );
 
-        let executor = Executor::new(
-            self.ffmpeg_path.clone(),
-            ffmpeg_args,
-            Duration::from_secs(120),
-        );
+        let executor = Executor::new(self.ffmpeg_path.clone(), ffmpeg_args, Duration::from_secs(120));
 
         let output = executor.execute().await;
 
@@ -230,8 +222,7 @@ impl MetadataManager {
                 .replace(';', "\\;")
                 .replace('#', "\\#")
                 .replace('\n', "\\n");
-            writeln!(file, "{}={}", key, escaped)
-                .map_err(|e| Error::io("write metadata entry", e))?;
+            writeln!(file, "{}={}", key, escaped).map_err(|e| Error::io("write metadata entry", e))?;
         }
 
         // Write chapters (if any)
@@ -241,8 +232,7 @@ impl MetadataManager {
 
             writeln!(file, "[CHAPTER]").map_err(|e| Error::io("write chapter marker", e))?;
             writeln!(file, "TIMEBASE=1/1000000").map_err(|e| Error::io("write timebase", e))?;
-            writeln!(file, "START={}", start_us)
-                .map_err(|e| Error::io("write chapter start", e))?;
+            writeln!(file, "START={}", start_us).map_err(|e| Error::io("write chapter start", e))?;
             writeln!(file, "END={}", end_us).map_err(|e| Error::io("write chapter end", e))?;
 
             if let Some(title) = &chapter.title {
@@ -252,11 +242,9 @@ impl MetadataManager {
                     .replace(';', "\\;")
                     .replace('#', "\\#")
                     .replace('\n', "\\n");
-                writeln!(file, "title={}", escaped)
-                    .map_err(|e| Error::io("write chapter title", e))?;
+                writeln!(file, "title={}", escaped).map_err(|e| Error::io("write chapter title", e))?;
             } else {
-                writeln!(file, "title=Chapter {}", idx + 1)
-                    .map_err(|e| Error::io("write default chapter title", e))?;
+                writeln!(file, "title=Chapter {}", idx + 1).map_err(|e| Error::io("write default chapter title", e))?;
             }
         }
 
@@ -324,11 +312,9 @@ impl MetadataManager {
                     .replace(';', "\\;")
                     .replace('#', "\\#")
                     .replace('\n', "\\n");
-                writeln!(file, "title={}", escaped_title)
-                    .map_err(|e| Error::io("write chapter title", e))?;
+                writeln!(file, "title={}", escaped_title).map_err(|e| Error::io("write chapter title", e))?;
             } else {
-                writeln!(file, "title=Chapter {}", idx + 1)
-                    .map_err(|e| Error::io("write default chapter title", e))?;
+                writeln!(file, "title=Chapter {}", idx + 1).map_err(|e| Error::io("write default chapter title", e))?;
             }
         }
 

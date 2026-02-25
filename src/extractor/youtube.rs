@@ -6,14 +6,13 @@
 //! - YouTube-specific shortcuts (channel, user, search)
 //! - Performance optimizations
 
-use async_trait::async_trait;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use async_trait::async_trait;
+
 use crate::error::Result;
-use crate::extractor::{
-    ExtractorBase, VideoExtractor, execute_and_parse_playlist, execute_and_parse_video,
-};
+use crate::extractor::{ExtractorBase, VideoExtractor, execute_and_parse_playlist, execute_and_parse_video};
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 
@@ -278,12 +277,7 @@ impl Youtube {
     /// # Errors
     ///
     /// Returns error if playlist is not found or inaccessible
-    pub async fn fetch_playlist_paginated(
-        &self,
-        playlist_id: &str,
-        start: usize,
-        count: usize,
-    ) -> Result<Playlist> {
+    pub async fn fetch_playlist_paginated(&self, playlist_id: &str, start: usize, count: usize) -> Result<Playlist> {
         tracing::debug!(
             playlist_id = playlist_id,
             start = start,
@@ -330,11 +324,7 @@ impl Youtube {
     /// # }
     /// ```
     pub async fn search(&self, query: &str, max_results: usize) -> Result<Playlist> {
-        tracing::debug!(
-            query = query,
-            max_results = max_results,
-            "📡 Searching YouTube videos"
-        );
+        tracing::debug!(query = query, max_results = max_results, "📡 Searching YouTube videos");
 
         let url = format!("ytsearch{}:{}", max_results, query);
         self.fetch_playlist(&url).await

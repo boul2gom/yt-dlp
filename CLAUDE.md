@@ -35,9 +35,9 @@ src/
 ├── events/             # EventBus, DownloadEvent, EventFilter, hooks, webhooks
 ├── executor/           # Executor (process runner), FfmpegArgs builder, temp-file+rename pattern
 ├── extractor/          # VideoExtractor trait, Youtube extractor, Generic extractor, URL detection
-├── metadata/           # MetadataManager, MP3/MP4/FFmpeg metadata writing, chapter injection
+├── metadata/           # MetadataManager, MP3/MP4/FFmpeg/Lofty metadata writing, chapter injection
 ├── model/              # Data types: Video, Format, Chapter, Playlist, Caption, Thumbnail, Heatmap
-│   ├── utils/          # CommonTraits, AllTraits blanket traits, serde helpers (json_none)
+│   ├── utils/          # serde helpers (json_none)
 │   └── selector.rs     # VideoQuality, AudioQuality, StoryboardQuality, ThumbnailQuality enums
 ├── cache/              # VideoCache, DownloadCache, PlaylistCache (feature-gated)
 │   └── backend/        # Backend trait abstractions + implementations (memory/moka, json, redb, redis)
@@ -161,10 +161,6 @@ impl Hash for Video {
 }
 ```
 
-Blanket traits in `model/utils/mod.rs`:
-- `CommonTraits: Debug + Clone + PartialEq + Display` — with auto-impl for all qualifying types.
-- `AllTraits: CommonTraits + Eq + Hash` — with auto-impl for all qualifying types.
-
 Trait Design Patterns
 
 **`#[async_trait]`** — For traits used as `dyn Trait` (trait objects):
@@ -257,6 +253,7 @@ Features in `Cargo.toml`:
 - `hooks`, `webhooks`, `statistics` — zero-dependency feature flags.
 - `profiling` — optional `dhat` heap profiler.
 - `rustls` — optional TLS backend.
+- `hickory-dns` — optional async DNS resolver (passes `reqwest/hickory-dns`).
 
 Cache backend selection via `build.rs`:
 - Emits `cache` when any cache backend (`cache-memory`, `cache-json`, `cache-redb`, `cache-redis`) is enabled.
@@ -269,6 +266,13 @@ Usage patterns:
 - `#[cfg(feature = "cache-json")]` — backend-specific module declarations and imports.
 - `#[cfg(has_persistent_cache)]` — guard for any persistent backend code.
 - `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
+
+HTTP Client Configuration
+
+- `reqwest` features: `json`, `stream`, `http2`, `charset`, `gzip`, `brotli` — all enabled unconditionally.
+- `tcp_nodelay(true)` on the client builder to disable Nagle's algorithm.
+- Range support probing uses `GET` with `Range: bytes=0-0` header (not `HEAD`) for CDN compatibility; response is validated via `Content-Range` header.
+- Progress callbacks are throttled to 50 ms intervals via `AtomicU64` timestamp comparison (`PROGRESS_THROTTLE_NANOS`), bypassed only for the final update.
 
 Process Execution
 

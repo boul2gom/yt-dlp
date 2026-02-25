@@ -3,6 +3,10 @@
 //! Provides the `CachedPlaylist` data structure and the `PlaylistCache` wrapper
 //! that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
 #[cfg(has_persistent_cache)]
 use crate::cache::backend::PersistentPlaylistBackend;
 use crate::cache::backend::PlaylistBackend;
@@ -11,8 +15,6 @@ use crate::cache::backend::memory::MokaPlaylistCache;
 use crate::error::Result;
 use crate::model::playlist::Playlist;
 use crate::utils::current_timestamp;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Structure for storing playlist metadata in cache.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -206,10 +208,7 @@ impl PlaylistCache {
         // L2: persistent
         #[cfg(has_persistent_cache)]
         if let Some(playlist) = self.persistent.get_by_id(id).await? {
-            tracing::debug!(
-                playlist_id = id,
-                "✅ Playlist cache hit by ID (L2 persistent)"
-            );
+            tracing::debug!(playlist_id = id, "✅ Playlist cache hit by ID (L2 persistent)");
             return Ok(Some(playlist));
         }
 
@@ -227,11 +226,7 @@ impl PlaylistCache {
     ///
     /// Returns an error if the backend put operation fails.
     pub async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        tracing::debug!(
-            url = url,
-            playlist_id = playlist.id,
-            "⚙️ Storing playlist in cache"
-        );
+        tracing::debug!(url = url, playlist_id = playlist.id, "⚙️ Storing playlist in cache");
 
         #[cfg(feature = "cache-memory")]
         self.memory.put(url.clone(), playlist.clone()).await?;

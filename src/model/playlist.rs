@@ -1,9 +1,10 @@
 //! Playlist-related models.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 
 /// Represents a YouTube playlist.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,10 +97,7 @@ impl Playlist {
     ///
     /// A vector of references to available entries
     pub fn available_entries(&self) -> Vec<&PlaylistEntry> {
-        self.entries
-            .iter()
-            .filter(|entry| entry.is_available())
-            .collect()
+        self.entries.iter().filter(|entry| entry.is_available()).collect()
     }
 
     /// Filters entries by title search (case-insensitive).
@@ -129,11 +127,7 @@ impl Playlist {
     /// # Returns
     ///
     /// Returns a vector of entries within the duration range
-    pub fn filter_by_duration(
-        &self,
-        min_duration: Option<f64>,
-        max_duration: Option<f64>,
-    ) -> Vec<&PlaylistEntry> {
+    pub fn filter_by_duration(&self, min_duration: Option<f64>, max_duration: Option<f64>) -> Vec<&PlaylistEntry> {
         self.entries
             .iter()
             .filter(|entry| {
@@ -192,10 +186,7 @@ impl Playlist {
     ///
     /// Returns a vector of entries that have thumbnail URLs
     pub fn entries_with_thumbnails(&self) -> Vec<&PlaylistEntry> {
-        self.entries
-            .iter()
-            .filter(|entry| entry.thumbnail.is_some())
-            .collect()
+        self.entries.iter().filter(|entry| entry.thumbnail.is_some()).collect()
     }
 
     /// Gets entries within a specific index range (inclusive, 1-based).
@@ -208,18 +199,10 @@ impl Playlist {
     /// # Returns
     ///
     /// Returns a vector of entries within the index range
-    pub fn filter_by_index_range(
-        &self,
-        start_index: usize,
-        end_index: usize,
-    ) -> Vec<&PlaylistEntry> {
+    pub fn filter_by_index_range(&self, start_index: usize, end_index: usize) -> Vec<&PlaylistEntry> {
         self.entries
             .iter()
-            .filter(|entry| {
-                entry
-                    .index
-                    .is_some_and(|idx| idx >= start_index && idx <= end_index)
-            })
+            .filter(|entry| entry.index.is_some_and(|idx| idx >= start_index && idx <= end_index))
             .collect()
     }
 }

@@ -11,16 +11,14 @@
 //! # Example
 //!
 //! ```rust,no_run
+//! use std::path::PathBuf;
+//!
 //! use yt_dlp::Downloader;
 //! use yt_dlp::client::deps::Libraries;
-//! use std::path::PathBuf;
 //!
 //! #[tokio::main]
 //! async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-//!     let libraries = Libraries::new(
-//!         PathBuf::from("libs/yt-dlp"),
-//!         PathBuf::from("libs/ffmpeg"),
-//!     );
+//!     let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
 //!     let downloader = Downloader::builder(libraries, "output").build().await?;
 //!
 //!     // ... perform downloads and fetches ...
@@ -28,7 +26,10 @@
 //!     let snapshot = downloader.statistics().snapshot().await;
 //!     println!("Completed:        {}", snapshot.downloads.completed);
 //!     println!("Total bytes:      {}", snapshot.downloads.total_bytes);
-//!     println!("Avg speed (B/s):  {:?}", snapshot.downloads.avg_speed_bytes_per_sec);
+//!     println!(
+//!         "Avg speed (B/s):  {:?}",
+//!         snapshot.downloads.avg_speed_bytes_per_sec
+//!     );
 //!     println!("Fetch success %:  {:?}", snapshot.fetches.success_rate);
 //!     Ok(())
 //! }
@@ -41,7 +42,7 @@ mod tracker;
 
 pub use config::TrackerConfig;
 pub use snapshot::{
-    ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats,
-    GlobalSnapshot, PlaylistStats, PostProcessStats,
+    ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats, GlobalSnapshot,
+    PlaylistStats, PostProcessStats,
 };
 pub use tracker::StatisticsTracker;

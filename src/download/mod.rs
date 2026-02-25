@@ -15,8 +15,7 @@ pub use fetcher::Fetcher;
 pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
 pub use partial::PartialRange;
 pub use postprocess::{
-    AudioCodec, EncodingPreset, FfmpegFilter, PostProcessConfig, Resolution, VideoCodec,
-    WatermarkPosition,
+    AudioCodec, EncodingPreset, FfmpegFilter, PostProcessConfig, Resolution, VideoCodec, WatermarkPosition,
 };
 pub use progress::ProgressTracker;
 pub use speed_profile::SpeedProfile;

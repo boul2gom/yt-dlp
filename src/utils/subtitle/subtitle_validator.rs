@@ -3,12 +3,14 @@
 //! This module provides functionality to validate subtitle files before embedding
 //! or processing them, ensuring they are well-formed and compatible.
 
-use crate::error::Result;
-use crate::model::caption::Extension;
-use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
+
+use regex::Regex;
 use tokio::fs;
+
+use crate::error::Result;
+use crate::model::caption::Extension;
 
 static VTT_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})")
@@ -20,8 +22,7 @@ static SRT_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid SRT timestamp regex")
 });
 
-static SRT_INDEX_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\d+$").expect("valid SRT index regex"));
+static SRT_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+$").expect("valid SRT index regex"));
 
 /// Validation result containing detailed information about subtitle file validity.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,9 +141,7 @@ pub async fn validate_subtitle(subtitle_path: impl AsRef<Path>) -> Result<Valida
 
     // Check if file is empty
     if content.trim().is_empty() {
-        return Ok(ValidationResult::invalid(vec![
-            "Subtitle file is empty".to_string(),
-        ]));
+        return Ok(ValidationResult::invalid(vec!["Subtitle file is empty".to_string()]));
     }
 
     // Detect format
@@ -241,11 +240,7 @@ fn validate_entry_timestamps(
 }
 
 /// Helper to validate generic subtitle content with a timestamp regex.
-fn validate_generic_subtitle(
-    content: &str,
-    timestamp_re: &Regex,
-    format: Extension,
-) -> Result<ValidationResult> {
+fn validate_generic_subtitle(content: &str, timestamp_re: &Regex, format: Extension) -> Result<ValidationResult> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut entry_count = 0;
@@ -339,9 +334,7 @@ fn validate_srt(content: &str) -> Result<ValidationResult> {
     }
 
     if !has_index && result.entry_count > 0 {
-        result
-            .warnings
-            .push("SRT file is missing subtitle indices".to_string());
+        result.warnings.push("SRT file is missing subtitle indices".to_string());
     }
 
     Ok(result)

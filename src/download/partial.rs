@@ -3,8 +3,9 @@
 //! This module provides functionality to download only specific parts of a video,
 //! either by time range or by chapter index.
 
-use crate::error::{Error, Result};
 use std::fmt;
+
+use crate::error::{Error, Result};
 
 /// Represents a range specification for partial downloads.
 ///
@@ -20,10 +21,7 @@ use std::fmt;
 /// };
 ///
 /// // Download chapters 2 through 5
-/// let chapter_range = PartialRange::ChapterRange {
-///     start: 2,
-///     end: 5,
-/// };
+/// let chapter_range = PartialRange::ChapterRange { start: 2, end: 5 };
 ///
 /// // Download only chapter 3
 /// let single_chapter = PartialRange::SingleChapter { index: 3 };
@@ -67,11 +65,7 @@ impl PartialRange {
     ///
     /// A PartialRange instance representing the time range
     pub fn time_range(start: f64, end: f64) -> Result<Self> {
-        tracing::debug!(
-            start = start,
-            end = end,
-            "⚙️ Creating time range for partial download"
-        );
+        tracing::debug!(start = start, end = end, "⚙️ Creating time range for partial download");
 
         if start < 0.0 || start >= end {
             return Err(Error::Unknown(format!(
@@ -247,12 +241,7 @@ impl fmt::Display for PartialRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TimeRange { start, end } => {
-                write!(
-                    f,
-                    "TimeRange(start={}, end={})",
-                    format_time(*start),
-                    format_time(*end)
-                )
+                write!(f, "TimeRange(start={}, end={})", format_time(*start), format_time(*end))
             }
             Self::ChapterRange { start, end } => {
                 write!(f, "ChapterRange(start={}, end={})", start, end)

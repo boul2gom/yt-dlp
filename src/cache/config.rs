@@ -4,6 +4,7 @@
 //! TTL values and backend-specific connection settings.
 
 use std::path::PathBuf;
+
 use typed_builder::TypedBuilder;
 
 /// Configuration for the tiered cache system.
@@ -13,8 +14,9 @@ use typed_builder::TypedBuilder;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use yt_dlp::cache::CacheConfig;
 /// use std::path::PathBuf;
+///
+/// use yt_dlp::cache::CacheConfig;
 ///
 /// let config = CacheConfig::builder()
 ///     .cache_dir(PathBuf::from("cache"))

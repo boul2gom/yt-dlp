@@ -6,6 +6,17 @@
 //! - Retry logic with exponential backoff
 //! - Progress tracking
 
+use std::cmp::min;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use futures_util::{StreamExt, stream};
+use reqwest::header::{HeaderMap, HeaderValue, RANGE};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::Mutex;
+
 use crate::client::proxy::ProxyConfig;
 use crate::download::segment::SegmentContext;
 use crate::download::speed_profile::SpeedProfile;
@@ -13,15 +24,6 @@ use crate::error::{Error, Result};
 use crate::model::format::HttpHeaders;
 use crate::utils::fs;
 use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
-use futures_util::{StreamExt, stream};
-use reqwest::header::{HeaderMap, HeaderValue, RANGE};
-use std::cmp::min;
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::Mutex;
 
 // Download configuration constants
 const DEFAULT_PARALLEL_SEGMENTS: usize = 4;
@@ -87,11 +89,7 @@ impl Fetcher {
     /// * `url` - The URL from which to download the data.
     /// * `proxy` - Optional proxy configuration
     /// * `http_headers` - Optional HTTP headers
-    pub fn new(
-        url: impl AsRef<str>,
-        proxy: Option<&ProxyConfig>,
-        http_headers: Option<HttpHeaders>,
-    ) -> Result<Self> {
+    pub fn new(url: impl AsRef<str>, proxy: Option<&ProxyConfig>, http_headers: Option<HttpHeaders>) -> Result<Self> {
         tracing::debug!(
             url = %url.as_ref(),
             has_proxy = proxy.is_some(),
@@ -100,10 +98,7 @@ impl Fetcher {
         );
 
         let (user_agent, default_headers) = match &http_headers {
-            Some(headers) => (
-                Some(headers.user_agent.clone()),
-                Some(headers.to_header_map()),
-            ),
+            Some(headers) => (Some(headers.user_agent.clone()), Some(headers.to_header_map())),
             None => (None, None),
         };
 
@@ -312,52 +307,17 @@ impl Fetcher {
             None
         };
 
-        // Check if the server supports range requests using retry logic
-        let url_clone = self.url.clone();
-        let client = Arc::clone(&self.client);
-
-        let head_response = self
-            .retry_policy
-            .execute_with_condition(
-                || async { client.head(&url_clone).send().await },
-                is_http_error_retryable,
-            )
-            .await?;
-
-        // If the server does not support range requests, use the simple method
-        if !head_response.headers().contains_key("accept-ranges") {
-            tracing::debug!(
-                url = %self.url,
-                "⚙️ Server does not support range requests, falling back to simple download"
-            );
+        // Probe server capabilities for range downloads
+        let (supports_ranges, content_length) = self.probe_range_support().await?;
+        if !supports_ranges {
             return self.fetch_asset_simple(destination).await;
         }
-
-        // Get the total file size
-        let content_length = match head_response.headers().get("content-length") {
-            Some(length) => {
-                let length_str = length
-                    .to_str()
-                    .map_err(|e| Error::Unknown(format!("Invalid Content-Length header: {e}")))?;
-                length_str.parse::<u64>().map_err(|e| {
-                    Error::Unknown(format!(
-                        "Failed to parse Content-Length '{length_str}': {e}"
-                    ))
-                })?
-            }
-            None => {
-                tracing::debug!(
-                    url = %self.url,
-                    "⚙️ Content-Length header not found, falling back to simple download"
-                );
-                return self.fetch_asset_simple(destination).await;
-            }
+        let Some(content_length) = content_length else {
+            return self.fetch_asset_simple(destination).await;
         };
 
         // If the file exists and has the same size, it is already downloaded
-        if let Some(size) = file_size
-            && size == content_length
-        {
+        if file_size.is_some_and(|size| size == content_length) {
             tracing::debug!(
                 destination = ?destination,
                 size = content_length,
@@ -366,39 +326,7 @@ impl Fetcher {
             return Ok(());
         }
 
-        // Create or open the destination file
-        let file = if file_exists && file_size.is_some() {
-            // Open existing file for resuming download
-            tracing::debug!(
-                destination = ?destination,
-                existing_size = file_size.unwrap_or(0),
-                total_size = content_length,
-                "🔄 Resuming download of existing file"
-            );
-
-            let file = tokio::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&destination)
-                .await?;
-
-            // Ensure the file is the correct size
-            file.set_len(content_length).await?;
-            file
-        } else {
-            // Create a new file
-            tracing::debug!(
-                destination = ?destination,
-                total_size = content_length,
-                "📥 Creating new file for download"
-            );
-
-            fs::create_parent_dir(&destination).await?;
-            let file = fs::create_file(&destination).await?;
-            // Resize the file to the total size
-            file.set_len(content_length).await?;
-            file
-        };
+        let file = self.open_download_file(&destination, file_size, content_length).await?;
 
         // Create a mutex to share the file between tasks
         let file = Arc::new(Mutex::new(file));
@@ -450,21 +378,7 @@ impl Fetcher {
         let temp_file_path = format!("{}.parts", destination.display());
         let mut parts_guard = PartsGuard::new(PathBuf::from(&temp_file_path));
         let downloaded_segments = if file_exists && Path::new(&temp_file_path).exists() {
-            // Read the downloaded segments from the temporary file
-            match tokio::fs::read_to_string(&temp_file_path).await {
-                Ok(content) => {
-                    let mut downloaded = vec![false; ranges.len()];
-                    for line in content.lines() {
-                        if let Ok(index) = line.parse::<usize>()
-                            && index < downloaded.len()
-                        {
-                            downloaded[index] = true;
-                        }
-                    }
-                    downloaded
-                }
-                Err(_) => vec![false; ranges.len()],
-            }
+            Self::load_segment_progress(&temp_file_path, ranges.len()).await
         } else {
             vec![false; ranges.len()]
         };
@@ -505,71 +419,28 @@ impl Fetcher {
         let temp_file_path_clone = temp_file_path.clone();
         let downloaded_segments = Arc::new(Mutex::new(downloaded_segments));
 
-        // Create a stream of futures to download each segment
+        // Download segments in parallel with retry
         let results = stream::iter(ranges_to_download)
             .map(|(segment_index, (start, end))| {
-                let url = self.url.clone();
-                let file_clone = Arc::clone(&file);
-                let downloaded_bytes_clone = Arc::clone(&downloaded_bytes);
-                let progress_callback = self.progress_callback.as_ref().map(Arc::clone);
-                let downloaded_segments_clone = Arc::clone(&downloaded_segments);
+                let context = SegmentContext {
+                    file: Arc::clone(&file),
+                    downloaded_bytes: Arc::clone(&downloaded_bytes),
+                    progress_callback: self.progress_callback.as_ref().map(Arc::clone),
+                    total_bytes,
+                };
+                let downloaded_segments = Arc::clone(&downloaded_segments);
                 let temp_file_path = temp_file_path_clone.clone();
 
                 async move {
-                    for attempt in 0..self.retry_attempts {
-                        match self
-                            .download_segment(
-                                &url,
-                                start,
-                                end,
-                                &SegmentContext {
-                                    file: Arc::clone(&file_clone),
-                                    downloaded_bytes: Arc::clone(&downloaded_bytes_clone),
-                                    progress_callback: progress_callback.clone(),
-                                    total_bytes,
-                                },
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                // Mark the segment as downloaded
-                                let mut segments = downloaded_segments_clone.lock().await;
-                                segments[segment_index] = true;
-
-                                // Update the temporary file
-                                if let Ok(mut file) = tokio::fs::OpenOptions::new()
-                                    .create(true)
-                                    .write(true)
-                                    .append(true)
-                                    .open(&temp_file_path)
-                                    .await
-                                {
-                                    let _ = file
-                                        .write_all(format!("{}\n", segment_index).as_bytes())
-                                        .await;
-                                }
-
-                                return Ok(());
-                            }
-                            Err(error) if attempt < self.retry_attempts - 1 => {
-                                tracing::warn!(attempt = attempt + 1, error = %error, "🔄 Segment download failed");
-                                // Consume the error
-                                let _ = error;
-
-                                // Wait a bit before retrying (exponential backoff)
-                                tokio::time::sleep(tokio::time::Duration::from_millis(
-                                    250 * 2u64.pow(attempt as u32),
-                                ))
-                                .await;
-                            }
-                            Err(error) => return Err(error),
-                        }
-                    }
-
-                    Err(Error::Unknown(format!(
-                        "Failed to download segment after {} attempts for URL '{}'",
-                        self.retry_attempts, self.url
-                    )))
+                    self.download_and_track_segment(
+                        segment_index,
+                        start,
+                        end,
+                        &context,
+                        &downloaded_segments,
+                        &temp_file_path,
+                    )
+                    .await
                 }
             })
             .buffer_unordered(parallel_count)
@@ -595,33 +466,168 @@ impl Fetcher {
         Ok(())
     }
 
+    /// Probes the server for range request support and content length.
+    ///
+    /// Uses `GET Range: bytes=0-0` instead of HEAD for better CDN compatibility.
+    /// The Content-Range header reveals the total file size.
+    async fn probe_range_support(&self) -> Result<(bool, Option<u64>)> {
+        let url = self.url.clone();
+        let client = Arc::clone(&self.client);
+
+        let response = self
+            .retry_policy
+            .execute_with_condition(
+                || async { client.get(&url).header(RANGE, "bytes=0-0").send().await },
+                is_http_error_retryable,
+            )
+            .await?;
+
+        // 206 Partial Content confirms range support; extract total from Content-Range
+        let supports_ranges = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+        if !supports_ranges {
+            tracing::debug!(url = %self.url, "⚙️ Server does not support range requests");
+        }
+
+        // Parse total size from Content-Range: bytes 0-0/<total_size>
+        let content_length = response
+            .headers()
+            .get("content-range")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.rsplit('/').next())
+            .filter(|s| *s != "*")
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| {
+                // Fallback to Content-Length header (for non-range responses)
+                response
+                    .headers()
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+            });
+
+        if content_length.is_none() && supports_ranges {
+            tracing::debug!(url = %self.url, "⚙️ Content-Length header not found");
+        }
+
+        Ok((supports_ranges, content_length))
+    }
+
+    /// Opens an existing file for resume or creates a new one, pre-allocated to the target size.
+    async fn open_download_file(
+        &self,
+        destination: &Path,
+        file_size: Option<u64>,
+        content_length: u64,
+    ) -> Result<tokio::fs::File> {
+        if let Some(existing_size) = file_size {
+            tracing::debug!(
+                destination = ?destination,
+                existing_size = existing_size,
+                total_size = content_length,
+                "🔄 Resuming download of existing file"
+            );
+
+            let file = tokio::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(destination)
+                .await?;
+
+            file.set_len(content_length).await?;
+            Ok(file)
+        } else {
+            tracing::debug!(
+                destination = ?destination,
+                total_size = content_length,
+                "📥 Creating new file for download"
+            );
+
+            fs::create_parent_dir(destination).await?;
+            let file = fs::create_file(destination).await?;
+            file.set_len(content_length).await?;
+            Ok(file)
+        }
+    }
+
+    /// Loads segment progress from a .parts tracking file.
+    async fn load_segment_progress(temp_file_path: &str, ranges_count: usize) -> Vec<bool> {
+        let Ok(content) = tokio::fs::read_to_string(temp_file_path).await else {
+            return vec![false; ranges_count];
+        };
+
+        let mut downloaded = vec![false; ranges_count];
+        for line in content.lines() {
+            if let Ok(index) = line.parse::<usize>()
+                && index < downloaded.len()
+            {
+                downloaded[index] = true;
+            }
+        }
+        downloaded
+    }
+
+    /// Downloads a single segment with retry logic and tracks progress in the .parts file.
+    async fn download_and_track_segment(
+        &self,
+        segment_index: usize,
+        start: u64,
+        end: u64,
+        context: &SegmentContext,
+        downloaded_segments: &Mutex<Vec<bool>>,
+        temp_file_path: &str,
+    ) -> Result<()> {
+        for attempt in 0..self.retry_attempts {
+            match self.download_segment(&self.url, start, end, context).await {
+                Ok(_) => {
+                    let mut segments = downloaded_segments.lock().await;
+                    segments[segment_index] = true;
+
+                    if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .append(true)
+                        .open(temp_file_path)
+                        .await
+                    {
+                        let _ = file.write_all(format!("{}\n", segment_index).as_bytes()).await;
+                    }
+
+                    return Ok(());
+                }
+                Err(error) if attempt < self.retry_attempts - 1 => {
+                    tracing::warn!(attempt = attempt + 1, error = %error, "🔄 Segment download failed");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(250 * 2u64.pow(attempt as u32))).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        Err(Error::Unknown(format!(
+            "Failed to download segment after {} attempts for URL '{}'",
+            self.retry_attempts, self.url
+        )))
+    }
+
     /// Calculate the optimal number of parallel segments based on file size and speed profile
     fn calculate_optimal_segments(&self, file_size: u64) -> usize {
         self.speed_profile
             .calculate_optimal_segments(file_size, self.segment_size as u64)
     }
 
-    /// Downloads a specific segment of the file.
-    async fn download_segment(
-        &self,
-        url: &str,
-        start: u64,
-        end: u64,
-        context: &SegmentContext,
-    ) -> Result<()> {
-        let client = Arc::clone(&self.client);
-
-        // Check if the segment is already downloaded
-        let mut file_guard = context.file.lock().await;
+    /// Checks whether a segment range has already been downloaded by probing start and end bytes.
+    async fn is_segment_downloaded(file: &Mutex<tokio::fs::File>, start: u64, end: u64) -> Result<Option<bool>> {
+        let mut file_guard = file.lock().await;
 
         file_guard.seek(std::io::SeekFrom::Start(start)).await?;
         let mut start_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
         let start_read = file_guard.read(&mut start_buffer).await?;
         let start_has_data = start_read > 0 && start_buffer.iter().any(|&b| b != 0);
 
-        // Check end (only if start has data and segment is large enough)
-        let end_has_data = if start_has_data && (end - start + 1) > SEGMENT_CHECK_BUFFER_SIZE as u64
-        {
+        if !start_has_data {
+            return Ok(Some(false));
+        }
+
+        let end_has_data = if (end - start + 1) > SEGMENT_CHECK_BUFFER_SIZE as u64 {
             let seek_pos = end.saturating_sub(SEGMENT_CHECK_BUFFER_SIZE as u64 - 1);
             file_guard.seek(std::io::SeekFrom::Start(seek_pos)).await?;
 
@@ -629,26 +635,35 @@ impl Fetcher {
             let end_read = file_guard.read(&mut end_buffer).await?;
             end_read > 0 && end_buffer.iter().any(|&b| b != 0)
         } else {
-            // If segment is small, start check covers it all or enough
-            start_has_data
+            true
         };
 
-        // Release the file lock before making HTTP request
-        drop(file_guard);
+        // None = partial data (start ok, end missing), needs re-download
+        Ok(if end_has_data { Some(true) } else { None })
+    }
 
-        if start_has_data && end_has_data {
-            tracing::debug!(
-                segment_start = start,
-                segment_end = end,
-                "✅ Segment already downloaded (verified), skipping"
-            );
-            return Ok(());
-        } else if start_has_data {
-            tracing::warn!(
-                segment_start = start,
-                segment_end = end,
-                "🔄 Segment has data at start but not at end, re-downloading"
-            );
+    /// Downloads a specific segment of the file.
+    async fn download_segment(&self, url: &str, start: u64, end: u64, context: &SegmentContext) -> Result<()> {
+        let client = Arc::clone(&self.client);
+
+        // Check if the segment is already downloaded
+        match Self::is_segment_downloaded(&context.file, start, end).await? {
+            Some(true) => {
+                tracing::debug!(
+                    segment_start = start,
+                    segment_end = end,
+                    "✅ Segment already downloaded (verified), skipping"
+                );
+                return Ok(());
+            }
+            None => {
+                tracing::warn!(
+                    segment_start = start,
+                    segment_end = end,
+                    "🔄 Segment has data at start but not at end, re-downloading"
+                );
+            }
+            Some(false) => {}
         }
 
         // Create the Range header
@@ -676,9 +691,7 @@ impl Fetcher {
                         let chunk = chunk_result?;
 
                         let mut file_guard = context.file.lock().await;
-                        file_guard
-                            .seek(std::io::SeekFrom::Start(current_offset))
-                            .await?;
+                        file_guard.seek(std::io::SeekFrom::Start(current_offset)).await?;
                         file_guard.write_all(&chunk).await?;
 
                         current_offset += chunk.len() as u64;
@@ -734,93 +747,19 @@ impl Fetcher {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Check if the file exists and get its size
-        let file_exists = destination.exists();
-        let file_size = if file_exists {
-            match tokio::fs::metadata(&destination).await {
-                Ok(metadata) => Some(metadata.len()),
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
+        let file_size = tokio::fs::metadata(&destination).await.ok().map(|m| m.len());
+        let response = self.execute_simple_request(file_size).await?;
+        let (append_mode, response) = Self::validate_simple_response(response, file_size, &self.url)?;
 
-        // Use the shared client for the request with retry logic
-        let url_clone = self.url.clone();
-        let range_header = file_size
-            .filter(|&s| s > 0)
-            .map(|s| format!("bytes={}-", s));
-        let client = Arc::clone(&self.client);
-
-        let response = self
-            .retry_policy
-            .execute_with_condition(
-                || async {
-                    let mut req = client.get(&url_clone);
-                    if let Some(ref range) = range_header {
-                        req = req.header(RANGE, range);
-                    }
-                    req.send().await
-                },
-                is_http_error_retryable,
-            )
-            .await?;
-
-        // Check if the server accepted our range request
-        let status = response.status();
-        let is_partial_content = status == reqwest::StatusCode::PARTIAL_CONTENT;
-        let is_ok = status == reqwest::StatusCode::OK;
-
-        // Ensure the response is valid
-        if !is_partial_content && !is_ok {
-            return Err(Error::Unknown(format!(
-                "Unexpected status code {status} for URL '{}'",
-                self.url
-            )));
-        }
-
-        // Ensure the response is successful
-        let response = response.error_for_status()?;
-
-        // Get content length before checking if we need to resume
         let content_length = response.content_length();
-
-        // If we got a 200 OK instead of 206 Partial Content, the server doesn't support range requests
-        // In this case, we need to start the download from the beginning
-        let append_mode = is_partial_content && file_size.is_some_and(|sz| sz > 0);
-
-        // Open the file in the appropriate mode
-        let mut dest = if append_mode {
-            tokio::fs::OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(&destination)
-                .await?
-        } else {
-            fs::create_file(&destination).await?
-        };
-
+        let mut dest = self.open_simple_destination(&destination, append_mode).await?;
         let mut stream = response.bytes_stream();
-
-        // Use a larger buffer to improve performance
-        let mut buffer = Vec::with_capacity(1024 * 1024); // 1 MB buffer
-
-        // Track progress for callback
-        let mut downloaded_bytes = if append_mode {
-            file_size.unwrap_or(0)
-        } else {
-            0
-        };
-
-        // Get total size if available
-        let total_bytes = if let Some(length) = content_length {
-            if append_mode {
-                length + file_size.unwrap_or(0)
-            } else {
-                length
-            }
-        } else {
-            0 // Unknown size
+        let mut buffer = Vec::with_capacity(1024 * 1024);
+        let mut downloaded_bytes = if append_mode { file_size.unwrap_or(0) } else { 0 };
+        let total_bytes = match content_length {
+            Some(length) if append_mode => length + file_size.unwrap_or(0),
+            Some(length) => length,
+            None => 0,
         };
 
         while let Some(chunk) = stream.next().await {
@@ -848,5 +787,59 @@ impl Fetcher {
         }
 
         Ok(())
+    }
+
+    /// Executes the simple download HTTP request with optional resume via Range header.
+    async fn execute_simple_request(&self, file_size: Option<u64>) -> Result<reqwest::Response> {
+        let url = self.url.clone();
+        let range_header = file_size.filter(|&s| s > 0).map(|s| format!("bytes={}-", s));
+        let client = Arc::clone(&self.client);
+
+        self.retry_policy
+            .execute_with_condition(
+                || async {
+                    let mut req = client.get(&url);
+                    if let Some(ref range) = range_header {
+                        req = req.header(RANGE, range);
+                    }
+                    req.send().await
+                },
+                is_http_error_retryable,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Validates the response status and determines whether to append or overwrite.
+    fn validate_simple_response(
+        response: reqwest::Response,
+        file_size: Option<u64>,
+        url: &str,
+    ) -> Result<(bool, reqwest::Response)> {
+        let status = response.status();
+        let is_partial = status == reqwest::StatusCode::PARTIAL_CONTENT;
+
+        if !is_partial && status != reqwest::StatusCode::OK {
+            return Err(Error::Unknown(format!(
+                "Unexpected status code {status} for URL '{url}'"
+            )));
+        }
+
+        let response = response.error_for_status()?;
+        let append_mode = is_partial && file_size.is_some_and(|sz| sz > 0);
+        Ok((append_mode, response))
+    }
+
+    /// Opens the destination file in append or create mode.
+    async fn open_simple_destination(&self, destination: &Path, append_mode: bool) -> Result<tokio::fs::File> {
+        if append_mode {
+            Ok(tokio::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(destination)
+                .await?)
+        } else {
+            Ok(fs::create_file(destination).await?)
+        }
     }
 }

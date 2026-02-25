@@ -9,6 +9,12 @@
 //! - **M4A**: Title, artist, comment, genre (from tags), release year
 //! - **MP4**: All basic metadata, plus technical information (resolution, FPS, video codec, video bitrate, audio codec, audio bitrate, audio channels, sample rate)
 //! - **WebM**: All basic metadata (via Matroska format), plus technical information as with MP4
+//! - **FLAC**: Title, artist, album, genre, date, description (via Vorbis comments through lofty), thumbnail embedding
+//! - **OGG/Opus**: Title, artist, album, genre, date, description (via Vorbis comments through lofty)
+//! - **WAV**: Title, artist, album, genre (via RIFF INFO through lofty)
+//! - **AAC**: Title, artist, album, genre, date (via ID3v2 through lofty)
+//! - **AIFF**: Title, artist, album, genre, date (via ID3v2 through lofty)
+//! - **AVI/TS/FLV**: Basic metadata via FFmpeg fallback
 //!
 //! ## Intelligent Metadata Management
 //!
@@ -18,13 +24,15 @@
 //! - **Separate streams** (to be combined later): NO metadata applied to avoid redundant work
 //! - **Combined files**: Complete metadata applied to final file, including info from both streams
 
-use crate::error::Result;
 use std::path::PathBuf;
+
+use crate::error::Result;
 
 pub mod api;
 pub mod base;
 pub mod chapters;
 pub mod ffmpeg;
+pub mod lofty;
 pub mod mp3;
 pub mod mp4;
 pub mod postprocess;
@@ -131,10 +139,7 @@ impl MetadataManager {
         file_path: impl Into<PathBuf>,
         file_format: &str,
     ) -> crate::error::Result<PathBuf> {
-        Ok(crate::utils::fs::create_temp_path(
-            &file_path.into(),
-            file_format,
-        ))
+        Ok(crate::utils::fs::create_temp_path(&file_path.into(), file_format))
     }
 }
 

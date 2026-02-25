@@ -28,12 +28,10 @@ compile_error!(
 pub use config::CacheConfig;
 pub use files::DownloadCache;
 pub use layer::CacheLayer;
-pub use playlist::PlaylistCache;
-pub use video::VideoCache;
-
 // Re-export common structures
 pub use playlist::CachedPlaylist;
-pub use video::{CachedFile, CachedThumbnail, CachedVideo};
+pub use playlist::PlaylistCache;
+pub use video::{CachedFile, CachedThumbnail, CachedVideo, VideoCache};
 
 // Common types and traits
 pub use crate::model::selector::{

@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
 use tokio::sync::Mutex;
 
 /// Context for segment download operations
@@ -24,10 +25,7 @@ pub struct SegmentContext {
 impl std::fmt::Debug for SegmentContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SegmentContext")
-            .field(
-                "downloaded_bytes",
-                &self.downloaded_bytes.load(Ordering::Relaxed),
-            )
+            .field("downloaded_bytes", &self.downloaded_bytes.load(Ordering::Relaxed))
             .field("total_bytes", &self.total_bytes)
             .field("has_callback", &self.progress_callback.is_some())
             .finish()

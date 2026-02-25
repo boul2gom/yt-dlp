@@ -1,7 +1,8 @@
 //! Heatmap-related models.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Heatmap(Vec<HeatmapPoint>);
@@ -48,11 +49,9 @@ impl Heatmap {
     ///
     /// The most engaged `HeatmapPoint`, or `None` if the heatmap is empty
     pub fn most_engaged_segment(&self) -> Option<&HeatmapPoint> {
-        self.points().iter().max_by(|a, b| {
-            a.value
-                .partial_cmp(&b.value)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        self.points()
+            .iter()
+            .max_by(|a, b| a.value.partial_cmp(&b.value).unwrap_or(std::cmp::Ordering::Equal))
     }
 
     /// Returns all heatmap points with an engagement value above the threshold.
@@ -65,10 +64,7 @@ impl Heatmap {
     ///
     /// A vector of references to highly engaged segments
     pub fn get_highly_engaged_segments(&self, threshold: f64) -> Vec<&HeatmapPoint> {
-        self.points()
-            .iter()
-            .filter(|p| p.value >= threshold)
-            .collect()
+        self.points().iter().filter(|p| p.value >= threshold).collect()
     }
 
     /// Returns the heatmap point at a specific timestamp.
@@ -81,9 +77,7 @@ impl Heatmap {
     ///
     /// The heatmap point containing the timestamp, or None if no point matches
     pub fn get_point_at_time(&self, timestamp: f64) -> Option<&HeatmapPoint> {
-        self.points()
-            .iter()
-            .find(|p| p.contains_timestamp(timestamp))
+        self.points().iter().find(|p| p.contains_timestamp(timestamp))
     }
 
     /// Checks if the heatmap is empty.

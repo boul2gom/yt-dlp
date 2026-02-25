@@ -1,8 +1,9 @@
 //! Chapter-related models.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use serde::{Deserialize, Serialize};
 
 /// Represents a chapter in a YouTube video.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,9 +168,7 @@ impl<'a> ChapterList<'a> {
     ///
     /// Returns an Option containing a reference to the matching chapter
     pub fn find_by_exact_title(&self, title: &str) -> Option<&'a Chapter> {
-        self.chapters
-            .iter()
-            .find(|chapter| chapter.title_matches(title))
+        self.chapters.iter().find(|chapter| chapter.title_matches(title))
     }
 
     /// Finds all chapters with titles starting with the given prefix.
@@ -226,10 +225,7 @@ impl<'a> ChapterList<'a> {
     ///
     /// Returns a vector of references to chapters with titles
     pub fn with_titles(&self) -> Vec<&'a Chapter> {
-        self.chapters
-            .iter()
-            .filter(|chapter| chapter.has_title())
-            .collect()
+        self.chapters.iter().filter(|chapter| chapter.has_title()).collect()
     }
 
     /// Gets the total number of chapters.
@@ -251,7 +247,6 @@ impl<'a> ChapterList<'a> {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
 
-        // Check if there are any chapters
         if self.chapters.is_empty() {
             return ChapterValidation {
                 is_valid: true,
@@ -260,9 +255,18 @@ impl<'a> ChapterList<'a> {
             };
         }
 
-        // Validate each chapter individually
-        for (i, chapter) in self.chapters.iter().enumerate() {
-            // Check for valid time range
+        Self::validate_individual_chapters(self.chapters, &mut errors, &mut warnings);
+        Self::validate_chapter_ordering(self.chapters, &mut errors, &mut warnings);
+
+        ChapterValidation {
+            is_valid: errors.is_empty(),
+            errors,
+            warnings,
+        }
+    }
+
+    fn validate_individual_chapters(chapters: &[Chapter], errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+        for (i, chapter) in chapters.iter().enumerate() {
             if chapter.start_time < 0.0 {
                 errors.push(format!(
                     "Chapter {} has negative start time: {:.2}s",
@@ -288,27 +292,21 @@ impl<'a> ChapterList<'a> {
                 ));
             }
 
-            // Check for missing title
             if !chapter.has_title() {
                 warnings.push(format!("Chapter {} has no title", i + 1));
             }
 
-            // Check for very short chapters (< 1 second)
             if chapter.duration() < 1.0 {
-                warnings.push(format!(
-                    "Chapter {} is very short ({:.2}s)",
-                    i + 1,
-                    chapter.duration()
-                ));
+                warnings.push(format!("Chapter {} is very short ({:.2}s)", i + 1, chapter.duration()));
             }
         }
+    }
 
-        // Check for chronological order and overlaps
-        for i in 0..self.chapters.len().saturating_sub(1) {
-            let current = &self.chapters[i];
-            let next = &self.chapters[i + 1];
+    fn validate_chapter_ordering(chapters: &[Chapter], errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+        for i in 0..chapters.len().saturating_sub(1) {
+            let current = &chapters[i];
+            let next = &chapters[i + 1];
 
-            // Check if chapters are in order
             if current.start_time > next.start_time {
                 errors.push(format!(
                     "Chapters {} and {} are out of order (current starts at {:.2}s, next starts at {:.2}s)",
@@ -319,7 +317,6 @@ impl<'a> ChapterList<'a> {
                 ));
             }
 
-            // Check for overlaps
             if current.end_time > next.start_time {
                 errors.push(format!(
                     "Chapters {} and {} overlap (current ends at {:.2}s, next starts at {:.2}s)",
@@ -330,11 +327,9 @@ impl<'a> ChapterList<'a> {
                 ));
             }
 
-            // Check for gaps
             if current.end_time < next.start_time {
                 let gap = next.start_time - current.end_time;
                 if gap > 0.1 {
-                    // Only warn for gaps > 100ms
                     warnings.push(format!(
                         "Gap of {:.2}s between chapters {} and {} ({:.2}s to {:.2}s)",
                         gap,
@@ -345,12 +340,6 @@ impl<'a> ChapterList<'a> {
                     ));
                 }
             }
-        }
-
-        ChapterValidation {
-            is_valid: errors.is_empty(),
-            errors,
-            warnings,
         }
     }
 

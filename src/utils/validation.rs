@@ -3,11 +3,10 @@
 //! This module provides functions to validate YouTube URLs and sanitize file paths
 //! to prevent security vulnerabilities like path traversal attacks.
 
-use crate::{
-    error::{Error, Result},
-    extractor::Youtube,
-};
 use std::path::PathBuf;
+
+use crate::error::{Error, Result};
+use crate::extractor::Youtube;
 
 /// Validates a YouTube URL.
 ///
@@ -42,18 +41,14 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
     tracing::debug!(url = url, "⚙️ Validating YouTube URL");
 
     // Try to parse the URL
-    let parsed = url::Url::parse(url)
-        .map_err(|e| Error::url_validation(url, format!("Invalid URL format: {}", e)))?;
+    let parsed = url::Url::parse(url).map_err(|e| Error::url_validation(url, format!("Invalid URL format: {}", e)))?;
 
     // Check the scheme (only HTTP and HTTPS are allowed)
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         return Err(Error::url_validation(
             url,
-            format!(
-                "Unsafe URL scheme '{}'. Only HTTP and HTTPS are allowed",
-                scheme
-            ),
+            format!("Unsafe URL scheme '{}'. Only HTTP and HTTPS are allowed", scheme),
         ));
     }
 
@@ -66,22 +61,14 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
     let is_youtube = Youtube::supports_url(url);
 
     if !is_youtube {
-        tracing::warn!(
-            url = url,
-            host = host,
-            "⚙️ URL validation failed: not a YouTube domain"
-        );
+        tracing::warn!(url = url, host = host, "⚙️ URL validation failed: not a YouTube domain");
         return Err(Error::url_validation(
             url,
             format!("URL must be from YouTube (got: {})", host),
         ));
     }
 
-    tracing::debug!(
-        url = url,
-        host = host,
-        "✅ YouTube URL validated successfully"
-    );
+    tracing::debug!(url = url, host = host, "✅ YouTube URL validated successfully");
 
     Ok(())
 }
@@ -123,10 +110,7 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
 
     // Check for absolute paths (not allowed for user-provided paths)
     if path.is_absolute() {
-        return Err(Error::path_validation(
-            path,
-            "Absolute paths are not allowed",
-        ));
+        return Err(Error::path_validation(path, "Absolute paths are not allowed"));
     }
 
     // Build a sanitized path by filtering out dangerous components
@@ -151,16 +135,10 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
                 // Skip current directory references (harmless but unnecessary)
             }
             std::path::Component::RootDir => {
-                return Err(Error::path_validation(
-                    path,
-                    "Root directory reference in path",
-                ));
+                return Err(Error::path_validation(path, "Root directory reference in path"));
             }
             std::path::Component::Prefix(_) => {
-                return Err(Error::path_validation(
-                    path,
-                    "Windows path prefix not allowed",
-                ));
+                return Err(Error::path_validation(path, "Windows path prefix not allowed"));
             }
         }
     }
@@ -173,10 +151,7 @@ pub fn sanitize_path(path: impl Into<PathBuf>) -> Result<PathBuf> {
 
     // Ensure the sanitized path is not empty
     if sanitized.as_os_str().is_empty() {
-        return Err(Error::path_validation(
-            path,
-            "Empty path after sanitization",
-        ));
+        return Err(Error::path_validation(path, "Empty path after sanitization"));
     }
 
     tracing::debug!(

@@ -3,14 +3,14 @@
 //! This module provides functions to add metadata and thumbnails to M4A/MP4 files
 //! using the mp4ameta library.
 
+use std::path::{Path, PathBuf};
+
+use mp4ameta::Tag as MP4Tag;
+
+use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
 use crate::model::Video;
 use crate::model::format::Format;
-use mp4ameta::Tag as MP4Tag;
-
-use std::path::{Path, PathBuf};
-
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 
 impl MetadataManager {
     /// Add metadata to an M4A/MP4 file using mp4ameta.
@@ -41,12 +41,11 @@ impl MetadataManager {
         {
             let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
             let audio_codec = audio_format.and_then(|f| f.codec_info.audio_codec.as_deref());
-            let video_resolution = video_format.and_then(|f| {
-                match (f.video_resolution.width, f.video_resolution.height) {
+            let video_resolution =
+                video_format.and_then(|f| match (f.video_resolution.width, f.video_resolution.height) {
                     (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
                     _ => None,
-                }
-            });
+                });
             let playlist_title = _playlist.map(|p| &p.title);
 
             tracing::debug!(
@@ -65,9 +64,7 @@ impl MetadataManager {
         }
 
         // Prepare data for blocking thread
-        let metadata = Self::extract_basic_metadata(video)
-            .into_iter()
-            .collect::<Vec<_>>();
+        let metadata = Self::extract_basic_metadata(video).into_iter().collect::<Vec<_>>();
         let has_format_info = audio_format.is_some() || video_format.is_some();
         let file_path_for_tracing = file_path.clone();
         let file_path_clone = file_path.clone();
@@ -127,10 +124,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the MP4 tags cannot be written
-    pub(super) async fn add_thumbnail_to_m4a(
-        file_path: impl Into<PathBuf>,
-        thumbnail_path: &Path,
-    ) -> Result<()> {
+    pub(super) async fn add_thumbnail_to_m4a(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
         let file_path = file_path.into();
 
         tracing::debug!(

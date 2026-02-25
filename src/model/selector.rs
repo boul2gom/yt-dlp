@@ -1,7 +1,8 @@
 //! Format selector enumerations for audio and video formats.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 /// Represents video quality preferences for format selection.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -274,12 +275,8 @@ impl fmt::Display for FormatPreferences {
             self.audio_quality
                 .as_ref()
                 .map_or("none".to_string(), |q| q.to_string()),
-            self.video_codec
-                .as_ref()
-                .map_or("none".to_string(), |c| c.to_string()),
-            self.audio_codec
-                .as_ref()
-                .map_or("none".to_string(), |c| c.to_string()),
+            self.video_codec.as_ref().map_or("none".to_string(), |c| c.to_string()),
+            self.audio_codec.as_ref().map_or("none".to_string(), |c| c.to_string()),
         )
     }
 }

@@ -1,13 +1,15 @@
 //! Formats-related models.
 
-use crate::model::DrmStatus;
-use crate::model::utils::serde::json_none;
-use ordered_float::OrderedFloat;
-use reqwest::header::{self, HeaderMap, HeaderValue};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
 use std::str::FromStr;
+
+use ordered_float::OrderedFloat;
+use reqwest::header::{self, HeaderMap, HeaderValue};
+use serde::{Deserialize, Serialize};
+
+use crate::model::DrmStatus;
+use crate::model::utils::serde::json_none;
 
 /// Represents an available format of a video.
 /// It can be audio, video, both of them, a manifest, or a storyboard.
@@ -129,10 +131,7 @@ impl Format {
             .url
             .as_ref()
             .ok_or_else(|| crate::error::Error::FormatNoUrl {
-                video_id: self
-                    .video_id
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
+                video_id: self.video_id.clone().unwrap_or_else(|| "unknown".to_string()),
                 format_id: self.format_id.clone(),
             })
     }
@@ -222,11 +221,7 @@ pub struct DownloadInfo {
 
 impl fmt::Display for DownloadInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "DownloadInfo(url={})",
-            self.url.as_deref().unwrap_or("none")
-        )
+        write!(f, "DownloadInfo(url={})", self.url.as_deref().unwrap_or("none"))
     }
 }
 
@@ -429,6 +424,22 @@ pub enum Extension {
     Mp4,
     /// The Webm extension.
     Webm,
+    /// The FLAC extension.
+    Flac,
+    /// The OGG extension (Vorbis/Opus).
+    Ogg,
+    /// The WAV extension.
+    Wav,
+    /// The AAC extension.
+    Aac,
+    /// The AIFF extension.
+    Aiff,
+    /// The AVI extension.
+    Avi,
+    /// The MPEG-TS extension.
+    Ts,
+    /// The FLV extension.
+    Flv,
 
     /// The MHTML extension.
     Mhtml,
@@ -454,6 +465,14 @@ impl Extension {
             Extension::Mp3 => "mp3",
             Extension::Mp4 => "mp4",
             Extension::Webm => "webm",
+            Extension::Flac => "flac",
+            Extension::Ogg => "ogg",
+            Extension::Wav => "wav",
+            Extension::Aac => "aac",
+            Extension::Aiff => "aiff",
+            Extension::Avi => "avi",
+            Extension::Ts => "ts",
+            Extension::Flv => "flv",
             Extension::Mhtml => "mhtml",
             Extension::None | Extension::Unknown => "bin",
         }
@@ -467,6 +486,14 @@ impl fmt::Display for Extension {
             Extension::Mp3 => f.write_str("Mp3"),
             Extension::Mp4 => f.write_str("Mp4"),
             Extension::Webm => f.write_str("Webm"),
+            Extension::Flac => f.write_str("Flac"),
+            Extension::Ogg => f.write_str("Ogg"),
+            Extension::Wav => f.write_str("Wav"),
+            Extension::Aac => f.write_str("Aac"),
+            Extension::Aiff => f.write_str("Aiff"),
+            Extension::Avi => f.write_str("Avi"),
+            Extension::Ts => f.write_str("Ts"),
+            Extension::Flv => f.write_str("Flv"),
             Extension::Mhtml => f.write_str("Mhtml"),
             Extension::None => f.write_str("None"),
             Extension::Unknown => f.write_str("Unknown"),
@@ -483,6 +510,14 @@ impl FromStr for Extension {
             "mp3" => Ok(Extension::Mp3),
             "mp4" => Ok(Extension::Mp4),
             "webm" => Ok(Extension::Webm),
+            "flac" => Ok(Extension::Flac),
+            "ogg" | "oga" | "opus" => Ok(Extension::Ogg),
+            "wav" => Ok(Extension::Wav),
+            "aac" => Ok(Extension::Aac),
+            "aiff" | "aif" => Ok(Extension::Aiff),
+            "avi" => Ok(Extension::Avi),
+            "ts" | "m2ts" | "mts" => Ok(Extension::Ts),
+            "flv" => Ok(Extension::Flv),
             "mhtml" => Ok(Extension::Mhtml),
             "" | "none" => Ok(Extension::None),
             _ => Ok(Extension::Unknown),

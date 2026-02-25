@@ -2,20 +2,19 @@
 //!
 //! This module provides a builder pattern for configuring and executing downloads.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use crate::client::Downloader;
 use crate::client::streams::selection::VideoSelection;
-use crate::download::DownloadPriority;
-use crate::download::DownloadStatus;
 use crate::download::partial::PartialRange;
+use crate::download::{DownloadPriority, DownloadStatus};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::format::FormatType;
 use crate::model::selector::{
-    AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference,
-    VideoQuality,
+    AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference, VideoQuality,
 };
-use std::path::PathBuf;
-use std::sync::Arc;
 
 /// Builder for configuring and executing video downloads.
 ///
@@ -295,18 +294,10 @@ impl<'a> DownloadBuilder<'a> {
 
         // Generate temporary filenames for video and audio
         let video_ext = video_format.download_info.ext.as_str();
-        let video_filename = format!(
-            "temp_video_{}.{}",
-            crate::utils::fs::random_filename(8),
-            video_ext
-        );
+        let video_filename = format!("temp_video_{}.{}", crate::utils::fs::random_filename(8), video_ext);
 
         let audio_ext = audio_format.download_info.ext.as_str();
-        let audio_filename = format!(
-            "temp_audio_{}.{}",
-            crate::utils::fs::random_filename(8),
-            audio_ext
-        );
+        let audio_filename = format!("temp_audio_{}.{}", crate::utils::fs::random_filename(8), audio_ext);
 
         // Get download URLs
         let video_url = video_format
@@ -326,8 +317,7 @@ impl<'a> DownloadBuilder<'a> {
         let audio_path = self.downloader.output_dir.join(&audio_filename);
 
         // Enqueue downloads with configured priority
-        let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback
-        {
+        let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback {
             // Wrap callback in Arc to share between downloads
             let callback = Arc::new(callback);
 
@@ -429,29 +419,26 @@ impl<'a> DownloadBuilder<'a> {
                         .combine_audio_and_video_to_path(&audio_path, &video_path, &self.output)
                         .await
                 } else {
-                    let output_str = self.output.to_str().ok_or_else(|| {
-                        crate::error::Error::PathValidation {
+                    let output_str = self
+                        .output
+                        .to_str()
+                        .ok_or_else(|| crate::error::Error::PathValidation {
                             path: self.output.clone(),
                             reason: "output path contains invalid UTF-8".into(),
-                        }
-                    })?;
+                        })?;
                     self.downloader
                         .combine_audio_and_video(&audio_filename, &video_filename, output_str)
                         .await
                 }
             }
-            (Some(DownloadStatus::Failed { reason }), _) => {
-                Err(crate::error::Error::download_failed(
-                    video_download_id,
-                    format!("Video download failed: {}", reason),
-                ))
-            }
-            (_, Some(DownloadStatus::Failed { reason })) => {
-                Err(crate::error::Error::download_failed(
-                    audio_download_id,
-                    format!("Audio download failed: {}", reason),
-                ))
-            }
+            (Some(DownloadStatus::Failed { reason }), _) => Err(crate::error::Error::download_failed(
+                video_download_id,
+                format!("Video download failed: {}", reason),
+            )),
+            (_, Some(DownloadStatus::Failed { reason })) => Err(crate::error::Error::download_failed(
+                audio_download_id,
+                format!("Audio download failed: {}", reason),
+            )),
             (Some(DownloadStatus::Canceled), _) => Err(crate::error::Error::DownloadCancelled {
                 download_id: video_download_id,
             }),
@@ -580,25 +567,18 @@ impl<'a> DownloadBuilder<'a> {
             "📥 Executing storyboard download"
         );
 
-        let format = self
-            .video
-            .select_storyboard_format(quality)
-            .ok_or_else(|| crate::error::Error::FormatNotAvailable {
-                video_id: self.video.id.clone(),
-                format_type: FormatType::Storyboard,
-                available_formats: vec![],
-            })?;
+        let format =
+            self.video
+                .select_storyboard_format(quality)
+                .ok_or_else(|| crate::error::Error::FormatNotAvailable {
+                    video_id: self.video.id.clone(),
+                    format_type: FormatType::Storyboard,
+                    available_formats: vec![],
+                })?;
 
-        let fragments = format
-            .storyboard_info
-            .fragments
-            .as_deref()
-            .unwrap_or_default();
+        let fragments = format.storyboard_info.fragments.as_deref().unwrap_or_default();
 
-        let prefix = format
-            .video_id
-            .as_deref()
-            .unwrap_or(format.format_id.as_str());
+        let prefix = format.video_id.as_deref().unwrap_or(format.format_id.as_str());
 
         let output_dir_path = if self.output.is_absolute() {
             self.output.clone()
@@ -658,10 +638,7 @@ impl<'a> DownloadBuilder<'a> {
                     return Err(crate::error::Error::DownloadCancelled { download_id: id });
                 }
                 _ => {
-                    return Err(crate::error::Error::download_failed(
-                        id,
-                        "Unexpected download status",
-                    ));
+                    return Err(crate::error::Error::download_failed(id, "Unexpected download status"));
                 }
             }
         }
@@ -690,22 +667,23 @@ impl<'a> DownloadBuilder<'a> {
             "📥 Executing thumbnail download"
         );
 
-        let thumbnail = self.video.select_thumbnail(quality).ok_or_else(|| {
-            crate::error::Error::NoThumbnail {
+        let thumbnail = self
+            .video
+            .select_thumbnail(quality)
+            .ok_or_else(|| crate::error::Error::NoThumbnail {
                 video_id: self.video.id.clone(),
-            }
-        })?;
+            })?;
 
-        let http_headers =
-            self.downloader
-                .user_agent
-                .clone()
-                .map(|ua| crate::model::format::HttpHeaders {
-                    user_agent: ua,
-                    accept: "*/*".to_string(),
-                    accept_language: "en-US,en".to_string(),
-                    sec_fetch_mode: "navigate".to_string(),
-                });
+        let http_headers = self
+            .downloader
+            .user_agent
+            .clone()
+            .map(|ua| crate::model::format::HttpHeaders {
+                user_agent: ua,
+                accept: "*/*".to_string(),
+                accept_language: "en-US,en".to_string(),
+                sec_fetch_mode: "navigate".to_string(),
+            });
 
         Self::execute_stream_internal(
             self.downloader,
@@ -738,13 +716,7 @@ impl<'a> DownloadBuilder<'a> {
         if let Some(cb) = progress_callback {
             downloader
                 .download_manager
-                .enqueue_with_progress_and_headers(
-                    url,
-                    output_path,
-                    Some(priority),
-                    cb,
-                    http_headers,
-                )
+                .enqueue_with_progress_and_headers(url, output_path, Some(priority), cb, http_headers)
                 .await
         } else {
             downloader
@@ -776,24 +748,16 @@ impl<'a> DownloadBuilder<'a> {
             downloader.output_dir.join(output)
         };
 
-        let raw_callback: Option<Box<dyn Fn(u64, u64) + Send + Sync>> =
-            progress_callback.map(|cb| {
-                Box::new(move |downloaded: u64, total: u64| {
-                    if total > 0 {
-                        cb(downloaded as f64 / total as f64);
-                    }
-                }) as Box<dyn Fn(u64, u64) + Send + Sync>
-            });
+        let raw_callback: Option<Box<dyn Fn(u64, u64) + Send + Sync>> = progress_callback.map(|cb| {
+            Box::new(move |downloaded: u64, total: u64| {
+                if total > 0 {
+                    cb(downloaded as f64 / total as f64);
+                }
+            }) as Box<dyn Fn(u64, u64) + Send + Sync>
+        });
 
-        let download_id = Self::enqueue_download(
-            downloader,
-            url,
-            path.clone(),
-            priority,
-            http_headers,
-            raw_callback,
-        )
-        .await;
+        let download_id =
+            Self::enqueue_download(downloader, url, path.clone(), priority, http_headers, raw_callback).await;
 
         match downloader.wait_for_download(download_id).await {
             Some(DownloadStatus::Completed) => Ok(path),
@@ -801,9 +765,7 @@ impl<'a> DownloadBuilder<'a> {
                 download_id,
                 format!("{} download failed: {}", format_type_name, reason),
             )),
-            Some(DownloadStatus::Canceled) => {
-                Err(crate::error::Error::DownloadCancelled { download_id })
-            }
+            Some(DownloadStatus::Canceled) => Err(crate::error::Error::DownloadCancelled { download_id }),
             _ => Err(crate::error::Error::download_failed(
                 download_id,
                 "Unexpected download status",

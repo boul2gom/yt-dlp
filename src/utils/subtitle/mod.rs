@@ -14,10 +14,7 @@ use crate::model::caption::Extension;
 ///
 /// Returns an error if the format cannot be detected
 pub fn detect_subtitle_format(content: &str) -> Result<Extension> {
-    tracing::debug!(
-        content_length = content.len(),
-        "💬 Detecting subtitle format"
-    );
+    tracing::debug!(content_length = content.len(), "💬 Detecting subtitle format");
 
     let trimmed = content.trim();
 

@@ -3,11 +3,13 @@
 //! This module provides functionality to convert between different subtitle formats,
 //! primarily VTT (WebVTT) and SRT (SubRip).
 
+use std::path::Path;
+
+use regex::Regex;
+use tokio::fs;
+
 use crate::error::{Error, Result};
 use crate::model::caption::Extension;
-use regex::Regex;
-use std::path::Path;
-use tokio::fs;
 
 /// Convert a subtitle file from one format to another.
 ///
@@ -99,33 +101,22 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
     for line in lines {
         let trimmed = line.trim();
 
-        // Skip cue identifiers and NOTE comments
         if trimmed.starts_with("NOTE") || trimmed.starts_with("STYLE") {
             continue;
         }
 
-        // Check if this is a timestamp line
         if trimmed.contains(" --> ") {
-            // Convert VTT timestamp format (HH:MM:SS.mmm) to SRT format (HH:MM:SS,mmm)
             let converted_timestamp = trimmed.replace('.', ",");
             current_subtitle.push(converted_timestamp);
             in_subtitle = true;
         } else if trimmed.is_empty() {
-            // End of current subtitle
-            if in_subtitle && !current_subtitle.is_empty() {
-                srt_output.push_str(&format!("{}\n", subtitle_index));
-                for sub_line in &current_subtitle {
-                    srt_output.push_str(&format!("{}\n", sub_line));
-                }
-                srt_output.push('\n');
-
-                subtitle_index += 1;
-                current_subtitle.clear();
-                in_subtitle = false;
-            }
+            flush_subtitle(
+                &mut srt_output,
+                &mut subtitle_index,
+                &mut current_subtitle,
+                &mut in_subtitle,
+            );
         } else if in_subtitle {
-            // This is subtitle text
-            // Remove VTT tags like <c.classname> or <v Speaker>
             let cleaned_text = remove_vtt_tags(trimmed);
             if !cleaned_text.is_empty() {
                 current_subtitle.push(cleaned_text);
@@ -134,15 +125,30 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
     }
 
     // Handle last subtitle if present
-    if in_subtitle && !current_subtitle.is_empty() {
-        srt_output.push_str(&format!("{}\n", subtitle_index));
-        for sub_line in &current_subtitle {
-            srt_output.push_str(&format!("{}\n", sub_line));
-        }
-        srt_output.push('\n');
-    }
+    flush_subtitle(
+        &mut srt_output,
+        &mut subtitle_index,
+        &mut current_subtitle,
+        &mut in_subtitle,
+    );
 
     Ok(srt_output)
+}
+
+fn flush_subtitle(output: &mut String, index: &mut usize, subtitle: &mut Vec<String>, in_subtitle: &mut bool) {
+    if !*in_subtitle || subtitle.is_empty() {
+        return;
+    }
+
+    output.push_str(&format!("{}\n", index));
+    for sub_line in subtitle.iter() {
+        output.push_str(&format!("{}\n", sub_line));
+    }
+    output.push('\n');
+
+    *index += 1;
+    subtitle.clear();
+    *in_subtitle = false;
 }
 
 /// Convert SRT (SubRip) format to VTT (WebVTT) format.

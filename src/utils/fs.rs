@@ -2,14 +2,15 @@
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
-
-use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
+
 use tar::Archive;
 use tokio::fs::{File, OpenOptions};
 use uuid::Uuid;
 use xz2::read::XzDecoder;
 use zip::ZipArchive;
+
+use crate::error::{Error, Result};
 
 /// Converts a path to a UTF-8 string reference.
 ///
@@ -291,10 +292,7 @@ pub async fn create_parent_dir(destination: impl Into<PathBuf>) -> Result<()> {
 ///
 /// * `zip_path` - The path to the zip file.
 /// * `destination` - The path to extract the zip file to.
-pub async fn extract_zip(
-    zip_path: impl Into<PathBuf>,
-    destination: impl Into<PathBuf>,
-) -> Result<()> {
+pub async fn extract_zip(zip_path: impl Into<PathBuf>, destination: impl Into<PathBuf>) -> Result<()> {
     let zip_path: PathBuf = zip_path.into();
     let destination: PathBuf = destination.into();
 
@@ -308,8 +306,7 @@ pub async fn extract_zip(
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&zip_path)
-            .map_err(|e| Error::io_with_path("open zip file", &zip_path, e))?;
+        let file = std::fs::File::open(&zip_path).map_err(|e| Error::io_with_path("open zip file", &zip_path, e))?;
 
         let mut archive = ZipArchive::new(file)?;
 
@@ -333,17 +330,15 @@ pub async fn extract_zip(
                     .map_err(|e| Error::io_with_path("create directory from zip", &dest_path, e))?;
             } else {
                 if let Some(parent) = dest_path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        Error::io_with_path("create parent directory from zip", parent, e)
-                    })?;
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| Error::io_with_path("create parent directory from zip", parent, e))?;
                 }
 
                 let mut outfile = std::fs::File::create(&dest_path)
                     .map_err(|e| Error::io_with_path("create file from zip", &dest_path, e))?;
 
-                std::io::copy(&mut file, &mut outfile).map_err(|e| {
-                    Error::io_with_path("copy file content from zip", &dest_path, e)
-                })?;
+                std::io::copy(&mut file, &mut outfile)
+                    .map_err(|e| Error::io_with_path("copy file content from zip", &dest_path, e))?;
             }
 
             // Get and set permissions on Unix
@@ -352,9 +347,7 @@ pub async fn extract_zip(
                 use std::os::unix::fs::PermissionsExt;
                 if let Some(mode) = file.unix_mode() {
                     std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(mode))
-                        .map_err(|e| {
-                            Error::io_with_path("set permissions from zip", &dest_path, e)
-                        })?;
+                        .map_err(|e| Error::io_with_path("set permissions from zip", &dest_path, e))?;
                 }
             }
         }
@@ -379,10 +372,7 @@ pub async fn extract_zip(
 ///
 /// * `tar_path` - The path to the tar.xz file.
 /// * `destination` - The path to extract the tar.xz file to.
-pub async fn extract_tar_xz(
-    tar_path: impl Into<PathBuf>,
-    destination: impl Into<PathBuf>,
-) -> Result<()> {
+pub async fn extract_tar_xz(tar_path: impl Into<PathBuf>, destination: impl Into<PathBuf>) -> Result<()> {
     let tar_path: PathBuf = tar_path.into();
     let destination: PathBuf = destination.into();
 
@@ -396,8 +386,7 @@ pub async fn extract_tar_xz(
     let destination_for_tracing = destination.clone();
 
     tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&tar_path)
-            .map_err(|e| Error::io_with_path("open tar.xz file", &tar_path, e))?;
+        let file = std::fs::File::open(&tar_path).map_err(|e| Error::io_with_path("open tar.xz file", &tar_path, e))?;
 
         let decompressor = XzDecoder::new(file);
         let mut archive = Archive::new(decompressor);
@@ -469,10 +458,8 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
-    static ref VIDEO_ID_REGEX_1: Regex =
-        Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})").expect("Invalid regex");
-    static ref VIDEO_ID_REGEX_2: Regex =
-        Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$").expect("Invalid regex");
+    static ref VIDEO_ID_REGEX_1: Regex = Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})").expect("Invalid regex");
+    static ref VIDEO_ID_REGEX_2: Regex = Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$").expect("Invalid regex");
     static ref VIDEO_ID_REGEX_3: Regex = Regex::new(r"[a-zA-Z0-9_-]{11}").expect("Invalid regex");
 }
 

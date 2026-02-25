@@ -268,19 +268,11 @@ impl fmt::Display for WatermarkPosition {
 #[derive(Clone, Debug, PartialEq)]
 pub enum FfmpegFilter {
     /// Crop video to specific dimensions
-    Crop {
-        width: u32,
-        height: u32,
-        x: u32,
-        y: u32,
-    },
+    Crop { width: u32, height: u32, x: u32, y: u32 },
     /// Rotate video by degrees
     Rotate { angle: i32 },
     /// Add watermark image
-    Watermark {
-        path: String,
-        position: WatermarkPosition,
-    },
+    Watermark { path: String, position: WatermarkPosition },
     /// Adjust brightness (-1.0 to 1.0)
     Brightness { value: f32 },
     /// Adjust contrast (0.0 to 4.0)
@@ -309,25 +301,13 @@ impl FfmpegFilter {
     /// The FFmpeg filter string
     pub fn to_ffmpeg_string(&self) -> String {
         match self {
-            Self::Crop {
-                width,
-                height,
-                x,
-                y,
-            } => format!("crop={}:{}:{}:{}", width, height, x, y),
+            Self::Crop { width, height, x, y } => format!("crop={}:{}:{}:{}", width, height, x, y),
             Self::Rotate { angle } => {
                 let radians = (*angle as f64) * std::f64::consts::PI / 180.0;
-                format!(
-                    "rotate={}:ow=rotw({}):oh=roth({})",
-                    radians, radians, radians
-                )
+                format!("rotate={}:ow=rotw({}):oh=roth({})", radians, radians, radians)
             }
             Self::Watermark { path, position } => {
-                format!(
-                    "movie={}[wm];[in][wm]overlay={}",
-                    path,
-                    position.to_ffmpeg_position()
-                )
+                format!("movie={}[wm];[in][wm]overlay={}", path, position.to_ffmpeg_position())
             }
             Self::Brightness { value } => format!("eq=brightness={}", value),
             Self::Contrast { value } => format!("eq=contrast={}", value),
@@ -345,17 +325,8 @@ impl FfmpegFilter {
 impl fmt::Display for FfmpegFilter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Crop {
-                width,
-                height,
-                x,
-                y,
-            } => {
-                write!(
-                    f,
-                    "Crop(width={}, height={}, x={}, y={})",
-                    width, height, x, y
-                )
+            Self::Crop { width, height, x, y } => {
+                write!(f, "Crop(width={}, height={}, x={}, y={})", width, height, x, y)
             }
             Self::Rotate { angle } => write!(f, "Rotate(angle={})", angle),
             Self::Watermark { position, .. } => write!(f, "Watermark(position={})", position),
@@ -513,14 +484,8 @@ impl Default for PostProcessConfig {
 
 impl fmt::Display for PostProcessConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let video = self
-            .video_codec
-            .as_ref()
-            .map_or("None".to_string(), |c| c.to_string());
-        let audio = self
-            .audio_codec
-            .as_ref()
-            .map_or("None".to_string(), |c| c.to_string());
+        let video = self.video_codec.as_ref().map_or("None".to_string(), |c| c.to_string());
+        let audio = self.audio_codec.as_ref().map_or("None".to_string(), |c| c.to_string());
         write!(
             f,
             "PostProcessConfig(video_codec={}, audio_codec={}, filters={})",

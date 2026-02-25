@@ -11,16 +11,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 env:
   CLICOLOR: 1
+
+permissions:
+  contents: read
 
 jobs:
   build-each-feature:
     name: 🦀 Setup and build (each feature)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 📁 Check out the repository
@@ -39,15 +41,14 @@ jobs:
       - name: 📦 Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
 
-      - name: ✅ Clippy (each feature in isolation)
+      - name: 🦀 Clippy (each feature in isolation)
         run: cargo hack clippy --each-feature --exclude-all-features -- -D warnings
 
-      - name: 🦀 Build (each feature in isolation)
-        run: cargo hack build --each-feature --exclude-all-features
-
   build-tiered-cache:
-    name: 🦀 Setup and build (tiered L1+L2 cache combinations)
+    name: 🦀 Setup and build (L1+L2, cache-memory + ${{ matrix.backend }}))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         backend: [cache-json, cache-redb, cache-redis]
@@ -66,21 +67,48 @@ jobs:
         with:
           components: clippy
 
-      - name: ✅ Clippy (cache-memory + ${{ matrix.backend }})
+      - name: 🦀 Clippy (cache-memory + ${{ matrix.backend }})
         run: cargo clippy --features cache-memory,${{ matrix.backend }} -- -D warnings
 
-      - name: 🦀 Build (cache-memory + ${{ matrix.backend }})
-        run: cargo build --features cache-memory,${{ matrix.backend }}
-
-  doc-tests:
-    name: 📚 Check format and test docs
+  check-format:
+    name: 💄 Check formatting
+    if: github.event_name == 'pull_request'
+    needs: [build-each-feature, build-tiered-cache]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
+
+      - name: 🛠️ Set up nightly Rust (for rustfmt)
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          ref: ${{ github.head_ref || github.ref }}
+          components: rustfmt
+
+      - name: 💄 Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+      - name: 🧹 Check trailing blank lines
+        run: |
+          bad=$(find src examples benches -name '*.rs' -exec sh -c 'tail -c 2 "$1" | xxd -p | grep -q "0a0a" && echo "$1"' _ {} \;)
+          if [ -n "$bad" ]; then
+            echo "Files with trailing blank lines:"
+            echo "$bad"
+            exit 1
+          fi
+
+  doc-tests:
+    name: 📚 Test docs
+    needs: [build-each-feature, build-tiered-cache]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
 
       - name: 📦 Cache Rust toolchain
         uses: Swatinem/rust-cache@v2.8.2
@@ -89,18 +117,16 @@ jobs:
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: 💄 Check code format
-        run: cargo fmt --all -- --check
 
       - name: 📚 Run doc tests
         run: cargo test --doc
 
   check-spell:
     name: 📝 Check spelling
+    needs: [build-each-feature, build-tiered-cache]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 📁 Check out the repository
@@ -116,7 +142,10 @@ jobs:
 
   analysis:
     name: 🔍 Static Analysis
+    needs: [doc-tests, check-spell]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 📁 Check out the repository

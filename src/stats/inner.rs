@@ -1,9 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use crate::download::DownloadPriority;
-
 use super::config::TrackerConfig;
+use crate::download::DownloadPriority;
 
 /// Outcome of a completed download.
 #[derive(Debug, Clone)]
@@ -148,9 +147,6 @@ impl StatsInner {
 
     /// Peak speed observed across all download history records.
     pub fn peak_speed_bytes_per_sec(&self) -> f64 {
-        self.history
-            .iter()
-            .map(|r| r.peak_speed)
-            .fold(0.0_f64, f64::max)
+        self.history.iter().map(|r| r.peak_speed).fold(0.0_f64, f64::max)
     }
 }

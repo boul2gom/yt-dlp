@@ -3,13 +3,13 @@
 //! This module provides functions to add metadata and thumbnails using FFmpeg
 //! for formats that don't have dedicated library support.
 
-use crate::error::{Error, Result};
-use crate::model::Video;
-use crate::model::format::Format;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
+use crate::error::{Error, Result};
+use crate::model::Video;
+use crate::model::format::Format;
 
 impl MetadataManager {
     /// Add metadata to a WebM/MKV file using FFmpeg.
@@ -41,13 +41,7 @@ impl MetadataManager {
         let file_format = "webm";
 
         // Collect all metadata
-        let all_metadata = self.prepare_and_collect_metadata(
-            &path,
-            video,
-            file_format,
-            video_format,
-            audio_format,
-        );
+        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
 
         // Build FFmpeg metadata arguments for WebM format
         let metadata_args: Vec<String> = all_metadata
@@ -71,21 +65,12 @@ impl MetadataManager {
                     "audio_sample_rate" => "AUDIOSAMPLERATE",
                     _ => key.as_str(),
                 };
-                vec![
-                    "-metadata:g".to_string(),
-                    format!("{}={}", matroska_key, value),
-                ]
+                vec!["-metadata:g".to_string(), format!("{}={}", matroska_key, value)]
             })
             .collect();
 
-        self.run_metadata_task(
-            &path,
-            &video.id,
-            file_format,
-            metadata_args,
-            Duration::from_secs(120),
-        )
-        .await
+        self.run_metadata_task(&path, &video.id, file_format, metadata_args, Duration::from_secs(120))
+            .await
     }
 
     /// Add metadata to a video file using FFmpeg (for formats not directly supported).
@@ -122,13 +107,7 @@ impl MetadataManager {
         );
 
         // Collect all metadata
-        let all_metadata = self.prepare_and_collect_metadata(
-            &path,
-            video,
-            file_format,
-            video_format,
-            audio_format,
-        );
+        let all_metadata = self.prepare_and_collect_metadata(&path, video, file_format, video_format, audio_format);
 
         // Build FFmpeg metadata arguments
         let metadata_args: Vec<String> = all_metadata
@@ -136,14 +115,8 @@ impl MetadataManager {
             .flat_map(|(key, value)| vec!["-metadata".to_string(), format!("{}={}", key, value)])
             .collect();
 
-        self.run_metadata_task(
-            &path,
-            &video.id,
-            file_format,
-            metadata_args,
-            Duration::from_secs(120),
-        )
-        .await?;
+        self.run_metadata_task(&path, &video.id, file_format, metadata_args, Duration::from_secs(120))
+            .await?;
 
         tracing::debug!(
             file_path = ?path,
@@ -229,11 +202,9 @@ impl MetadataManager {
         video_format: Option<&Format>,
         audio_format: Option<&Format>,
     ) -> Vec<(String, String)> {
-        let video_resolution = video_format.and_then(|f| {
-            match (f.video_resolution.width, f.video_resolution.height) {
-                (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
-                _ => None,
-            }
+        let video_resolution = video_format.and_then(|f| match (f.video_resolution.width, f.video_resolution.height) {
+            (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
+            _ => None,
         });
         let video_codec = video_format.and_then(|f| f.codec_info.video_codec.as_deref());
         let audio_bitrate = audio_format.and_then(|f| f.rates_info.audio_rate);
@@ -287,8 +258,7 @@ impl MetadataManager {
             .codec_copy()
             .args(["-map", "0"]);
 
-        self.run_ffmpeg_task(path, file_format, args, timeout)
-            .await?;
+        self.run_ffmpeg_task(path, file_format, args, timeout).await?;
 
         tracing::debug!(
             file_path = ?path,
@@ -307,13 +277,6 @@ impl MetadataManager {
         args: crate::executor::FfmpegArgs,
         timeout: Duration,
     ) -> Result<()> {
-        crate::executor::run_ffmpeg_with_tempfile(
-            &self.ffmpeg_path,
-            base_path,
-            extension,
-            args,
-            timeout,
-        )
-        .await
+        crate::executor::run_ffmpeg_with_tempfile(&self.ffmpeg_path, base_path, extension, args, timeout).await
     }
 }

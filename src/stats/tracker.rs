@@ -5,14 +5,13 @@ use tokio::sync::RwLock;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
-use crate::events::{DownloadEvent, EventBus};
-
 use super::config::TrackerConfig;
 use super::inner::{CompletedDownload, DownloadOutcome, InProgressDownload, StatsInner};
 use super::snapshot::{
-    ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats,
-    GlobalSnapshot, PlaylistStats, PostProcessStats,
+    ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats, GlobalSnapshot,
+    PlaylistStats, PostProcessStats,
 };
+use crate::events::{DownloadEvent, EventBus};
 
 /// Subscribes to the event bus and maintains running statistics about all download
 /// and metadata fetch operations.
@@ -155,10 +154,7 @@ impl std::fmt::Display for StatisticsTracker {
 }
 
 /// Background loop: receives events from the broadcast channel and updates `inner`.
-async fn run_event_loop(
-    inner: Arc<RwLock<StatsInner>>,
-    mut rx: tokio::sync::broadcast::Receiver<Arc<DownloadEvent>>,
-) {
+async fn run_event_loop(inner: Arc<RwLock<StatsInner>>, mut rx: tokio::sync::broadcast::Receiver<Arc<DownloadEvent>>) {
     loop {
         match rx.recv().await {
             Ok(event) => {
@@ -166,10 +162,7 @@ async fn run_event_loop(
                 handle_event(&mut state, &event);
             }
             Err(RecvError::Lagged(missed)) => {
-                tracing::warn!(
-                    missed = missed,
-                    "📊 Statistics tracker lagged, some events were missed"
-                );
+                tracing::warn!(missed = missed, "📊 Statistics tracker lagged, some events were missed");
             }
             Err(RecvError::Closed) => break,
         }
@@ -254,12 +247,7 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
                     let wait = r.started_at.map(|s| s.duration_since(r.queued_at));
                     (r.url, r.priority, wait, r.peak_speed)
                 }
-                None => (
-                    String::new(),
-                    crate::download::DownloadPriority::Normal,
-                    None,
-                    0.0,
-                ),
+                None => (String::new(), crate::download::DownloadPriority::Normal, None, 0.0),
             };
 
             state.push_history(CompletedDownload {
@@ -334,11 +322,7 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
                     let wait = r.started_at.map(|s| s.duration_since(r.queued_at));
                     (r.url, r.priority, wait)
                 }
-                None => (
-                    String::new(),
-                    crate::download::DownloadPriority::Normal,
-                    None,
-                ),
+                None => (String::new(), crate::download::DownloadPriority::Normal, None),
             };
 
             state.push_history(CompletedDownload {
@@ -409,17 +393,11 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             );
         }
 
-        DownloadEvent::PlaylistCompleted {
-            successful, failed, ..
-        } => {
+        DownloadEvent::PlaylistCompleted { successful, failed, .. } => {
             state.playlist_items_successful += *successful as u64;
             state.playlist_items_failed += *failed as u64;
 
-            tracing::debug!(
-                successful = successful,
-                failed = failed,
-                "📊 Playlist completed"
-            );
+            tracing::debug!(successful = successful, failed = failed, "📊 Playlist completed");
         }
 
         DownloadEvent::PostProcessStarted { operation, .. } => {
@@ -432,9 +410,7 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
         }
 
         DownloadEvent::PostProcessCompleted {
-            operation,
-            duration,
-            ..
+            operation, duration, ..
         } => {
             state.postprocess_succeeded += 1;
             state.total_postprocess_duration += *duration;
@@ -446,9 +422,7 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             );
         }
 
-        DownloadEvent::PostProcessFailed {
-            operation, error, ..
-        } => {
+        DownloadEvent::PostProcessFailed { operation, error, .. } => {
             state.postprocess_failed += 1;
 
             tracing::debug!(

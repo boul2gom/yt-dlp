@@ -11,8 +11,9 @@
 //! cargo bench -- format_selection
 //! ```
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::path::PathBuf;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use yt_dlp::VideoSelection;
 use yt_dlp::download::SpeedProfile;
 use yt_dlp::download::manager::ManagerConfig;
@@ -21,9 +22,7 @@ use yt_dlp::events::{DownloadEvent, EventFilter};
 use yt_dlp::model::chapter::Chapter;
 use yt_dlp::model::heatmap::{Heatmap, HeatmapPoint};
 use yt_dlp::model::playlist::{Playlist, PlaylistEntry};
-use yt_dlp::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use yt_dlp::model::{ChapterList, Video};
 use yt_dlp::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
 
@@ -86,8 +85,7 @@ fn bench_format_selection(c: &mut Criterion) {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let video = rt.block_on(async {
-        let libraries =
-            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let libraries = yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
         let downloader = yt_dlp::Downloader::builder(libraries, "output")
             .build()
             .await
@@ -128,17 +126,13 @@ fn bench_format_selection(c: &mut Criterion) {
     group.bench_with_input(
         BenchmarkId::new("select_video_High_AVC1", n_formats),
         &video,
-        |b, v: &Video| {
-            b.iter(|| v.select_video_format(VideoQuality::High, VideoCodecPreference::AVC1))
-        },
+        |b, v: &Video| b.iter(|| v.select_video_format(VideoQuality::High, VideoCodecPreference::AVC1)),
     );
 
     group.bench_with_input(
         BenchmarkId::new("select_audio_Best_Opus", n_formats),
         &video,
-        |b, v: &Video| {
-            b.iter(|| v.select_audio_format(AudioQuality::Best, AudioCodecPreference::Opus))
-        },
+        |b, v: &Video| b.iter(|| v.select_audio_format(AudioQuality::Best, AudioCodecPreference::Opus)),
     );
 
     group.finish();
@@ -191,8 +185,7 @@ fn bench_model_ops(c: &mut Criterion) {
     // Fetch real video metadata for benchmarking
     let rt = tokio::runtime::Runtime::new().unwrap();
     let video = rt.block_on(async {
-        let libraries =
-            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let libraries = yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
         let downloader = yt_dlp::Downloader::builder(libraries, "output")
             .build()
             .await
@@ -251,29 +244,19 @@ fn bench_chapter_ops(c: &mut Criterion) {
         let mid_time = (n as f64 / 2.0) * 60.0 + 30.0;
         let single = &chapters[0];
 
-        group.bench_with_input(
-            BenchmarkId::new("find_by_timestamp", n),
-            &chapters,
-            |b, ch| {
-                let list = ChapterList::new(ch);
-                b.iter(|| list.find_by_timestamp(mid_time))
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("find_by_timestamp", n), &chapters, |b, ch| {
+            let list = ChapterList::new(ch);
+            b.iter(|| list.find_by_timestamp(mid_time))
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("search_by_title", n),
-            &chapters,
-            |b, ch| {
-                let list = ChapterList::new(ch);
-                b.iter(|| list.search_by_title("Chapter"))
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("search_by_title", n), &chapters, |b, ch| {
+            let list = ChapterList::new(ch);
+            b.iter(|| list.search_by_title("Chapter"))
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("contains_timestamp", n),
-            single,
-            |b, ch| b.iter(|| ch.contains_timestamp(30.0)),
-        );
+        group.bench_with_input(BenchmarkId::new("contains_timestamp", n), single, |b, ch| {
+            b.iter(|| ch.contains_timestamp(30.0))
+        });
 
         group.bench_with_input(BenchmarkId::new("validate", n), &chapters, |b, ch| {
             let list = ChapterList::new(ch);
@@ -342,8 +325,8 @@ fn bench_playlist_ops(c: &mut Criterion) {
 
 fn bench_format_type(c: &mut Criterion) {
     use yt_dlp::model::format::{
-        CodecInfo, DownloadInfo, Extension, FileInfo, Format, HttpHeaders, QualityInfo, RatesInfo,
-        StoryboardInfo, VideoResolution,
+        CodecInfo, DownloadInfo, Extension, FileInfo, Format, HttpHeaders, QualityInfo, RatesInfo, StoryboardInfo,
+        VideoResolution,
     };
 
     let mut group = c.benchmark_group("format_type");
@@ -427,9 +410,7 @@ fn bench_format_type(c: &mut Criterion) {
     group.bench_function("format_type_video", |b| b.iter(|| video_only.format_type()));
     group.bench_function("format_type_audio", |b| b.iter(|| audio_only.format_type()));
     group.bench_function("format_type_muxed", |b| b.iter(|| muxed.format_type()));
-    group.bench_function("format_type_manifest", |b| {
-        b.iter(|| manifest.format_type())
-    });
+    group.bench_function("format_type_manifest", |b| b.iter(|| manifest.format_type()));
     group.bench_function("is_video", |b| b.iter(|| video_only.is_video()));
     group.bench_function("is_audio", |b| b.iter(|| audio_only.is_audio()));
 
@@ -504,17 +485,13 @@ fn bench_retry_strategy(c: &mut Criterion) {
     let strategy = RetryStrategy::default();
 
     for attempt in 0usize..=5 {
-        group.bench_with_input(
-            BenchmarkId::new("delay_for_attempt", attempt),
-            &attempt,
-            |b, &a| b.iter(|| strategy.delay_for_attempt(a)),
-        );
+        group.bench_with_input(BenchmarkId::new("delay_for_attempt", attempt), &attempt, |b, &a| {
+            b.iter(|| strategy.delay_for_attempt(a))
+        });
     }
 
     group.bench_function("should_retry_true", |b| b.iter(|| strategy.should_retry(0)));
-    group.bench_function("should_retry_false", |b| {
-        b.iter(|| strategy.should_retry(10))
-    });
+    group.bench_function("should_retry_false", |b| b.iter(|| strategy.should_retry(10)));
 
     group.finish();
 }
@@ -527,8 +504,7 @@ fn bench_cache_ops(c: &mut Criterion) {
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime failed");
     let video = rt.block_on(async {
-        let libraries =
-            yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
+        let libraries = yt_dlp::client::deps::Libraries::new("libs/yt-dlp".into(), "libs/ffmpeg".into());
         let downloader = yt_dlp::Downloader::builder(libraries, "output")
             .build()
             .await
@@ -547,9 +523,7 @@ fn bench_cache_ops(c: &mut Criterion) {
                 (dir, path, video.clone())
             },
             |(dir, path, v)| async move {
-                let cache = VideoCache::new(path, None)
-                    .await
-                    .expect("cache init failed");
+                let cache = VideoCache::new(path, None).await.expect("cache init failed");
                 cache
                     .put(format!("https://example.com/{}", v.id), v)
                     .await
@@ -567,9 +541,7 @@ fn bench_cache_ops(c: &mut Criterion) {
                 (dir, path, video.clone())
             },
             |(dir, path, v)| async move {
-                let cache = VideoCache::new(path, None)
-                    .await
-                    .expect("cache init failed");
+                let cache = VideoCache::new(path, None).await.expect("cache init failed");
                 let url = format!("https://example.com/{}", v.id);
                 cache.put(url.clone(), v).await.expect("put failed");
                 let _ = cache.get(&url).await.expect("get failed");
@@ -585,13 +557,8 @@ fn bench_cache_ops(c: &mut Criterion) {
                 dir.path().to_path_buf()
             },
             |path| async move {
-                let cache = VideoCache::new(path, None)
-                    .await
-                    .expect("cache init failed");
-                let _ = cache
-                    .get("https://example.com/missing")
-                    .await
-                    .expect("get failed");
+                let cache = VideoCache::new(path, None).await.expect("cache init failed");
+                let _ = cache.get("https://example.com/missing").await.expect("get failed");
             },
         );
     });
@@ -603,9 +570,7 @@ fn bench_cache_ops(c: &mut Criterion) {
                 (dir.path().to_path_buf(), video.clone())
             },
             |(path, base_video)| async move {
-                let cache = VideoCache::new(path, None)
-                    .await
-                    .expect("cache init failed");
+                let cache = VideoCache::new(path, None).await.expect("cache init failed");
                 for i in 0..500usize {
                     let mut v = base_video.clone();
                     v.id = format!("bench-{}", i);

@@ -15,7 +15,11 @@ no-default-features = false
 feature-depth = 1
 
 [advisories]
-ignore = []
+ignore = [
+    # paste is unmaintained (RUSTSEC-2024-0436) but still functional.
+    # Transitive dependency via lofty. No safe upgrade available yet.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 allow = [

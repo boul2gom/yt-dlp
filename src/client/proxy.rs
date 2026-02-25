@@ -170,10 +170,8 @@ impl ProxyConfig {
 
         if let (Some(username), Some(password)) = (&self.username, &self.password) {
             // URL-encode username and password
-            let username_enc =
-                url::form_urlencoded::byte_serialize(username.as_bytes()).collect::<String>();
-            let password_enc =
-                url::form_urlencoded::byte_serialize(password.as_bytes()).collect::<String>();
+            let username_enc = url::form_urlencoded::byte_serialize(username.as_bytes()).collect::<String>();
+            let password_enc = url::form_urlencoded::byte_serialize(password.as_bytes()).collect::<String>();
 
             // Extract scheme and host from URL
             if let Some(idx) = self.url.find("://") {

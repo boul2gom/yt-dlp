@@ -23,16 +23,12 @@ use std::time::{Duration, Instant};
 
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-
-use yt_dlp::Downloader;
-use yt_dlp::VideoSelection;
 use yt_dlp::download::SpeedProfile;
 use yt_dlp::executor::Executor;
 use yt_dlp::model::Video;
 use yt_dlp::model::format::FormatType;
-use yt_dlp::model::selector::{
-    AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality,
-};
+use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
+use yt_dlp::{Downloader, VideoSelection};
 
 struct Args {
     url: String,
@@ -285,9 +281,7 @@ struct RowResult {
 
 impl RowResult {
     fn best_library_avg(&self) -> Duration {
-        self.conservative_avg
-            .min(self.balanced_avg)
-            .min(self.aggressive_avg)
+        self.conservative_avg.min(self.balanced_avg).min(self.aggressive_avg)
     }
 
     fn speedup_pct(&self) -> f64 {
@@ -314,12 +308,7 @@ async fn raw_download(
 ) -> Vec<Duration> {
     let mut samples = Vec::with_capacity(runs);
     for i in 0..runs {
-        pb.set_message(format!(
-            "🔧 {} (run {}/{})",
-            style("yt-dlp raw").dim(),
-            i + 1,
-            runs
-        ));
+        pb.set_message(format!("🔧 {} (run {}/{})", style("yt-dlp raw").dim(), i + 1, runs));
         pb.set_position((i + 1) as u64);
 
         let out = output_dir
@@ -368,12 +357,7 @@ async fn lib_download(
     let mut samples = Vec::with_capacity(runs);
 
     for i in 0..runs {
-        pb.set_message(format!(
-            "📦 {} (run {}/{})",
-            style(profile_name).dim(),
-            i + 1,
-            runs
-        ));
+        pb.set_message(format!("📦 {} (run {}/{})", style(profile_name).dim(), i + 1, runs));
         pb.inc(1);
 
         let out_name = format!("{}-{}.{}", prefix, i, scenario.output_ext);
@@ -383,32 +367,28 @@ async fn lib_download(
 
         // Use pre-fetched video metadata + download_format to avoid internal re-fetch
         let result = match &scenario.kind {
-            ScenarioKind::Audio(quality) => {
-                match video.select_audio_format(*quality, AudioCodecPreference::Any) {
-                    Some(f) => downloader.download_format(f, &out_name).await,
-                    None => {
-                        pb.println(format!(
-                            "  {} Skipped {} — no matching audio format",
-                            style("⚠").yellow(),
-                            scenario.label
-                        ));
-                        continue;
-                    }
+            ScenarioKind::Audio(quality) => match video.select_audio_format(*quality, AudioCodecPreference::Any) {
+                Some(f) => downloader.download_format(f, &out_name).await,
+                None => {
+                    pb.println(format!(
+                        "  {} Skipped {} — no matching audio format",
+                        style("⚠").yellow(),
+                        scenario.label
+                    ));
+                    continue;
                 }
-            }
-            ScenarioKind::Video(quality) => {
-                match video.select_video_format(*quality, VideoCodecPreference::Any) {
-                    Some(f) => downloader.download_format(f, &out_name).await,
-                    None => {
-                        pb.println(format!(
-                            "  {} Skipped {} — no matching video format",
-                            style("⚠").yellow(),
-                            scenario.label
-                        ));
-                        continue;
-                    }
+            },
+            ScenarioKind::Video(quality) => match video.select_video_format(*quality, VideoCodecPreference::Any) {
+                Some(f) => downloader.download_format(f, &out_name).await,
+                None => {
+                    pb.println(format!(
+                        "  {} Skipped {} — no matching video format",
+                        style("⚠").yellow(),
+                        scenario.label
+                    ));
+                    continue;
                 }
-            }
+            },
             ScenarioKind::NativeMuxed(max_height) => {
                 // Find a pre-muxed AudioVideo format with height <= max_height
                 let format = video
@@ -494,17 +474,11 @@ fn print_header(url: &str, runs: usize, video_title: &str) {
     println!(
         "  {}  {}",
         style("⚡").bold(),
-        style("Performance Comparison - yt-dlp vs library")
-            .bold()
-            .cyan()
+        style("Performance Comparison - yt-dlp vs library").bold().cyan()
     );
     println!("  {}", style(&line).cyan());
     println!();
-    println!(
-        "  {}  {}",
-        style("📺").bold(),
-        style(video_title).white().bold()
-    );
+    println!("  {}  {}", style("📺").bold(), style(video_title).white().bold());
     println!("  {}  {}", style("🔗").bold(), style(url).dim());
     println!(
         "  {}  {} runs per scenario",
@@ -520,13 +494,7 @@ fn print_section_header(emoji: &str, title: &str) {
     println!();
 }
 
-fn print_scenario_result(
-    label: &str,
-    raw_avg: Duration,
-    cons: Duration,
-    bal: Duration,
-    agg: Duration,
-) {
+fn print_scenario_result(label: &str, raw_avg: Duration, cons: Duration, bal: Duration, agg: Duration) {
     let raw_s = fmt_secs(raw_avg);
     let best = raw_avg.min(cons).min(bal).min(agg);
     let speedup = if raw_avg > Duration::ZERO {
@@ -536,10 +504,7 @@ fn print_scenario_result(
     };
 
     let speedup_str = if speedup > 0.0 {
-        format!(
-            "{}% faster",
-            style(format!("{:.0}", speedup)).green().bold()
-        )
+        format!("{}% faster", style(format!("{:.0}", speedup)).green().bold())
     } else {
         style("baseline").dim().to_string()
     };
@@ -563,11 +528,7 @@ fn print_styled_table(section: &Section, rows: &[RowResult]) {
 
     println!();
     println!("  {}", style(&sep).dim());
-    println!(
-        "  {} {} — Results",
-        section.emoji,
-        style(section.title).bold()
-    );
+    println!("  {} {} — Results", section.emoji, style(section.title).bold());
     println!("  {}", style(&sep).dim());
 
     // Column headers
@@ -605,9 +566,7 @@ fn print_markdown_tables(sections: &[(&Section, Vec<RowResult>)]) {
     println!();
     println!(
         "  {}",
-        style("📋 Markdown tables (copy-paste into README)")
-            .bold()
-            .green()
+        style("📋 Markdown tables (copy-paste into README)").bold().green()
     );
     let term_width = console::Term::stdout().size().1 as usize;
     let sep = "─".repeat(term_width.min(70));
@@ -648,12 +607,8 @@ fn print_summary(all_rows: &[&RowResult], total_elapsed: Duration) {
     println!();
 
     let total_scenarios = all_rows.len();
-    let avg_speedup: f64 =
-        all_rows.iter().map(|r| r.speedup_pct()).sum::<f64>() / total_scenarios as f64;
-    let best_speedup = all_rows
-        .iter()
-        .map(|r| r.speedup_pct())
-        .fold(0.0_f64, f64::max);
+    let avg_speedup: f64 = all_rows.iter().map(|r| r.speedup_pct()).sum::<f64>() / total_scenarios as f64;
+    let best_speedup = all_rows.iter().map(|r| r.speedup_pct()).fold(0.0_f64, f64::max);
 
     println!(
         "  {} {} scenarios benchmarked in {}",
@@ -752,11 +707,7 @@ async fn main() {
     meta_spinner.set_message("📡 Fetching video metadata with yt-dlp...");
 
     let info_json_path = output_dir.join("info.json");
-    let mut dump_args = vec![
-        args.url.clone(),
-        "--dump-json".to_string(),
-        "--no-playlist".to_string(),
-    ];
+    let mut dump_args = vec![args.url.clone(), "--dump-json".to_string(), "--no-playlist".to_string()];
     if let Some(ref c) = args.cookies {
         dump_args.push(format!("--cookies={}", c));
     }
@@ -772,11 +723,7 @@ async fn main() {
         .expect("failed to write info.json");
 
     meta_spinner.finish_and_clear();
-    println!(
-        "  {} Metadata fetched: \"{}\"",
-        style("✅").green(),
-        &video.title
-    );
+    println!("  {} Metadata fetched: \"{}\"", style("✅").green(), &video.title);
 
     print_header(&args.url, args.runs, &video.title);
 
@@ -790,7 +737,7 @@ async fn main() {
     let overall_pb = mp.add(ProgressBar::new(total_measurements as u64));
     overall_pb.set_style(
         ProgressStyle::with_template(
-            "  {spinner:.cyan} Overall {bar:30.green/dim} {pos}/{len} measurements ({eta} remaining)"
+            "  {spinner:.cyan} Overall {bar:30.green/dim} {pos}/{len} measurements ({eta} remaining)",
         )
         .unwrap()
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "🏁"])
@@ -805,21 +752,14 @@ async fn main() {
 
         for scenario in &section.scenarios {
             global_idx += 1;
-            let slug = scenario
-                .label
-                .to_lowercase()
-                .replace(' ', "-")
-                .replace(['(', ')'], "");
+            let slug = scenario.label.to_lowercase().replace(' ', "-").replace(['(', ')'], "");
 
             // Per-scenario progress bar (4 measurements × runs)
             let total_runs = (args.runs * 4) as u64;
             let scenario_pb = mp.add(ProgressBar::new(total_runs));
             scenario_pb.set_style(progress_style());
             scenario_pb.enable_steady_tick(Duration::from_millis(80));
-            scenario_pb.set_message(format!(
-                "⏳ [{}/{}] {}",
-                global_idx, total_scenarios, scenario.label
-            ));
+            scenario_pb.set_message(format!("⏳ [{}/{}] {}", global_idx, total_scenarios, scenario.label));
 
             // 1) Raw yt-dlp
             let raw_samples = raw_download(
@@ -885,13 +825,7 @@ async fn main() {
             scenario_pb.finish_and_clear();
 
             // Print inline result
-            print_scenario_result(
-                scenario.label,
-                raw_avg,
-                conservative_avg,
-                balanced_avg,
-                aggressive_avg,
-            );
+            print_scenario_result(scenario.label, raw_avg, conservative_avg, balanced_avg, aggressive_avg);
 
             rows.push(RowResult {
                 label: scenario.label.to_string(),
@@ -909,10 +843,7 @@ async fn main() {
 
     overall_pb.finish_and_clear();
 
-    let all_rows: Vec<&RowResult> = all_section_results
-        .iter()
-        .flat_map(|(_, rows)| rows.iter())
-        .collect();
+    let all_rows: Vec<&RowResult> = all_section_results.iter().flat_map(|(_, rows)| rows.iter()).collect();
 
     print_summary(&all_rows, global_start.elapsed());
 

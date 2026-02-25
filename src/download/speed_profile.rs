@@ -38,9 +38,7 @@ const AGGRESSIVE_BUFFER: usize = 30 * 1024 * 1024;
 /// Different profiles optimize download parameters for various network conditions
 /// and use cases. Each profile adjusts concurrent downloads, parallel segments,
 /// segment size, and buffer size to match the expected bandwidth.
-#[derive(
-    Debug, Clone, Copy, Hash, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SpeedProfile {
     /// Conservative profile for slower connections (< 50 Mbps)
     ///

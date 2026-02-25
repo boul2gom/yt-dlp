@@ -3,17 +3,17 @@
 //! This module contains the Video struct and all its implementations,
 //! including format selection and comparison logic.
 
+use std::collections::HashMap;
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+use serde_with::{DefaultOnNull, serde_as};
+
 use crate::model::caption::{AutomaticCaption, Subtitle};
 use crate::model::chapter::Chapter;
 use crate::model::format::{Format, FormatType};
 use crate::model::heatmap::Heatmap;
-
 use crate::model::thumbnail::Thumbnail;
-use serde::{Deserialize, Serialize};
-use serde_with::{DefaultOnNull, serde_as};
-
-use std::collections::HashMap;
-use std::fmt;
 
 /// CDN lifetime for YouTube format stream URLs after their `available_at` timestamp.
 /// YouTube URLs typically expire approximately 6 hours after being fetched.
@@ -207,12 +207,7 @@ impl Video {
     pub fn formats_available_at(&self) -> Option<i64> {
         self.formats
             .iter()
-            .filter(|f| {
-                !matches!(
-                    f.format_type(),
-                    FormatType::Storyboard | FormatType::Manifest
-                )
-            })
+            .filter(|f| !matches!(f.format_type(), FormatType::Storyboard | FormatType::Manifest))
             .filter_map(|f| f.available_at)
             .min()
     }
@@ -280,8 +275,7 @@ impl Video {
         self.thumbnails
             .iter()
             .filter(|t| {
-                t.width.is_some_and(|w| w >= min_width as i64)
-                    && t.height.is_some_and(|h| h >= min_height as i64)
+                t.width.is_some_and(|w| w >= min_width as i64) && t.height.is_some_and(|h| h >= min_height as i64)
             })
             .min_by_key(|t| t.width.unwrap_or(0) * t.height.unwrap_or(0))
     }
@@ -302,10 +296,10 @@ impl Video {
             .max_by(|a, b| {
                 let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
                 let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
-                let a_area = a.video_resolution.width.unwrap_or(0) as u64
-                    * a.video_resolution.height.unwrap_or(0) as u64;
-                let b_area = b.video_resolution.width.unwrap_or(0) as u64
-                    * b.video_resolution.height.unwrap_or(0) as u64;
+                let a_area =
+                    a.video_resolution.width.unwrap_or(0) as u64 * a.video_resolution.height.unwrap_or(0) as u64;
+                let b_area =
+                    b.video_resolution.width.unwrap_or(0) as u64 * b.video_resolution.height.unwrap_or(0) as u64;
                 a_frags.cmp(&b_frags).then_with(|| a_area.cmp(&b_area))
             })
     }
@@ -322,10 +316,10 @@ impl Video {
             .min_by(|a, b| {
                 let a_frags = a.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
                 let b_frags = b.storyboard_info.fragments.as_ref().map_or(0, Vec::len);
-                let a_area = a.video_resolution.width.unwrap_or(0) as u64
-                    * a.video_resolution.height.unwrap_or(0) as u64;
-                let b_area = b.video_resolution.width.unwrap_or(0) as u64
-                    * b.video_resolution.height.unwrap_or(0) as u64;
+                let a_area =
+                    a.video_resolution.width.unwrap_or(0) as u64 * a.video_resolution.height.unwrap_or(0) as u64;
+                let b_area =
+                    b.video_resolution.width.unwrap_or(0) as u64 * b.video_resolution.height.unwrap_or(0) as u64;
                 a_frags.cmp(&b_frags).then_with(|| a_area.cmp(&b_area))
             })
     }
@@ -375,11 +369,7 @@ impl fmt::Display for ExtractorInfo {
 // Implementation of the Display trait for Version
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Version(version={}, repository={})",
-            self.version, self.repository
-        )
+        write!(f, "Version(version={}, repository={})", self.version, self.repository)
     }
 }
 

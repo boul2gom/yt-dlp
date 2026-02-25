@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use dyn_clone::DynClone;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{DownloadEvent, EventFilter};
@@ -115,11 +116,7 @@ impl HookRegistry {
         let mut hooks = self.hooks.write().await;
         hooks.push(Box::new(hook));
 
-        tracing::debug!(
-            hook_name = hook_name,
-            total_hooks = hooks.len(),
-            "✅ Hook registered"
-        );
+        tracing::debug!(hook_name = hook_name, total_hooks = hooks.len(), "✅ Hook registered");
     }
 
     /// Executes all registered hooks for an event
@@ -254,9 +251,7 @@ impl Clone for HookRegistry {
 
 impl std::fmt::Debug for HookRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HookRegistry")
-            .field("hooks_count", &"<async>")
-            .finish()
+        f.debug_struct("HookRegistry").field("hooks_count", &"<async>").finish()
     }
 }
 
@@ -295,10 +290,7 @@ macro_rules! simple_hook {
         where
             F: Fn(&$crate::events::DownloadEvent) -> $crate::events::HookResult + Send + Sync,
         {
-            async fn on_event(
-                &self,
-                event: &$crate::events::DownloadEvent,
-            ) -> $crate::events::HookResult {
+            async fn on_event(&self, event: &$crate::events::DownloadEvent) -> $crate::events::HookResult {
                 (self.closure)(event)
             }
 

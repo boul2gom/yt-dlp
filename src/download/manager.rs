@@ -6,22 +6,24 @@
 //! - Resuming interrupted downloads
 //! - Optimizing memory usage
 
-use crate::client::proxy::ProxyConfig;
-use crate::download::fetcher::Fetcher;
-use crate::download::speed_profile::SpeedProfile;
-use crate::error::Result;
-use crate::model::format::HttpHeaders;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
 use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 use typed_builder::TypedBuilder;
+
+use crate::client::proxy::ProxyConfig;
+use crate::download::fetcher::Fetcher;
+use crate::download::speed_profile::SpeedProfile;
+use crate::error::Result;
+use crate::model::format::HttpHeaders;
 
 /// Per-task byte counters used by the progress callback (downloaded, total).
 type ProgressCounters = Arc<std::sync::Mutex<HashMap<u64, (Arc<AtomicU64>, Arc<AtomicU64>)>>>;
@@ -31,9 +33,7 @@ const DEFAULT_RETRY_ATTEMPTS: usize = 3;
 const DEFAULT_CLEANUP_THRESHOLD: usize = 1000; // Cleanup after 1000 entries
 
 /// Download priority
-#[derive(
-    Debug, Clone, Copy, Default, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DownloadPriority {
     /// Low priority
     Low = 0,
@@ -277,11 +277,7 @@ impl std::fmt::Display for DownloadStatus {
                 downloaded_bytes,
                 total_bytes,
             } => {
-                write!(
-                    f,
-                    "Downloading(downloaded={}, total={})",
-                    downloaded_bytes, total_bytes
-                )
+                write!(f, "Downloading(downloaded={}, total={})", downloaded_bytes, total_bytes)
             }
             Self::Completed => f.write_str("Completed"),
             Self::Failed { reason } => write!(f, "Failed(reason={})", reason),
@@ -356,10 +352,7 @@ impl DownloadManager {
     ///
     /// * `config` - The download manager configuration
     /// * `event_bus` - Optional event bus for emitting download events
-    pub fn with_config_and_event_bus(
-        config: ManagerConfig,
-        event_bus: Option<crate::events::EventBus>,
-    ) -> Self {
+    pub fn with_config_and_event_bus(config: ManagerConfig, event_bus: Option<crate::events::EventBus>) -> Self {
         tracing::debug!(config = %config, has_event_bus = event_bus.is_some(), "⚙️ Initializing download manager");
         let (completion_tx, _) = broadcast::channel(100);
         let (progress_tx, _) = broadcast::channel(1000); // Larger buffer for frequent progress updates
@@ -398,9 +391,10 @@ impl DownloadManager {
 
     /// Builds the base HTTP client from the manager config.
     fn build_shared_client(config: &ManagerConfig) -> Arc<reqwest::Client> {
-        let default_headers = config.user_agent.as_ref().map(|ua| {
-            crate::model::format::HttpHeaders::browser_defaults(ua.clone()).to_header_map()
-        });
+        let default_headers = config
+            .user_agent
+            .as_ref()
+            .map(|ua| crate::model::format::HttpHeaders::browser_defaults(ua.clone()).to_header_map());
 
         let http_config = crate::utils::http::HttpClientConfig {
             proxy: config.proxy.as_ref(),
@@ -410,8 +404,7 @@ impl DownloadManager {
             ..Default::default()
         };
 
-        crate::utils::http::build_http_client(http_config)
-            .unwrap_or_else(|_| Arc::new(reqwest::Client::new()))
+        crate::utils::http::build_http_client(http_config).unwrap_or_else(|_| Arc::new(reqwest::Client::new()))
     }
 
     /// Add a download to the queue
@@ -433,7 +426,9 @@ impl DownloadManager {
     /// # #[tokio::main]
     /// # async fn main() {
     /// let manager = DownloadManager::new();
-    /// let id = manager.enqueue("https://example.com", "output.mp4", None).await;
+    /// let id = manager
+    ///     .enqueue("https://example.com", "output.mp4", None)
+    ///     .await;
     /// # }
     /// ```
     pub async fn enqueue(
@@ -576,9 +571,7 @@ impl DownloadManager {
         let ids_to_remove: Vec<u64> = statuses
             .iter()
             .filter_map(|(id, status)| match status {
-                DownloadStatus::Completed
-                | DownloadStatus::Failed { .. }
-                | DownloadStatus::Canceled => Some(*id),
+                DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => Some(*id),
                 _ => None,
             })
             .collect();
@@ -607,7 +600,9 @@ impl DownloadManager {
     /// # #[tokio::main]
     /// # async fn main() {
     /// let manager = DownloadManager::new();
-    /// let id = manager.enqueue("https://example.com", "out.mp4", None).await;
+    /// let id = manager
+    ///     .enqueue("https://example.com", "out.mp4", None)
+    ///     .await;
     /// let cancelled = manager.cancel(id).await;
     /// assert!(cancelled);
     /// # }
@@ -615,79 +610,28 @@ impl DownloadManager {
     pub async fn cancel(&self, id: u64) -> bool {
         tracing::debug!(download_id = id, "📥 Cancelling download");
 
-        // Mark as cancelled first to prevent race conditions
         {
-            let mut cancelled = self.cancelled.lock().await;
-            cancelled.insert(id);
+            self.cancelled.lock().await.insert(id);
         }
 
         // Check if the download is in progress
-        let task_handle = {
-            let mut tasks = self.tasks.lock().await;
-            tasks.remove(&id)
-        };
-
-        // If the download is in progress, cancel it
+        let task_handle = { self.tasks.lock().await.remove(&id) };
         if let Some(handle) = task_handle {
             handle.abort();
-
-            // Update status
-            let mut statuses = self.statuses.lock().await;
-            statuses.insert(id, DownloadStatus::Canceled);
-
-            // Emit DownloadCanceled event
-            self.emit_event(crate::events::DownloadEvent::DownloadCanceled {
-                download_id: id,
-                reason: "Cancelled by user".to_string(),
-            });
-
+            self.mark_cancelled_and_emit(id, "Cancelled by user").await;
             return true;
         }
 
         // Check if the download is in the queue
-        let removed_from_queue = {
-            let mut queue = self.queue.lock().await;
-            let len_before = queue.len();
-
-            // Create a new queue without the task to cancel
-            let mut new_queue = BinaryHeap::new();
-            for task in queue.drain() {
-                if task.id != id {
-                    new_queue.push(task);
-                }
-            }
-
-            // Replace the queue
-            *queue = new_queue;
-
-            len_before > queue.len()
-        };
-
-        if removed_from_queue {
-            // Update status
-            let mut statuses = self.statuses.lock().await;
-            statuses.insert(id, DownloadStatus::Canceled);
-
-            // Emit DownloadCanceled event
-            self.emit_event(crate::events::DownloadEvent::DownloadCanceled {
-                download_id: id,
-                reason: "Cancelled before download started".to_string(),
-            });
-
+        if self.remove_from_queue(id).await {
+            self.mark_cancelled_and_emit(id, "Cancelled before download started")
+                .await;
             return true;
         }
 
-        // Even if not found in queue or tasks, it might be in the brief window
-        // between being popped and starting execution, so mark as cancelled
-        let mut statuses = self.statuses.lock().await;
-        statuses.insert(id, DownloadStatus::Canceled);
-
-        // Emit DownloadCanceled event
-        self.emit_event(crate::events::DownloadEvent::DownloadCanceled {
-            download_id: id,
-            reason: "Cancelled during initialization".to_string(),
-        });
-
+        // Not found, but might be in the brief window between pop and execution
+        self.mark_cancelled_and_emit(id, "Cancelled during initialization")
+            .await;
         true
     }
 
@@ -708,7 +652,9 @@ impl DownloadManager {
     /// # #[tokio::main]
     /// # async fn main() {
     /// let manager = DownloadManager::new();
-    /// let id = manager.enqueue("https://example.com", "out.mp4", None).await;
+    /// let id = manager
+    ///     .enqueue("https://example.com", "out.mp4", None)
+    ///     .await;
     /// if let Some(status) = manager.wait_for_completion(id).await {
     ///     println!("Download finished with status: {:?}", status);
     /// }
@@ -719,9 +665,7 @@ impl DownloadManager {
         // First check if the download already completed
         if let Some(status) = self.get_status(id).await {
             match status {
-                DownloadStatus::Completed
-                | DownloadStatus::Failed { .. }
-                | DownloadStatus::Canceled => {
+                DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
                     return Some(status);
                 }
                 _ => {}
@@ -735,9 +679,7 @@ impl DownloadManager {
         loop {
             match rx.recv().await {
                 Ok((download_id, status)) if download_id == id => match status {
-                    DownloadStatus::Completed
-                    | DownloadStatus::Failed { .. }
-                    | DownloadStatus::Canceled => {
+                    DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
                         return Some(status);
                     }
                     _ => continue,
@@ -747,9 +689,7 @@ impl DownloadManager {
                     // Channel lagged, check current status
                     if let Some(status) = self.get_status(id).await {
                         match status {
-                            DownloadStatus::Completed
-                            | DownloadStatus::Failed { .. }
-                            | DownloadStatus::Canceled => {
+                            DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
                                 return Some(status);
                             }
                             _ => continue,
@@ -779,18 +719,21 @@ impl DownloadManager {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
     /// use tokio_stream::StreamExt;
+    /// use yt_dlp::download::manager::{DownloadManager, ManagerConfig};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let manager = DownloadManager::with_config_and_event_bus(ManagerConfig::default(), None);
     ///
-    ///     let download_id = manager.enqueue("https://example.com/file", "output", None).await;
+    ///     let download_id = manager
+    ///         .enqueue("https://example.com/file", "output", None)
+    ///         .await;
     ///     let mut progress_stream = manager.progress_stream(download_id);
     ///
     ///     while let Some(update) = progress_stream.next().await {
-    ///         println!("Downloaded: {}/{} bytes ({:.1}%)",
+    ///         println!(
+    ///             "Downloaded: {}/{} bytes ({:.1}%)",
     ///             update.downloaded_bytes,
     ///             update.total_bytes,
     ///             (update.downloaded_bytes as f64 / update.total_bytes as f64) * 100.0
@@ -829,6 +772,32 @@ impl DownloadManager {
         if let Some(ref bus) = self.event_bus {
             bus.emit(event);
         }
+    }
+
+    async fn mark_cancelled_and_emit(&self, id: u64, reason: &str) {
+        let mut statuses = self.statuses.lock().await;
+        statuses.insert(id, DownloadStatus::Canceled);
+        drop(statuses);
+
+        self.emit_event(crate::events::DownloadEvent::DownloadCanceled {
+            download_id: id,
+            reason: reason.to_string(),
+        });
+    }
+
+    async fn remove_from_queue(&self, id: u64) -> bool {
+        let mut queue = self.queue.lock().await;
+        let len_before = queue.len();
+
+        let mut new_queue = BinaryHeap::new();
+        for task in queue.drain() {
+            if task.id != id {
+                new_queue.push(task);
+            }
+        }
+        *queue = new_queue;
+
+        len_before > queue.len()
     }
 
     async fn enqueue_internal(
@@ -932,20 +901,14 @@ impl DownloadManager {
             loop {
                 // --- Drain phase: process tasks until the queue is empty ---
                 loop {
-                    // Block until a download slot is free
                     let permit = match semaphore.clone().acquire_owned().await {
                         Ok(p) => p,
                         Err(_) => return, // Semaphore closed; shut down
                     };
 
-                    let task = { queue.lock().await.pop() };
-
-                    let task = match task {
-                        Some(t) => t,
-                        None => {
-                            drop(permit);
-                            break; // Queue empty — exit drain loop
-                        }
+                    let Some(task) = queue.lock().await.pop() else {
+                        drop(permit);
+                        break; // Queue empty — exit drain loop
                     };
 
                     tracing::debug!(
@@ -956,19 +919,13 @@ impl DownloadManager {
                         "⚙️ Popped task from download queue"
                     );
 
-                    // Skip tasks that were cancelled before they started
-                    {
-                        let cancelled = cancelled.lock().await;
-                        if cancelled.contains(&task.id) {
-                            drop(permit);
-                            continue;
-                        }
+                    if cancelled.lock().await.contains(&task.id) {
+                        drop(permit);
+                        continue;
                     }
 
-                    // Transition to Downloading state
                     {
-                        let mut statuses = statuses.lock().await;
-                        statuses.insert(
+                        statuses.lock().await.insert(
                             task.id,
                             DownloadStatus::Downloading {
                                 downloaded_bytes: 0,
@@ -977,232 +934,65 @@ impl DownloadManager {
                         );
                     }
 
-                    // Emit DownloadStarted event
-                    if let Some(ref bus) = event_bus {
-                        bus.emit(crate::events::DownloadEvent::DownloadStarted {
+                    emit_bus_event(
+                        &event_bus,
+                        crate::events::DownloadEvent::DownloadStarted {
                             download_id: task.id,
                             url: task.url.clone(),
                             total_bytes: 0,
                             format_id: None,
-                        });
-                    }
+                        },
+                    );
 
-                    // Generate an HttpHeaders from default user agent if task doesn't have one
-                    let headers = task.http_headers.or_else(|| {
-                        config
-                            .user_agent
-                            .clone()
-                            .map(crate::model::format::HttpHeaders::browser_defaults)
-                    });
-
-                    // Reuse the shared client when no custom headers are needed;
-                    // otherwise build a per-task client with the specific headers
-                    let fetcher_result = if headers.is_none() {
-                        Ok(Fetcher::with_client(&task.url, Arc::clone(&shared_client)))
-                    } else {
-                        Fetcher::new(&task.url, config.proxy.as_ref(), headers)
-                    };
-
-                    let mut fetcher = match fetcher_result {
+                    let fetcher = match prepare_task_fetcher(&task, &config, &shared_client) {
                         Ok(f) => f,
                         Err(e) => {
                             let reason = e.to_string();
                             {
-                                let mut statuses = statuses.lock().await;
-                                statuses.insert(
-                                    task.id,
-                                    DownloadStatus::Failed {
-                                        reason: reason.clone(),
-                                    },
-                                );
+                                statuses
+                                    .lock()
+                                    .await
+                                    .insert(task.id, DownloadStatus::Failed { reason: reason.clone() });
                             }
-                            if let Some(ref bus) = event_bus {
-                                bus.emit(crate::events::DownloadEvent::DownloadFailed {
+                            emit_bus_event(
+                                &event_bus,
+                                crate::events::DownloadEvent::DownloadFailed {
                                     download_id: task.id,
                                     url: task.url.clone(),
                                     error: reason.clone(),
                                     retry_count: 0,
-                                });
-                            }
-                            let _ =
-                                completion_tx.send((task.id, DownloadStatus::Failed { reason }));
+                                },
+                            );
+                            let _ = completion_tx.send((task.id, DownloadStatus::Failed { reason }));
                             continue;
                         }
                     };
 
-                    fetcher = fetcher
-                        .with_segment_size(config.segment_size)
-                        .with_parallel_segments(config.parallel_segments)
-                        .with_retry_attempts(config.retry_attempts)
-                        .with_speed_profile(config.speed_profile);
+                    let fetcher = fetcher.with_progress_callback(build_progress_callback(
+                        task.id,
+                        &progress_counters,
+                        progress_tx.clone(),
+                        event_bus.clone(),
+                        task.progress_callback.clone(),
+                    ));
 
-                    // --- M2 fix: per-task AtomicU64 counters replace spawn_blocking ---
                     let task_id = task.id;
-                    let dl_counter = Arc::new(AtomicU64::new(0));
-                    let total_counter = Arc::new(AtomicU64::new(0));
+                    let handle = tokio::spawn(run_download_task(
+                        task_id,
+                        task.url.clone(),
+                        task.destination.clone(),
+                        fetcher,
+                        permit,
+                        statuses.clone(),
+                        tasks.clone(),
+                        cancelled.clone(),
+                        completion_tx.clone(),
+                        event_bus.clone(),
+                        progress_counters.clone(),
+                    ));
 
                     {
-                        let mut counters = progress_counters.lock().unwrap();
-                        counters.insert(task_id, (dl_counter.clone(), total_counter.clone()));
-                    }
-
-                    let dl_for_cb = dl_counter.clone();
-                    let total_for_cb = total_counter.clone();
-                    let progress_tx_for_cb = progress_tx.clone();
-                    let event_bus_for_cb = event_bus.clone();
-                    let user_callback = task.progress_callback.clone();
-                    let speed_start_nanos = Arc::new(AtomicU64::new(0));
-
-                    fetcher = fetcher.with_progress_callback(move |downloaded, total| {
-                        // Lock-free update — no spawn_blocking needed
-                        dl_for_cb.store(downloaded, AtomicOrdering::Relaxed);
-                        total_for_cb.store(total, AtomicOrdering::Relaxed);
-
-                        // Compute speed using a start-time recorded on the first callback
-                        let now_nanos = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_nanos() as u64;
-                        let start_nanos = speed_start_nanos
-                            .compare_exchange(
-                                0,
-                                now_nanos,
-                                AtomicOrdering::Relaxed,
-                                AtomicOrdering::Relaxed,
-                            )
-                            .unwrap_or_else(|current| current);
-                        let elapsed_nanos = now_nanos.saturating_sub(start_nanos);
-                        let speed = if elapsed_nanos > 0 {
-                            downloaded as f64 / (elapsed_nanos as f64 / 1_000_000_000.0)
-                        } else {
-                            0.0
-                        };
-
-                        let _ = progress_tx_for_cb.send(ProgressUpdate {
-                            download_id: task_id,
-                            downloaded_bytes: downloaded,
-                            total_bytes: total,
-                        });
-
-                        if let Some(ref bus) = event_bus_for_cb {
-                            bus.emit(crate::events::DownloadEvent::DownloadProgress {
-                                download_id: task_id,
-                                downloaded_bytes: downloaded,
-                                total_bytes: total,
-                                speed_bytes_per_sec: speed,
-                                eta_seconds: None,
-                            });
-                        }
-
-                        if let Some(ref callback) = user_callback {
-                            callback(downloaded, total);
-                        }
-                    });
-
-                    // Spawn the actual download task
-                    let destination = task.destination.clone();
-                    let task_url = task.url.clone();
-                    let statuses_for_task = statuses.clone();
-                    let tasks_for_task = tasks.clone();
-                    let cancelled_for_task = cancelled.clone();
-                    let completion_tx_for_task = completion_tx.clone();
-                    let event_bus_for_task = event_bus.clone();
-                    let progress_counters_for_task = progress_counters.clone();
-
-                    let handle = tokio::spawn(async move {
-                        // Permit is released automatically when this task ends
-                        let _permit = permit;
-
-                        let start_time = std::time::Instant::now();
-
-                        tracing::debug!(
-                            task_id = task_id,
-                            url = %task_url,
-                            destination = ?destination,
-                            "📥 Starting download attempt"
-                        );
-
-                        let result = fetcher.fetch_asset(&destination).await;
-                        let duration = start_time.elapsed();
-
-                        match &result {
-                            Ok(_) => {
-                                tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully")
-                            }
-                            Err(e) => {
-                                tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "📥 Download failed")
-                            }
-                        }
-
-                        let final_status = match &result {
-                            Ok(_) => DownloadStatus::Completed,
-                            Err(e) => DownloadStatus::Failed {
-                                reason: e.to_string(),
-                            },
-                        };
-
-                        {
-                            let mut statuses = statuses_for_task.lock().await;
-                            statuses.insert(task_id, final_status.clone());
-                        }
-
-                        // Remove per-task counters once the download is finished
-                        {
-                            let mut counters = progress_counters_for_task.lock().unwrap();
-                            counters.remove(&task_id);
-                        }
-
-                        if let Some(ref bus) = event_bus_for_task {
-                            match &final_status {
-                                DownloadStatus::Completed => {
-                                    let total_bytes = tokio::fs::metadata(&destination)
-                                        .await
-                                        .map(|m| m.len())
-                                        .unwrap_or(0);
-
-                                    bus.emit(crate::events::DownloadEvent::DownloadCompleted {
-                                        download_id: task_id,
-                                        url: task_url.clone(),
-                                        output_path: destination.clone(),
-                                        duration,
-                                        total_bytes,
-                                    });
-                                }
-                                DownloadStatus::Failed { reason } => {
-                                    bus.emit(crate::events::DownloadEvent::DownloadFailed {
-                                        download_id: task_id,
-                                        url: task_url.clone(),
-                                        error: reason.clone(),
-                                        retry_count: 0,
-                                    });
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        let _ = completion_tx_for_task.send((task_id, final_status));
-
-                        {
-                            let mut tasks = tasks_for_task.lock().await;
-                            tasks.remove(&task_id);
-                        }
-
-                        // Remove from statuses and cancelled now that all waiters have been notified
-                        {
-                            let mut statuses = statuses_for_task.lock().await;
-                            statuses.remove(&task_id);
-                        }
-                        {
-                            let mut cancelled = cancelled_for_task.lock().await;
-                            cancelled.remove(&task_id);
-                        }
-
-                        result
-                    });
-
-                    {
-                        let mut tasks = tasks.lock().await;
-                        tasks.insert(task_id, handle);
+                        tasks.lock().await.insert(task_id, handle);
                     }
                 }
 
@@ -1213,14 +1003,205 @@ impl DownloadManager {
     }
 }
 
+fn emit_bus_event(event_bus: &Option<crate::events::EventBus>, event: crate::events::DownloadEvent) {
+    if let Some(bus) = event_bus {
+        bus.emit(event);
+    }
+}
+
+fn prepare_task_fetcher(
+    task: &DownloadTask,
+    config: &ManagerConfig,
+    shared_client: &Arc<reqwest::Client>,
+) -> Result<Fetcher> {
+    let headers = task
+        .http_headers
+        .clone()
+        .or_else(|| config.user_agent.clone().map(HttpHeaders::browser_defaults));
+
+    let fetcher = if headers.is_none() {
+        Fetcher::with_client(&task.url, Arc::clone(shared_client))
+    } else {
+        Fetcher::new(&task.url, config.proxy.as_ref(), headers)?
+    };
+
+    Ok(fetcher
+        .with_segment_size(config.segment_size)
+        .with_parallel_segments(config.parallel_segments)
+        .with_retry_attempts(config.retry_attempts)
+        .with_speed_profile(config.speed_profile))
+}
+
+// Minimum interval between progress event emissions (50ms)
+const PROGRESS_THROTTLE_NANOS: u64 = 50_000_000;
+
+fn build_progress_callback(
+    task_id: u64,
+    progress_counters: &ProgressCounters,
+    progress_tx: broadcast::Sender<ProgressUpdate>,
+    event_bus: Option<crate::events::EventBus>,
+    user_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+) -> impl Fn(u64, u64) + Send + Sync + 'static {
+    let dl_counter = Arc::new(AtomicU64::new(0));
+    let total_counter = Arc::new(AtomicU64::new(0));
+
+    {
+        let mut counters = progress_counters.lock().unwrap();
+        counters.insert(task_id, (dl_counter.clone(), total_counter.clone()));
+    }
+
+    let speed_start_nanos = Arc::new(AtomicU64::new(0));
+    let last_emit_nanos = Arc::new(AtomicU64::new(0));
+
+    move |downloaded, total| {
+        // Lock-free counter update is always performed
+        dl_counter.store(downloaded, AtomicOrdering::Relaxed);
+        total_counter.store(total, AtomicOrdering::Relaxed);
+
+        let now_nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        // Throttle event emission: skip if less than PROGRESS_THROTTLE_NANOS since last emit
+        // Always emit for the final update (downloaded == total)
+        let prev_emit = last_emit_nanos.load(AtomicOrdering::Relaxed);
+        if downloaded != total && now_nanos.saturating_sub(prev_emit) < PROGRESS_THROTTLE_NANOS {
+            return;
+        }
+        last_emit_nanos.store(now_nanos, AtomicOrdering::Relaxed);
+
+        let start_nanos = speed_start_nanos
+            .compare_exchange(0, now_nanos, AtomicOrdering::Relaxed, AtomicOrdering::Relaxed)
+            .unwrap_or_else(|current| current);
+        let elapsed_nanos = now_nanos.saturating_sub(start_nanos);
+        let speed = if elapsed_nanos > 0 {
+            downloaded as f64 / (elapsed_nanos as f64 / 1_000_000_000.0)
+        } else {
+            0.0
+        };
+
+        let _ = progress_tx.send(ProgressUpdate {
+            download_id: task_id,
+            downloaded_bytes: downloaded,
+            total_bytes: total,
+        });
+
+        emit_bus_event(
+            &event_bus,
+            crate::events::DownloadEvent::DownloadProgress {
+                download_id: task_id,
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+                speed_bytes_per_sec: speed,
+                eta_seconds: None,
+            },
+        );
+
+        if let Some(ref callback) = user_callback {
+            callback(downloaded, total);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_download_task(
+    task_id: u64,
+    task_url: String,
+    destination: PathBuf,
+    fetcher: Fetcher,
+    permit: tokio::sync::OwnedSemaphorePermit,
+    statuses: Arc<Mutex<HashMap<u64, DownloadStatus>>>,
+    tasks: Arc<Mutex<HashMap<u64, JoinHandle<Result<()>>>>>,
+    cancelled: Arc<Mutex<HashSet<u64>>>,
+    completion_tx: broadcast::Sender<(u64, DownloadStatus)>,
+    event_bus: Option<crate::events::EventBus>,
+    progress_counters: ProgressCounters,
+) -> Result<()> {
+    let _permit = permit;
+    let start_time = std::time::Instant::now();
+
+    tracing::debug!(
+        task_id = task_id,
+        url = %task_url,
+        destination = ?destination,
+        "📥 Starting download attempt"
+    );
+
+    let result = fetcher.fetch_asset(&destination).await;
+    let duration = start_time.elapsed();
+
+    match &result {
+        Ok(_) => tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully"),
+        Err(e) => tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "📥 Download failed"),
+    }
+
+    let final_status = match &result {
+        Ok(_) => DownloadStatus::Completed,
+        Err(e) => DownloadStatus::Failed { reason: e.to_string() },
+    };
+
+    {
+        statuses.lock().await.insert(task_id, final_status.clone());
+    }
+    {
+        progress_counters.lock().unwrap().remove(&task_id);
+    }
+
+    emit_download_result(&event_bus, &final_status, task_id, &task_url, &destination, duration).await;
+
+    let _ = completion_tx.send((task_id, final_status));
+    {
+        tasks.lock().await.remove(&task_id);
+    }
+    {
+        statuses.lock().await.remove(&task_id);
+    }
+    {
+        cancelled.lock().await.remove(&task_id);
+    }
+
+    result
+}
+
+async fn emit_download_result(
+    event_bus: &Option<crate::events::EventBus>,
+    status: &DownloadStatus,
+    task_id: u64,
+    url: &str,
+    destination: &std::path::Path,
+    duration: std::time::Duration,
+) {
+    let Some(bus) = event_bus else { return };
+
+    match status {
+        DownloadStatus::Completed => {
+            let total_bytes = tokio::fs::metadata(destination).await.map(|m| m.len()).unwrap_or(0);
+            bus.emit(crate::events::DownloadEvent::DownloadCompleted {
+                download_id: task_id,
+                url: url.to_string(),
+                output_path: destination.to_path_buf(),
+                duration,
+                total_bytes,
+            });
+        }
+        DownloadStatus::Failed { reason } => {
+            bus.emit(crate::events::DownloadEvent::DownloadFailed {
+                download_id: task_id,
+                url: url.to_string(),
+                error: reason.clone(),
+                retry_count: 0,
+            });
+        }
+        _ => {}
+    }
+}
+
 impl std::fmt::Debug for DownloadManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DownloadManager")
             .field("config", &self.config)
-            .field(
-                "max_concurrent_downloads",
-                &self.config.max_concurrent_downloads,
-            )
+            .field("max_concurrent_downloads", &self.config.max_concurrent_downloads)
             .finish_non_exhaustive()
     }
 }

@@ -4,10 +4,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'The tag of the release to analyze'
-        required: false
 
 permissions:
   contents: read
@@ -16,12 +12,15 @@ jobs:
   sonarcloud-analysis:
     name: 🔍 SonarCloud analysis
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: develop
+          persist-credentials: false
 
       - name: 🔍 Scan with SonarCloud
         uses: SonarSource/sonarqube-scan-action@v7.0.0
@@ -33,6 +32,7 @@ jobs:
     name: 🔍 Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
       id-token: write
 
@@ -40,7 +40,8 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: develop
+          persist-credentials: false
 
       - name: 🔍 Scan with Scorecard
         uses: ossf/scorecard-action@v2.4.3

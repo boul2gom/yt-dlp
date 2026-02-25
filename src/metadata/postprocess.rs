@@ -3,12 +3,13 @@
 //! This module provides functions to apply post-processing operations
 //! to video files using FFmpeg based on PostProcessConfig.
 
+use std::path::PathBuf;
+use std::time::Duration;
+
 use crate::client::Libraries;
 use crate::download::postprocess::PostProcessConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use std::path::PathBuf;
-use std::time::Duration;
 
 /// Applies post-processing to a video file using FFmpeg.
 ///
@@ -109,11 +110,7 @@ pub async fn apply_postprocess(
 /// # Returns
 ///
 /// Vector of FFmpeg arguments
-pub fn build_ffmpeg_command(
-    input: &str,
-    output: &str,
-    config: &PostProcessConfig,
-) -> Result<Vec<String>> {
+pub fn build_ffmpeg_command(input: &str, output: &str, config: &PostProcessConfig) -> Result<Vec<String>> {
     tracing::debug!(
         input = input,
         output = output,

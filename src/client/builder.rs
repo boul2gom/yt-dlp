@@ -2,6 +2,10 @@
 //!
 //! This module provides a fluent API for constructing Downloader instances with various configurations.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 #[cfg(cache)]
 use crate::cache::{CacheConfig, CacheLayer};
 use crate::client::proxy::ProxyConfig;
@@ -12,9 +16,6 @@ use crate::error::Result;
 use crate::extractor::ExtractorConfig;
 #[cfg(cache)]
 use crate::utils::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 /// Builder for creating Downloader instances with a fluent API.
 ///

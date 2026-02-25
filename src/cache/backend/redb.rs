@@ -6,6 +6,11 @@
 //! All redb operations are synchronous and wrapped in `tokio::task::spawn_blocking`
 //! to avoid blocking the async runtime.
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+
 use super::{FileBackend, PlaylistBackend, VideoBackend};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
@@ -14,9 +19,6 @@ use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 const VIDEOS: TableDefinition<&str, &[u8]> = TableDefinition::new("videos");
 const PLAYLISTS: TableDefinition<&str, &[u8]> = TableDefinition::new("playlists");
@@ -90,8 +92,7 @@ impl VideoBackend for RedbVideoCache {
                 .iter()
                 .map_err(|e| crate::error::Error::database("iterate videos", e))?;
             for entry in iter {
-                let (_key, val) =
-                    entry.map_err(|e| crate::error::Error::database("read video entry", e))?;
+                let (_key, val) = entry.map_err(|e| crate::error::Error::database("read video entry", e))?;
                 let bytes = val.value();
                 if let Ok(cached) = serde_json::from_slice::<CachedVideo>(bytes)
                     && cached.url == url_owned
@@ -107,11 +108,7 @@ impl VideoBackend for RedbVideoCache {
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        tracing::debug!(
-            url = url,
-            video_id = video.id,
-            "⚙️ Caching video to redb backend"
-        );
+        tracing::debug!(url = url, video_id = video.id, "⚙️ Caching video to redb backend");
 
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
@@ -157,8 +154,7 @@ impl VideoBackend for RedbVideoCache {
                     .iter()
                     .map_err(|e| crate::error::Error::database("iterate videos", e))?;
                 for entry in iter {
-                    let (_key, val) =
-                        entry.map_err(|e| crate::error::Error::database("read entry", e))?;
+                    let (_key, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
                     let bytes = val.value();
                     if let Ok(cached) = serde_json::from_slice::<CachedVideo>(bytes)
                         && cached.url == url_owned
@@ -204,8 +200,7 @@ impl VideoBackend for RedbVideoCache {
                     .iter()
                     .map_err(|e| crate::error::Error::database("iterate videos", e))?;
                 for entry in iter {
-                    let (key_guard, val) =
-                        entry.map_err(|e| crate::error::Error::database("read entry", e))?;
+                    let (key_guard, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
                     let key = key_guard.value().to_string();
                     let bytes = val.value();
                     if let Ok(cached) = serde_json::from_slice::<CachedVideo>(bytes)
@@ -221,9 +216,9 @@ impl VideoBackend for RedbVideoCache {
                         .open_table(VIDEOS)
                         .map_err(|e| crate::error::Error::database("open videos table", e))?;
                     for key in &expired_keys {
-                        table.remove(key.as_str()).map_err(|e| {
-                            crate::error::Error::database("remove expired video", e)
-                        })?;
+                        table
+                            .remove(key.as_str())
+                            .map_err(|e| crate::error::Error::database("remove expired video", e))?;
                     }
                 }
             }
@@ -332,8 +327,7 @@ impl PlaylistBackend for RedbPlaylistCache {
                 .iter()
                 .map_err(|e| crate::error::Error::database("iterate playlists", e))?;
             for entry in iter {
-                let (_key, val) =
-                    entry.map_err(|e| crate::error::Error::database("read playlist entry", e))?;
+                let (_key, val) = entry.map_err(|e| crate::error::Error::database("read playlist entry", e))?;
                 let bytes = val.value();
                 if let Ok(cached) = serde_json::from_slice::<CachedPlaylist>(bytes)
                     && cached.url == url_owned
@@ -349,10 +343,7 @@ impl PlaylistBackend for RedbPlaylistCache {
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        tracing::debug!(
-            playlist_id = id,
-            "🔍 Looking up playlist by ID in redb cache"
-        );
+        tracing::debug!(playlist_id = id, "🔍 Looking up playlist by ID in redb cache");
 
         let db = self.db.clone();
         let id_owned = id.to_string();
@@ -432,8 +423,7 @@ impl PlaylistBackend for RedbPlaylistCache {
                     .iter()
                     .map_err(|e| crate::error::Error::database("iterate playlists", e))?;
                 for entry in iter {
-                    let (_key, val) =
-                        entry.map_err(|e| crate::error::Error::database("read entry", e))?;
+                    let (_key, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
                     let bytes = val.value();
                     if let Ok(cached) = serde_json::from_slice::<CachedPlaylist>(bytes)
                         && cached.url == url_owned
@@ -479,8 +469,7 @@ impl PlaylistBackend for RedbPlaylistCache {
                     .iter()
                     .map_err(|e| crate::error::Error::database("iterate playlists", e))?;
                 for entry in iter {
-                    let (key_guard, val) =
-                        entry.map_err(|e| crate::error::Error::database("read entry", e))?;
+                    let (key_guard, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
                     let key = key_guard.value().to_string();
                     let bytes = val.value();
                     if let Ok(cached) = serde_json::from_slice::<CachedPlaylist>(bytes)
@@ -496,9 +485,9 @@ impl PlaylistBackend for RedbPlaylistCache {
                         .open_table(PLAYLISTS)
                         .map_err(|e| crate::error::Error::database("open playlists table", e))?;
                     for key in &expired_keys {
-                        table.remove(key.as_str()).map_err(|e| {
-                            crate::error::Error::database("remove expired playlist", e)
-                        })?;
+                        table
+                            .remove(key.as_str())
+                            .map_err(|e| crate::error::Error::database("remove expired playlist", e))?;
                     }
                 }
             }
@@ -618,11 +607,7 @@ impl FileBackend for RedbFileCache {
         .flatten()
     }
 
-    async fn get_by_video_and_format(
-        &self,
-        video_id: &str,
-        format_id: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -663,10 +648,7 @@ impl FileBackend for RedbFileCache {
         video_id: &str,
         preferences: &FormatPreferences,
     ) -> Option<(CachedFile, PathBuf)> {
-        tracing::debug!(
-            video_id = video_id,
-            "🔍 Looking for file by preferences in redb cache"
-        );
+        tracing::debug!(video_id = video_id, "🔍 Looking for file by preferences in redb cache");
 
         let db = self.db.clone();
         let vid = video_id.to_string();
@@ -782,85 +764,8 @@ impl FileBackend for RedbFileCache {
         let cache_dir = self.cache_dir.clone();
 
         tokio::task::spawn_blocking(move || {
-            // Clean files
-            {
-                let txn = db
-                    .begin_write()
-                    .map_err(|e| crate::error::Error::database("write file clean", e))?;
-                let table = txn
-                    .open_table(FILES)
-                    .map_err(|e| crate::error::Error::database("open files table", e))?;
-                let mut expired = Vec::new();
-
-                let iter = table
-                    .iter()
-                    .map_err(|e| crate::error::Error::database("iterate files", e))?;
-                for (key_guard, val) in iter.flatten() {
-                    let key = key_guard.value().to_string();
-                    let bytes = val.value();
-                    if let Ok(cached) = serde_json::from_slice::<CachedFile>(bytes)
-                        && is_expired(cached.cached_at, ttl)
-                    {
-                        let path = cache_dir.join(&cached.relative_path);
-                        let _ = std::fs::remove_file(path);
-                        expired.push(key);
-                    }
-                }
-                drop(table);
-
-                if !expired.is_empty() {
-                    let mut table = txn
-                        .open_table(FILES)
-                        .map_err(|e| crate::error::Error::database("open files table", e))?;
-                    for key in &expired {
-                        table
-                            .remove(key.as_str())
-                            .map_err(|e| crate::error::Error::database("remove expired file", e))?;
-                    }
-                }
-                txn.commit()
-                    .map_err(|e| crate::error::Error::database("commit file clean", e))?;
-            }
-
-            // Clean thumbnails
-            {
-                let txn = db
-                    .begin_write()
-                    .map_err(|e| crate::error::Error::database("write thumbnail clean", e))?;
-                let table = txn
-                    .open_table(THUMBNAILS)
-                    .map_err(|e| crate::error::Error::database("open thumbnails table", e))?;
-                let mut expired = Vec::new();
-
-                let iter = table
-                    .iter()
-                    .map_err(|e| crate::error::Error::database("iterate thumbnails", e))?;
-                for (key_guard, val) in iter.flatten() {
-                    let key = key_guard.value().to_string();
-                    let bytes = val.value();
-                    if let Ok(cached) = serde_json::from_slice::<CachedThumbnail>(bytes)
-                        && is_expired(cached.cached_at, ttl)
-                    {
-                        let path = cache_dir.join(&cached.relative_path);
-                        let _ = std::fs::remove_file(path);
-                        expired.push(key);
-                    }
-                }
-                drop(table);
-
-                if !expired.is_empty() {
-                    let mut table = txn
-                        .open_table(THUMBNAILS)
-                        .map_err(|e| crate::error::Error::database("open thumbnails table", e))?;
-                    for key in &expired {
-                        table.remove(key.as_str()).map_err(|e| {
-                            crate::error::Error::database("remove expired thumbnail", e)
-                        })?;
-                    }
-                }
-                txn.commit()
-                    .map_err(|e| crate::error::Error::database("commit thumbnail clean", e))?;
-            }
+            clean_redb_table(&db, FILES, ttl, &cache_dir, "file")?;
+            clean_redb_table(&db, THUMBNAILS, ttl, &cache_dir, "thumbnail")?;
 
             Ok(())
         })
@@ -868,10 +773,7 @@ impl FileBackend for RedbFileCache {
         .map_err(|e| crate::error::Error::runtime("redb clean files", e))?
     }
 
-    async fn get_thumbnail_by_video_id(
-        &self,
-        video_id: &str,
-    ) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
             "🔍 Looking for thumbnail by video ID in redb cache"
@@ -904,11 +806,7 @@ impl FileBackend for RedbFileCache {
         .flatten()
     }
 
-    async fn put_thumbnail(
-        &self,
-        thumbnail: CachedThumbnail,
-        source_path: &Path,
-    ) -> Result<PathBuf> {
+    async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
         tracing::debug!(
             thumbnail_id = thumbnail.id,
             video_id = thumbnail.video_id,
@@ -946,11 +844,7 @@ impl FileBackend for RedbFileCache {
         Ok(ret_path)
     }
 
-    async fn get_subtitle_by_language(
-        &self,
-        video_id: &str,
-        language: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
         tracing::debug!(
             video_id = video_id,
             language = language,
@@ -985,4 +879,61 @@ impl FileBackend for RedbFileCache {
         .ok()
         .flatten()
     }
+}
+
+/// Clean expired entries from a redb table, removing associated files on disk.
+fn clean_redb_table(
+    db: &Database,
+    table_def: TableDefinition<&str, &[u8]>,
+    ttl: u64,
+    cache_dir: &Path,
+    label: &str,
+) -> Result<()> {
+    let txn = db
+        .begin_write()
+        .map_err(|e| crate::error::Error::database(format!("write {label} clean"), e))?;
+    let table = txn
+        .open_table(table_def)
+        .map_err(|e| crate::error::Error::database(format!("open {label} table"), e))?;
+
+    let iter = table
+        .iter()
+        .map_err(|e| crate::error::Error::database(format!("iterate {label}s"), e))?;
+
+    let mut expired = Vec::new();
+    for (key_guard, val) in iter.flatten() {
+        let key = key_guard.value().to_string();
+        let bytes = val.value();
+
+        // Parse the JSON value to extract cached_at and relative_path
+        let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            continue;
+        };
+        let cached_at = json_val.get("cached_at").and_then(|v| v.as_i64()).unwrap_or(0);
+        let relative_path = json_val.get("relative_path").and_then(|v| v.as_str());
+
+        if is_expired(cached_at, ttl) {
+            if let Some(rel) = relative_path {
+                let _ = std::fs::remove_file(cache_dir.join(rel));
+            }
+            expired.push(key);
+        }
+    }
+    drop(table);
+
+    if !expired.is_empty() {
+        let mut table = txn
+            .open_table(table_def)
+            .map_err(|e| crate::error::Error::database(format!("open {label} table"), e))?;
+        for key in &expired {
+            table
+                .remove(key.as_str())
+                .map_err(|e| crate::error::Error::database(format!("remove expired {label}"), e))?;
+        }
+    }
+
+    txn.commit()
+        .map_err(|e| crate::error::Error::database(format!("commit {label} clean"), e))?;
+
+    Ok(())
 }

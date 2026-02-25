@@ -2,8 +2,9 @@
 //!
 //! The represented data is the video information, thumbnails, automatic captions, and formats.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 pub mod caption;
 pub mod chapter;
@@ -16,20 +17,16 @@ pub mod utils;
 pub mod video;
 
 // Re-export main types
-pub use video::Video;
-
 // Re-export chapter types
 pub use chapter::{ChapterList, ChapterValidation};
-
 // Re-export selector types
 pub use selector::{
     AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality, VideoCodecPreference,
     VideoQuality,
 };
-pub use video::FORMAT_URL_LIFETIME;
-
 // Re-export utility traits
 pub use utils::{AllTraits, CommonTraits};
+pub use video::{FORMAT_URL_LIFETIME, Video};
 
 /// DRM status of a video or format
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize)]

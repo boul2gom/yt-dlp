@@ -3,12 +3,14 @@
 //! This module provides HTTP client utilities with connection pooling
 //! and optimal configuration for the library.
 
-use crate::client::proxy::ProxyConfig;
-use reqwest::Client;
-use reqwest::header::HeaderMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
+
+use reqwest::Client;
+use reqwest::header::HeaderMap;
+
+use crate::client::proxy::ProxyConfig;
 
 // HTTP connection pool configuration
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
@@ -55,9 +57,7 @@ impl fmt::Display for HttpClientConfig<'_> {
 ///
 /// Returns an error if the HTTP client cannot be built
 pub fn build_http_client(config: HttpClientConfig) -> crate::error::Result<Arc<Client>> {
-    let timeout = config
-        .timeout
-        .unwrap_or(Duration::from_secs(REQUEST_TIMEOUT_SECS));
+    let timeout = config.timeout.unwrap_or(Duration::from_secs(REQUEST_TIMEOUT_SECS));
 
     tracing::debug!(
         has_proxy = config.proxy.is_some(),
@@ -73,6 +73,7 @@ pub fn build_http_client(config: HttpClientConfig) -> crate::error::Result<Arc<C
         .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
         .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
         .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))
+        .tcp_nodelay(true)
         .user_agent(config.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT));
 
     if config.http2_adaptive_window {

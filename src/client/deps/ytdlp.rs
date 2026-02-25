@@ -1,10 +1,11 @@
 //! Fetch the latest release of 'yt-dlp' from GitHub.
 
+use std::fmt;
+
 use crate::client::deps::github::GitHubFetcher;
 use crate::client::deps::{Asset, WantedRelease};
 use crate::error::Result;
 use crate::utils::platform::{Architecture, Platform};
-use std::fmt;
 
 /// The yt-dlp fetcher is responsible for fetching the yt-dlp binary for the current platform and architecture.
 ///
@@ -62,9 +63,7 @@ impl YoutubeFetcher {
             "📦 Fetching yt-dlp release for current platform"
         );
 
-        self.fetcher
-            .fetch_release(auth_token, Self::select_asset)
-            .await
+        self.fetcher.fetch_release(auth_token, Self::select_asset).await
     }
 
     /// Select the correct asset from the release for the given platform and architecture.
@@ -94,22 +93,12 @@ impl YoutubeFetcher {
         release.assets.iter().find(|asset| {
             let name = &asset.name;
             match (platform, architecture) {
-                (Platform::Windows, Architecture::X64) => {
-                    name.contains(&format!("{}.exe", base_name))
-                }
-                (Platform::Windows, Architecture::X86) => {
-                    name.contains(&format!("{}_x86.exe", base_name))
-                }
+                (Platform::Windows, Architecture::X64) => name.contains(&format!("{}.exe", base_name)),
+                (Platform::Windows, Architecture::X86) => name.contains(&format!("{}_x86.exe", base_name)),
 
-                (Platform::Linux, Architecture::X64) => {
-                    name.contains(&format!("{}_linux", base_name))
-                }
-                (Platform::Linux, Architecture::Armv7l) => {
-                    name.contains(&format!("{}_linux_armv7l", base_name))
-                }
-                (Platform::Linux, Architecture::Aarch64) => {
-                    name.contains(&format!("{}_linux_aarch64", base_name))
-                }
+                (Platform::Linux, Architecture::X64) => name.contains(&format!("{}_linux", base_name)),
+                (Platform::Linux, Architecture::Armv7l) => name.contains(&format!("{}_linux_armv7l", base_name)),
+                (Platform::Linux, Architecture::Aarch64) => name.contains(&format!("{}_linux_aarch64", base_name)),
 
                 (Platform::Mac, _) => name.contains(&format!("{}_macos", base_name)),
 

@@ -16,6 +16,8 @@ jobs:
   format:
     name: 💄 Format code with Cargo formatter
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 🔐 Generate ephemeral token from GitHub App
@@ -36,13 +38,17 @@ jobs:
         with:
           prefix-key: rust-toolchain-
 
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: 🛠️ Set up nightly Rust (for rustfmt)
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
 
       - name: 💄 Format code with Cargo formatter
-        run: cargo fmt --all
+        run: cargo +nightly fmt --all
+
+      - name: 🧹 Remove trailing blank lines
+        run: |
+          find src examples benches -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
 
       - name: 🔐 Import GPG Key and setup Git
         uses: crazy-max/ghaction-import-gpg@v6.3.0

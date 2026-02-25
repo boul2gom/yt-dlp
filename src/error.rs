@@ -3,11 +3,13 @@
 //! This module provides comprehensive error handling for the yt-dlp library,
 //! with detailed context, error chaining, and structured error information.
 
-use crate::model::format::FormatType;
-use crate::utils::platform::{Architecture, Platform};
 use std::path::PathBuf;
 use std::time::Duration;
+
 use thiserror::Error;
+
+use crate::model::format::FormatType;
+use crate::utils::platform::{Architecture, Platform};
 
 /// A type alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -66,10 +68,7 @@ pub enum Error {
     ///
     /// Indicates the operation and duration that was exceeded.
     #[error("Timeout after {duration:?} while {operation}")]
-    Timeout {
-        operation: String,
-        duration: Duration,
-    },
+    Timeout { operation: String, duration: Duration },
 
     // ==================== Data & Serialization Errors ====================
     /// JSON parsing or serialization failed.
@@ -263,11 +262,7 @@ impl Error {
     /// # Returns
     ///
     /// An Error::IO variant with the provided context and path
-    pub fn io_with_path(
-        operation: impl Into<String>,
-        path: impl Into<PathBuf>,
-        source: std::io::Error,
-    ) -> Self {
+    pub fn io_with_path(operation: impl Into<String>, path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         let operation_str = operation.into();
         let path_buf = path.into();
 
@@ -296,11 +291,7 @@ impl Error {
     /// # Returns
     ///
     /// An Error::Http variant with the provided context
-    pub fn http(
-        url: impl Into<String>,
-        context: impl Into<String>,
-        source: reqwest::Error,
-    ) -> Self {
+    pub fn http(url: impl Into<String>, context: impl Into<String>, source: reqwest::Error) -> Self {
         let url_str = url.into();
         let context_str = context.into();
 
@@ -490,11 +481,7 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        tracing::warn!(
-            url = url_str,
-            reason = reason_str,
-            "⚙️ URL validation failed"
-        );
+        tracing::warn!(url = url_str, reason = reason_str, "⚙️ URL validation failed");
 
         Self::UrlValidation {
             url: url_str,
@@ -515,11 +502,7 @@ impl Error {
     pub fn download_failed(download_id: u64, reason: impl Into<String>) -> Self {
         let reason_str = reason.into();
 
-        tracing::error!(
-            download_id = download_id,
-            reason = reason_str,
-            "⚙️ Download failed"
-        );
+        tracing::error!(download_id = download_id, reason = reason_str, "⚙️ Download failed");
 
         Self::DownloadFailed {
             download_id,

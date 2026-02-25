@@ -99,6 +99,7 @@ available.
 - 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
 - 📡 **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
 - 📊 **`statistics`** - Enables real-time statistics and analytics on downloads and fetches. Exposes aggregate counters, averages, success rates, and a bounded history window.
+- 🌍 **`hickory-dns`** - Enables async DNS resolution via [Hickory DNS](https://github.com/hickory-dns/hickory-dns) (passes `reqwest/hickory-dns`). Replaces the default blocking system resolver with a fully async, pure-Rust resolver.
 
 ### 🗄️ Cache backends
 
@@ -911,9 +912,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The project supports automatic addition of metadata to downloaded files in several formats:
 
 - **MP3**: Title, artist, comment, genre (from tags), release year
-- **M4A**: Title, artist, comment, genre (from tags), release year  
+- **M4A**: Title, artist, comment, genre (from tags), release year
 - **MP4**: All basic metadata, plus technical information (resolution, FPS, video codec, video bitrate, audio codec, audio bitrate, audio channels, sample rate)
 - **WebM**: All basic metadata (via Matroska format), plus technical information as with MP4
+- **FLAC**: Title, artist, album, genre, date, description (via Vorbis comments through lofty), thumbnail embedding
+- **OGG/Opus**: Title, artist, album, genre, date, description (via Vorbis comments through lofty)
+- **WAV**: Title, artist, album, genre (via RIFF INFO through lofty)
+- **AAC**: Title, artist, album, genre, date (via ID3v2 through lofty)
+- **AIFF**: Title, artist, album, genre, date (via ID3v2 through lofty)
+- **AVI/TS/FLV**: Basic metadata via FFmpeg fallback
 
 Metadata is added automatically during download, without requiring any additional action from the user.
 
@@ -2375,10 +2382,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The speed optimization system includes several advanced features:
 
 - **HTTP/2 Support**: Automatically enabled for better connection multiplexing
+- **Transparent Compression**: Responses are automatically decompressed (gzip, brotli) for faster transfers
+- **TCP Nodelay**: Nagle's algorithm is disabled for lower latency on small writes
+- **CDN-Friendly Range Probing**: Uses `GET` with `Range: bytes=0-0` instead of `HEAD` for better CDN compatibility
+- **Progress Throttling**: Progress callbacks are throttled to 50 ms intervals to reduce overhead
 - **Parallel Playlist Downloads**: Playlists are downloaded in parallel by default (previously sequential)
 - **Dynamic Segment Allocation**: Automatically adjusts the number of parallel segments based on file size
 - **Connection Pooling**: Reuses HTTP connections for better performance
 - **Intelligent Buffering**: Optimized buffer sizes based on your profile
+- **Async DNS** *(opt-in)*: Enable the `hickory-dns` feature for a fully async, pure-Rust DNS resolver
 
 **Expected Performance Gains:**
 

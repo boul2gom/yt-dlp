@@ -14,10 +14,7 @@ fn main() {
         println!("cargo::rustc-cfg=cache");
     }
 
-    let persistent_count = [has_json, has_redb, has_redis]
-        .iter()
-        .filter(|&&b| b)
-        .count();
+    let persistent_count = [has_json, has_redb, has_redis].iter().filter(|&&b| b).count();
 
     // Emit cfg if any persistent backend is enabled
     if persistent_count > 0 {

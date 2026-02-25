@@ -3,14 +3,14 @@
 //! This module provides functions to add metadata and thumbnails to MP3 files
 //! using the ID3 tag format.
 
+use std::path::{Path, PathBuf};
+
+use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
+
+use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
 use crate::model::Video;
 use crate::model::format::Format;
-use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
-
-use std::path::{Path, PathBuf};
-
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 
 impl MetadataManager {
     /// Add metadata to an MP3 file using ID3 tags.
@@ -56,71 +56,16 @@ impl MetadataManager {
         }
 
         // Prepare data for the blocking thread (to avoid cloning the whole Video struct)
-        let metadata = Self::extract_basic_metadata(video)
-            .into_iter()
-            .collect::<Vec<_>>();
-        let playlist_info =
-            playlist.map(|pl| (pl.title.clone(), pl.index, pl.total, pl.id.clone()));
-        let audio_info =
-            audio_format.map(|f| (f.rates_info.audio_rate, f.codec_info.audio_codec.clone()));
+        let metadata = Self::extract_basic_metadata(video).into_iter().collect::<Vec<_>>();
+        let playlist_info = playlist.map(|pl| (pl.title.clone(), pl.index, pl.total, pl.id.clone()));
+        let audio_info = audio_format.map(|f| (f.rates_info.audio_rate, f.codec_info.audio_codec.clone()));
         let file_path_clone = file_path.clone();
 
         tokio::task::spawn_blocking(move || {
-            // Load existing tag or create a new one
-            let mut tag =
-                ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
+            let mut tag = ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
+            apply_id3_metadata(&mut tag, &metadata, &playlist_info);
+            apply_id3_technical_metadata(&mut tag, &audio_info);
 
-            // Add basic metadata
-            for (key, value) in metadata {
-                match key.as_str() {
-                    "title" => tag.set_title(value),
-                    "artist" => tag.set_artist(value),
-                    "album" => {
-                        // Override with playlist title if available
-                        if let Some((ref pl_title, _, _, _)) = playlist_info {
-                            tag.set_album(pl_title);
-                        } else {
-                            tag.set_album(value);
-                        }
-                    }
-                    "album_artist" => tag.set_album_artist(value),
-                    "genre" => tag.set_genre(value),
-                    "year" => {
-                        if let Ok(year) = value.parse::<i32>() {
-                            tag.set_year(year)
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Add playlist metadata if available
-            if let Some((_, index, total, id)) = playlist_info {
-                // Set track number (1-based index)
-                tag.set_track(index as u32);
-                if let Some(total) = total {
-                    tag.set_total_tracks(total as u32);
-                }
-
-                // Add playlist ID as custom frame
-                let frame = ID3Frame::text("TXXX", format!("Playlist ID: {}", id));
-                tag.add_frame(frame);
-            }
-
-            // Add technical metadata if available (as custom frames)
-            if let Some((audio_rate, audio_codec)) = audio_info {
-                if let Some(rate) = audio_rate {
-                    let frame = ID3Frame::text("TXXX", format!("Audio Bitrate: {}", rate));
-                    tag.add_frame(frame);
-                }
-
-                if let Some(codec) = audio_codec {
-                    let frame = ID3Frame::text("TXXX", format!("Audio Codec: {}", codec));
-                    tag.add_frame(frame);
-                }
-            }
-
-            // Save changes
             tag.write_to_path(&file_path_clone, ID3Version::Id3v24)
                 .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
 
@@ -148,10 +93,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the ID3 tags cannot be written
-    pub(super) async fn add_thumbnail_to_mp3(
-        file_path: impl Into<PathBuf>,
-        thumbnail_path: &Path,
-    ) -> Result<()> {
+    pub(super) async fn add_thumbnail_to_mp3(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
         let file_path = file_path.into();
 
         tracing::debug!(
@@ -178,8 +120,7 @@ impl MetadataManager {
         let file_path_clone = file_path.clone();
         tokio::task::spawn_blocking(move || {
             // Load existing tag or create a new one
-            let mut tag =
-                ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
+            let mut tag = ID3Tag::read_from_path(&file_path_clone).unwrap_or_else(|_| ID3Tag::new());
 
             // Create picture frame
             let picture = ID3Frame::with_content(
@@ -209,5 +150,62 @@ impl MetadataManager {
         );
 
         Ok(())
+    }
+}
+
+fn apply_id3_metadata(
+    tag: &mut ID3Tag,
+    metadata: &[(String, String)],
+    playlist_info: &Option<(String, usize, Option<usize>, String)>,
+) {
+    for (key, value) in metadata {
+        match key.as_str() {
+            "title" => tag.set_title(value),
+            "artist" => tag.set_artist(value),
+            "album" => {
+                if let Some((pl_title, ..)) = playlist_info {
+                    tag.set_album(pl_title);
+                } else {
+                    tag.set_album(value);
+                }
+            }
+            "album_artist" => tag.set_album_artist(value),
+            "genre" => tag.set_genre(value),
+            "year" => {
+                if let Ok(year) = value.parse::<i32>() {
+                    tag.set_year(year);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some((_, index, total, id)) = playlist_info {
+        tag.set_track(*index as u32);
+        if let Some(total) = total {
+            tag.set_total_tracks(*total as u32);
+        }
+
+        let frame = ID3Frame::text("TXXX", format!("Playlist ID: {}", id));
+        tag.add_frame(frame);
+    }
+}
+
+fn apply_id3_technical_metadata(
+    tag: &mut ID3Tag,
+    audio_info: &Option<(Option<ordered_float::OrderedFloat<f64>>, Option<String>)>,
+) {
+    let Some((audio_rate, audio_codec)) = audio_info else {
+        return;
+    };
+
+    if let Some(rate) = audio_rate {
+        let frame = ID3Frame::text("TXXX", format!("Audio Bitrate: {}", rate));
+        tag.add_frame(frame);
+    }
+
+    if let Some(codec) = audio_codec {
+        let frame = ID3Frame::text("TXXX", format!("Audio Codec: {}", codec));
+        tag.add_frame(frame);
     }
 }

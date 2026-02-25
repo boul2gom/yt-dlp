@@ -5,13 +5,14 @@
 //! backend based on enabled features. The in-memory Moka backend is separate and used
 //! as the L1 layer; the persistent enum is the L2 layer.
 
+use std::future::Future;
+use std::path::PathBuf;
+
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
-use std::future::Future;
-use std::path::PathBuf;
 
 #[cfg(feature = "cache-json")]
 pub mod json;
@@ -173,8 +174,7 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached file entry and its path, or `None` if not found.
-    fn get_by_hash(&self, hash: &str)
-    -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
+    fn get_by_hash(&self, hash: &str) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
 
     /// Retrieves a file from the cache by video ID and format ID.
     ///
@@ -222,11 +222,7 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The path where the file was cached.
-    fn put(
-        &self,
-        file: CachedFile,
-        source_path: &std::path::Path,
-    ) -> impl Future<Output = Result<PathBuf>> + Send;
+    fn put(&self, file: CachedFile, source_path: &std::path::Path) -> impl Future<Output = Result<PathBuf>> + Send;
 
     /// Removes a file from the cache by its ID.
     ///
@@ -588,11 +584,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_by_video_and_format(
-        &self,
-        video_id: &str,
-        format_id: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_video_and_format(video_id, format_id).await,
@@ -651,10 +643,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_thumbnail_by_video_id(
-        &self,
-        video_id: &str,
-    ) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_thumbnail_by_video_id(video_id).await,
@@ -665,11 +654,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn put_thumbnail(
-        &self,
-        thumbnail: CachedThumbnail,
-        source_path: &std::path::Path,
-    ) -> Result<PathBuf> {
+    async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &std::path::Path) -> Result<PathBuf> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.put_thumbnail(thumbnail, source_path).await,
@@ -680,11 +665,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_subtitle_by_language(
-        &self,
-        video_id: &str,
-        language: &str,
-    ) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_subtitle_by_language(video_id, language).await,
