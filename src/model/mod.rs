@@ -21,8 +21,7 @@ pub mod video;
 pub use chapter::{ChapterList, ChapterValidation};
 // Re-export selector types
 pub use selector::{
-    AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality, VideoCodecPreference,
-    VideoQuality,
+    AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality, VideoCodecPreference, VideoQuality,
 };
 // Re-export utility traits
 pub use utils::{AllTraits, CommonTraits};
