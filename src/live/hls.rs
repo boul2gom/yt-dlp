@@ -135,7 +135,9 @@ pub async fn parse_master(client: &reqwest::Client, url: &str) -> Result<Vec<Hls
             tracing::debug!(url = url, variant_count = variants.len(), "✅ Parsed master playlist");
             Ok(variants)
         }
-        m3u8_rs::Playlist::MediaPlaylist(_) => Err(Error::hls_parsing(url, "expected master playlist, got media playlist")),
+        m3u8_rs::Playlist::MediaPlaylist(_) => {
+            Err(Error::hls_parsing(url, "expected master playlist, got media playlist"))
+        }
     }
 }
 
@@ -228,7 +230,10 @@ pub fn select_variant(variants: &[HlsVariant], target_bandwidth: Option<u64>) ->
     match target_bandwidth {
         Some(max_bw) => {
             // Pick the highest bandwidth that does not exceed the target
-            let matching = variants.iter().filter(|v| v.bandwidth <= max_bw).max_by_key(|v| v.bandwidth);
+            let matching = variants
+                .iter()
+                .filter(|v| v.bandwidth <= max_bw)
+                .max_by_key(|v| v.bandwidth);
             // Fallback to lowest bandwidth if none match
             matching.or_else(|| variants.iter().min_by_key(|v| v.bandwidth))
         }

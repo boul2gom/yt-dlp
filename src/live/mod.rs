@@ -17,11 +17,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
-
 pub use ffmpeg_recording::FfmpegLiveRecorder;
 pub use hls::{HlsPlaylist, HlsSegment, HlsVariant};
 pub use recording::LiveRecorder;
+use tokio_util::sync::CancellationToken;
 
 use crate::Downloader;
 use crate::error::{Error, Result};
@@ -180,14 +179,12 @@ impl<'a> LiveRecordingBuilder<'a> {
         let live_formats = self.video.live_formats();
         let format = match self.format {
             Some(f) => f,
-            None => {
-                live_formats.last().ok_or_else(|| {
-                    Error::live_recording(
-                        self.video.webpage_url.as_deref().unwrap_or("unknown"),
-                        "no HLS formats available",
-                    )
-                })?
-            }
+            None => live_formats.last().ok_or_else(|| {
+                Error::live_recording(
+                    self.video.webpage_url.as_deref().unwrap_or("unknown"),
+                    "no HLS formats available",
+                )
+            })?,
         };
 
         let stream_url = format.url()?.clone();

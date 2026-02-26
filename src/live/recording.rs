@@ -14,11 +14,10 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
+use super::hls;
 use crate::error::{Error, Result};
 use crate::events::DownloadEvent;
 use crate::events::types::RecordingMethod;
-
-use super::hls;
 
 /// Progress throttle interval (50 ms) to avoid flooding the event bus.
 const PROGRESS_THROTTLE_NANOS: u64 = 50_000_000;
@@ -153,7 +152,9 @@ impl LiveRecorder {
             bytes_written.fetch_add(data.len() as u64, Ordering::Relaxed);
             segments_downloaded += 1;
         }
-        writer.flush().map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
+        writer
+            .flush()
+            .map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
 
         // Poll loop
         let stop_reason = loop {
@@ -206,7 +207,9 @@ impl LiveRecorder {
                 segments_downloaded += 1;
                 seen_sequences.insert(seg.sequence);
             }
-            writer.flush().map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
+            writer
+                .flush()
+                .map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
 
             // Emit progress (throttled)
             let now_nanos = start.elapsed().as_nanos() as u64;

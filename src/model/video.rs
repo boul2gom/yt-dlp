@@ -11,9 +11,9 @@ use serde_with::{DefaultOnNull, serde_as};
 
 use crate::model::caption::{AutomaticCaption, Subtitle};
 use crate::model::chapter::Chapter;
-use crate::model::format::{Format, FormatType};
 #[cfg(feature = "live-recording")]
 use crate::model::format::Protocol;
+use crate::model::format::{Format, FormatType};
 use crate::model::heatmap::Heatmap;
 use crate::model::thumbnail::Thumbnail;
 
@@ -384,7 +384,12 @@ impl Video {
             .iter()
             .filter(|f| f.protocol == Protocol::M3U8Native)
             .collect();
-        formats.sort_by(|a, b| a.rates_info.total_rate.partial_cmp(&b.rates_info.total_rate).unwrap_or(std::cmp::Ordering::Equal));
+        formats.sort_by(|a, b| {
+            a.rates_info
+                .total_rate
+                .partial_cmp(&b.rates_info.total_rate)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         formats
     }
 }

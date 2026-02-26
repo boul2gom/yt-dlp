@@ -547,7 +547,12 @@ impl Error {
         let live_status_str = live_status.into();
         let reason_str = reason.into();
 
-        tracing::warn!(url = url_str, live_status = live_status_str, reason = reason_str, "📡 Live stream unavailable");
+        tracing::warn!(
+            url = url_str,
+            live_status = live_status_str,
+            reason = reason_str,
+            "📡 Live stream unavailable"
+        );
 
         Self::LiveStreamUnavailable {
             url: url_str,

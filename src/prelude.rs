@@ -19,12 +19,19 @@ pub use crate::client::{DownloadBuilder, Libraries, LibraryInstaller};
 pub use crate::download::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
 pub use crate::download::{Fetcher, ProgressTracker};
 pub use crate::error::{Error, Result};
+// Live stream recording types (if enabled)
+#[cfg(feature = "live-recording")]
+pub use crate::events::RecordingMethod;
 // Event types
 pub use crate::events::{DownloadEvent, EventBus, EventFilter};
 #[cfg(feature = "hooks")]
 pub use crate::events::{EventHook, HookRegistry};
 #[cfg(feature = "webhooks")]
 pub use crate::events::{RetryStrategy, WebhookConfig, WebhookDelivery};
+#[cfg(feature = "live-recording")]
+pub use crate::live::{
+    FfmpegLiveRecorder, HlsPlaylist, HlsSegment, HlsVariant, LiveRecorder, LiveRecordingBuilder, RecordingResult,
+};
 // Model types
 pub use crate::model::Video;
 pub use crate::model::selector::{
@@ -43,11 +50,3 @@ pub use crate::utils::platform::Platform;
 pub use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
 pub use crate::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
 pub use crate::{Downloader, DownloaderBuilder};
-
-// Live stream recording types (if enabled)
-#[cfg(feature = "live-recording")]
-pub use crate::events::RecordingMethod;
-#[cfg(feature = "live-recording")]
-pub use crate::live::{
-    FfmpegLiveRecorder, HlsPlaylist, HlsSegment, HlsVariant, LiveRecorder, LiveRecordingBuilder, RecordingResult,
-};

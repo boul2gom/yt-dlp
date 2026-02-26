@@ -216,10 +216,7 @@ pub enum DownloadEvent {
 
     /// Live recording failed
     #[cfg(feature = "live-recording")]
-    LiveRecordingFailed {
-        video_id: String,
-        error: String,
-    },
+    LiveRecordingFailed { video_id: String, error: String },
 }
 
 /// Types of metadata that can be applied

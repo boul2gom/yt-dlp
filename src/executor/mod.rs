@@ -310,6 +310,10 @@ impl StreamingProcess {
             "📥 Streaming process exited"
         );
 
-        Ok(ProcessOutput { stdout: String::new(), stderr: stderr_buf, code })
+        Ok(ProcessOutput {
+            stdout: String::new(),
+            stderr: stderr_buf,
+            code,
+        })
     }
 }
