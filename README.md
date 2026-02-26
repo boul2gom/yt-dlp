@@ -2213,7 +2213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
 
     let result = downloader.record_live(&video, "live-recording.ts")
-        .with_method(RecordingMethod::Ffmpeg)
+        .with_method(RecordingMethod::Fallback)
         .with_max_duration(Duration::from_secs(600))
         .execute()
         .await?;

@@ -120,7 +120,7 @@ impl LiveRecorder {
             video_id: self.video_id.clone(),
             url: self.playlist_url.clone(),
             quality: self.quality.clone(),
-            method: RecordingMethod::Reqwest,
+            method: RecordingMethod::Native,
         });
 
         // Create output file with buffered writer

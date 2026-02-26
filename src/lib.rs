@@ -1828,6 +1828,8 @@ impl Downloader {
     /// ```rust,no_run
     /// # use yt_dlp::Downloader;
     /// # use yt_dlp::client::deps::Libraries;
+    /// # use yt_dlp::model::Video;
+    /// # use yt_dlp::download::postprocess::PostProcessConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # use std::path::PathBuf;
@@ -1838,8 +1840,11 @@ impl Downloader {
     ///     .fetch("https://youtube.com/watch?v=gXtp6C-3JKo")
     ///     .await?;
     ///
-    /// downloader
+    /// // Download the video, then enrich it with metadata
+    /// let downloader = downloader
     ///     .download_and_continue(&video, "output.mp4")
+    ///     .await?
+    ///     .postprocess_video("output.mp4", "output_processed.mp4", PostProcessConfig::new())
     ///     .await?;
     /// # Ok(())
     /// # }

@@ -103,7 +103,7 @@ impl FfmpegLiveRecorder {
             video_id: self.video_id.clone(),
             url: self.stream_url.clone(),
             quality: self.quality.clone(),
-            method: RecordingMethod::Ffmpeg,
+            method: RecordingMethod::Fallback,
         });
 
         // Ensure output directory exists

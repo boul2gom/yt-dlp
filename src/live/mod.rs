@@ -104,7 +104,7 @@ impl<'a> LiveRecordingBuilder<'a> {
             downloader,
             video,
             output_path: output_path.into(),
-            method: RecordingMethod::Reqwest,
+            method: RecordingMethod::Native,
             max_duration: None,
             format: None,
             cancellation_token: None,
@@ -115,7 +115,7 @@ impl<'a> LiveRecordingBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `method` - [`RecordingMethod::Reqwest`] (default) or [`RecordingMethod::Ffmpeg`].
+    /// * `method` - [`RecordingMethod::Native`] (default) or [`RecordingMethod::Fallback`].
     pub fn with_method(mut self, method: RecordingMethod) -> Self {
         self.method = method;
         self
@@ -207,7 +207,7 @@ impl<'a> LiveRecordingBuilder<'a> {
         );
 
         match self.method {
-            RecordingMethod::Reqwest => {
+            RecordingMethod::Native => {
                 let client = Arc::new(
                     reqwest::Client::builder()
                         .tcp_nodelay(true)
@@ -228,7 +228,7 @@ impl<'a> LiveRecordingBuilder<'a> {
 
                 recorder.record().await
             }
-            RecordingMethod::Ffmpeg => {
+            RecordingMethod::Fallback => {
                 let recorder = FfmpegLiveRecorder::new(
                     stream_url,
                     self.output_path,
