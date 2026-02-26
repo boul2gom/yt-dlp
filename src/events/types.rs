@@ -8,6 +8,16 @@ use crate::model::chapter::Chapter;
 use crate::model::format::Format;
 use crate::model::playlist::Playlist;
 
+/// The method used for live recording
+#[cfg(feature = "live-recording")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum RecordingMethod {
+    /// Pure Rust recording via reqwest HLS segment fetching
+    Native,
+    /// FFmpeg-based recording (fallback)
+    Fallback,
+}
+
 /// Represents all possible events that can occur during download operations
 #[derive(Debug, Clone, serde::Serialize)]
 #[allow(clippy::large_enum_variant)]
@@ -174,6 +184,42 @@ pub enum DownloadEvent {
         total_segments: usize,
         bytes: u64,
     },
+
+    /// Live recording has started
+    #[cfg(feature = "live-recording")]
+    LiveRecordingStarted {
+        video_id: String,
+        url: String,
+        quality: String,
+        method: RecordingMethod,
+    },
+
+    /// Live recording progress update
+    #[cfg(feature = "live-recording")]
+    LiveRecordingProgress {
+        video_id: String,
+        elapsed: Duration,
+        bytes_written: u64,
+        segments: u64,
+        bitrate_bps: f64,
+    },
+
+    /// Live recording stopped (graceful)
+    #[cfg(feature = "live-recording")]
+    LiveRecordingStopped {
+        video_id: String,
+        reason: String,
+        output_path: PathBuf,
+        total_bytes: u64,
+        total_duration: Duration,
+    },
+
+    /// Live recording failed
+    #[cfg(feature = "live-recording")]
+    LiveRecordingFailed {
+        video_id: String,
+        error: String,
+    },
 }
 
 /// Types of metadata that can be applied
@@ -222,6 +268,16 @@ impl fmt::Display for PostProcessOperation {
             Self::EmbedSubtitles { .. } => f.write_str("EmbedSubtitles"),
             Self::EmbedThumbnail { .. } => f.write_str("EmbedThumbnail"),
             Self::Custom { description } => write!(f, "Custom(description={})", description),
+        }
+    }
+}
+
+#[cfg(feature = "live-recording")]
+impl fmt::Display for RecordingMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Native => f.write_str("Native"),
+            Self::Fallback => f.write_str("Fallback"),
         }
     }
 }
@@ -284,6 +340,14 @@ impl DownloadEvent {
             Self::PlaylistCompleted { .. } => "playlist_completed",
             Self::SegmentStarted { .. } => "segment_started",
             Self::SegmentCompleted { .. } => "segment_completed",
+            #[cfg(feature = "live-recording")]
+            Self::LiveRecordingStarted { .. } => "live_recording_started",
+            #[cfg(feature = "live-recording")]
+            Self::LiveRecordingProgress { .. } => "live_recording_progress",
+            #[cfg(feature = "live-recording")]
+            Self::LiveRecordingStopped { .. } => "live_recording_stopped",
+            #[cfg(feature = "live-recording")]
+            Self::LiveRecordingFailed { .. } => "live_recording_failed",
         }
     }
 }

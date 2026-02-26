@@ -43,3 +43,11 @@ pub use crate::utils::platform::Platform;
 pub use crate::utils::retry::{RetryPolicy, is_http_error_retryable};
 pub use crate::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
 pub use crate::{Downloader, DownloaderBuilder};
+
+// Live stream recording types (if enabled)
+#[cfg(feature = "live-recording")]
+pub use crate::events::RecordingMethod;
+#[cfg(feature = "live-recording")]
+pub use crate::live::{
+    FfmpegLiveRecorder, HlsPlaylist, HlsSegment, HlsVariant, LiveRecorder, LiveRecordingBuilder, RecordingResult,
+};

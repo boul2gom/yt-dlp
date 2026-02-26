@@ -190,6 +190,30 @@ impl EventFilter {
     pub fn only_post_process() -> Self {
         Self::any_of(&["post_process_started", "post_process_completed", "post_process_failed"])
     }
+
+    /// Creates a filter for live recording events
+    #[cfg(feature = "live-recording")]
+    pub fn only_live() -> Self {
+        Self::any_of(&[
+            "live_recording_started",
+            "live_recording_progress",
+            "live_recording_stopped",
+            "live_recording_failed",
+        ])
+    }
+
+    /// Creates a filter for live recording events matching a specific video ID
+    #[cfg(feature = "live-recording")]
+    pub fn live_recording(video_id: impl Into<String>) -> Self {
+        let id = video_id.into();
+        Self::only_live().and_then(move |event| match event {
+            DownloadEvent::LiveRecordingStarted { video_id, .. }
+            | DownloadEvent::LiveRecordingProgress { video_id, .. }
+            | DownloadEvent::LiveRecordingStopped { video_id, .. }
+            | DownloadEvent::LiveRecordingFailed { video_id, .. } => video_id == &id,
+            _ => false,
+        })
+    }
 }
 
 impl Default for EventFilter {

@@ -87,6 +87,10 @@ src/
 │   └── selector.rs     #    VideoQuality, AudioQuality, StoryboardQuality enums
 ├── cache/              # 🔍 VideoCache, DownloadCache, PlaylistCache (feature-gated)
 │   └── backend/        #    Backend trait + implementations (memory/moka, json, redb, redis)
+├── live/               # 🔴 Live stream recording (feature: live-recording)
+│   ├── hls.rs          #    HLS manifest parsing via m3u8-rs
+│   ├── recording.rs    #    Reqwest-based HLS segment recorder (primary)
+│   └── ffmpeg_recording.rs  # FFmpeg-based recorder (fallback)
 ├── stats/              # 📊 StatisticsTracker, GlobalSnapshot (feature: statistics)
 └── utils/              # 🛠️ fs, http, platform, retry, validation, url_expiry, subtitle
 ```
@@ -460,16 +464,17 @@ MyNewEvent(u64, String),
 
 | Feature | Purpose | Dependencies |
 |---------|---------|-------------|
+| `hooks` | Rust event callbacks | None |
+| `webhooks` | HTTP event delivery | None |
+| `statistics` | Real-time analytics | None |
 | `cache-memory` *(default)* | In-memory Moka cache | `moka` |
 | `cache-json` | JSON file backend | None |
 | `cache-redb` | Embedded redb backend | `redb` |
 | `cache-redis` | Distributed Redis backend | `redis` |
-| `hooks` | Rust event callbacks | None |
-| `webhooks` | HTTP event delivery | None |
-| `statistics` | Real-time analytics | None |
-| `profiling` | Heap profiler | `dhat` |
+| `live-recording` | Live stream recording (HLS) | `m3u8-rs` |
 | `rustls` | TLS backend | `reqwest/rustls` |
 | `hickory-dns` | Async DNS resolver | `reqwest/hickory-dns` |
+| `profiling` | Heap profiler | `dhat` |
 
 ### ⚙️ `cache` cfg is emitted by `build.rs`
 

@@ -41,6 +41,10 @@ pub mod events;
 #[cfg(feature = "statistics")]
 pub mod stats;
 
+// Live stream recording
+#[cfg(feature = "live-recording")]
+pub mod live;
+
 // Convenience modules
 pub mod macros;
 pub mod prelude;
@@ -324,6 +328,41 @@ impl Downloader {
     /// ```
     pub fn download<'a>(&'a self, video: &'a Video, output: impl Into<PathBuf>) -> DownloadBuilder<'a> {
         DownloadBuilder::new(self, video, output)
+    }
+
+    /// Creates a live recording builder for recording a live stream.
+    ///
+    /// The video must be currently live (`is_currently_live() == true`).
+    /// Uses the reqwest engine by default; switch to FFmpeg via `.with_method()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The live stream video metadata.
+    /// * `output` - The output filename for the recording.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # use std::time::Duration;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
+    ///
+    /// let result = downloader.record_live(&video, "live.ts")
+    ///     .with_max_duration(Duration::from_secs(3600))
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "live-recording")]
+    pub fn record_live<'a>(&'a self, video: &'a Video, output: impl Into<PathBuf>) -> live::LiveRecordingBuilder<'a> {
+        live::LiveRecordingBuilder::new(self, video, output)
     }
 
     /// Creates a new YouTube fetcher, and installs the yt-dlp and ffmpeg binaries.

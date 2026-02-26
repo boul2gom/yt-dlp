@@ -45,7 +45,7 @@ jobs:
         run: cargo hack clippy --each-feature --exclude-all-features -- -D warnings
 
   build-tiered-cache:
-    name: 🦀 Setup and build (L1+L2, cache-memory + ${{ matrix.backend }}))
+    name: 🦀 Setup and build (L1+L2, cache-memory + ${{ matrix.backend }})
     runs-on: ubuntu-latest
     permissions:
       contents: read

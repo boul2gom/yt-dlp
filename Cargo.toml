@@ -39,6 +39,10 @@ pre-release-replacements = [
 [features]
 default = ["reqwest/default", "cache-memory"]
 
+hooks = []
+webhooks = []
+statistics = []
+
 # In-memory Moka cache backend (no persistence). Enable with features = ["cache-memory"].
 cache-memory = ["dep:moka"]
 # JSON file cache backend (human-readable, debug-oriented). Enable with features = ["cache-json"].
@@ -48,11 +52,12 @@ cache-redb = ["dep:redb"]
 # Redis cache backend (distributed/server). Enable with features = ["cache-redis"].
 cache-redis = ["dep:redis"]
 
+# Live stream recording via HLS (reqwest + ffmpeg fallback). Enable with features = ["live-recording"].
+live-recording = ["dep:m3u8-rs"]
+
 rustls = ["reqwest/rustls"]
 hickory-dns = ["reqwest/hickory-dns"]
-hooks = []
-webhooks = []
-statistics = []
+
 profiling = ["dep:dhat"]
 
 [dependencies]
@@ -84,6 +89,7 @@ derive_more = { version = "2.1.1", features = ["constructor", "display", "from",
 thiserror = "2.0.18"
 
 # Audio and video
+m3u8-rs = { version = "6.0.0", optional = true }
 mp4ameta = "0.13.0"
 id3 = "1.16.4"
 lofty = "0.23.2"

@@ -12,6 +12,8 @@ use serde_with::{DefaultOnNull, serde_as};
 use crate::model::caption::{AutomaticCaption, Subtitle};
 use crate::model::chapter::Chapter;
 use crate::model::format::{Format, FormatType};
+#[cfg(feature = "live-recording")]
+use crate::model::format::Protocol;
 use crate::model::heatmap::Heatmap;
 use crate::model::thumbnail::Thumbnail;
 
@@ -57,6 +59,9 @@ pub struct Video {
     pub release_timestamp: Option<i64>,
     /// Release year, if different from the upload year.
     pub release_year: Option<i64>,
+    #[cfg(feature = "live-recording")]
+    /// The number of concurrent viewers (live streams only).
+    pub concurrent_view_count: Option<i64>,
 
     /// The number of views the video has.
     pub view_count: Option<i64>,
@@ -338,6 +343,49 @@ impl Video {
                 format_type: FormatType::AudioVideo,
                 available_formats: self.formats.iter().map(|f| f.format_id.clone()).collect(),
             })
+    }
+
+    /// Returns whether the video is currently a live stream.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the video is currently being broadcast live.
+    #[cfg(feature = "live-recording")]
+    pub fn is_currently_live(&self) -> bool {
+        const STATUS: &str = "is_live";
+
+        self.is_live == Some(true) || self.live_status == STATUS
+    }
+
+    /// Returns whether the video is an upcoming/scheduled stream.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the video is scheduled but has not started yet.
+    #[cfg(feature = "live-recording")]
+    pub fn is_upcoming(&self) -> bool {
+        const STATUS: &str = "is_upcoming";
+
+        self.live_status == STATUS
+    }
+
+    /// Returns all formats using the HLS (m3u8) protocol.
+    ///
+    /// Live streams exclusively use HLS formats. Each format is a pre-muxed
+    /// audio+video stream at a specific quality level.
+    ///
+    /// # Returns
+    ///
+    /// A vector of references to HLS formats, sorted by total bitrate (ascending).
+    #[cfg(feature = "live-recording")]
+    pub fn live_formats(&self) -> Vec<&Format> {
+        let mut formats: Vec<&Format> = self
+            .formats
+            .iter()
+            .filter(|f| f.protocol == Protocol::M3U8Native)
+            .collect();
+        formats.sort_by(|a, b| a.rates_info.total_rate.partial_cmp(&b.rates_info.total_rate).unwrap_or(std::cmp::Ordering::Equal));
+        formats
     }
 }
 

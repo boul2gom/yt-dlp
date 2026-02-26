@@ -90,15 +90,16 @@ This library puts a lot of functionality behind optional features in order to op
 compile time for the most common use cases. The following features are
 available.
 
+- 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
+- 📡 **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
+- 📊 **`statistics`** - Enables real-time statistics and analytics on downloads and fetches. Exposes aggregate counters, averages, success rates, and a bounded history window.
 - ⚡ **`cache-memory`** (enabled by default) — In-memory Moka cache (pulls in `moka`). Fast TTL-based eviction; no persistence.
 - 🗃️ **`cache-json`** — JSON file-system backend. One `.json` file per entry.
 - 🗄️ **`cache-redb`** — Embedded [redb](https://github.com/cberner/redb) backend. Single-file, pure-Rust, ACID-compliant.
 - 🌐 **`cache-redis`** — Distributed [Redis](https://redis.io/) backend. Native TTL via `SETEX`.
+- 🔴 **`live-recording`** - Enables live stream recording via HLS segment fetching (reqwest) or FFmpeg fallback. Pulls in `m3u8-rs` for HLS manifest parsing.
 - 🔒 **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
-- 🪝 **`hooks`** - Enables Rust hooks and callbacks for download events. Allows registering async functions that will be called when events occur.
-- 📡 **`webhooks`** - Enables HTTP webhooks delivery for download events. Allows sending events to external HTTP endpoints with retry logic.
-- 📊 **`statistics`** - Enables real-time statistics and analytics on downloads and fetches. Exposes aggregate counters, averages, success rates, and a bounded history window.
 - 🌍 **`hickory-dns`** - Enables async DNS resolution via [Hickory DNS](https://github.com/hickory-dns/hickory-dns) (passes `reqwest/hickory-dns`). Replaces the default blocking system resolver with a fully async, pure-Rust resolver.
 
 ### 🗄️ Cache backends
@@ -2153,6 +2154,80 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Chapters are automatically converted to time ranges
 - Works with all video formats
 
+### 🔴 Live Stream Recording (Feature: `live-recording`)
+
+Record live streams using either the pure-Rust reqwest engine or FFmpeg as a fallback.
+Enable the feature in your `Cargo.toml`:
+
+```toml
+[dependencies]
+yt-dlp = { version = "2.1.0", features = ["live-recording"] }
+```
+
+#### 📥 Basic live recording (reqwest engine)
+
+```rust,ignore
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
+
+    // Record for 1 hour maximum
+    let result = downloader.record_live(&video, "live-recording.ts")
+        .with_max_duration(Duration::from_secs(3600))
+        .execute()
+        .await?;
+
+    println!("Recorded {} bytes in {:.1}s", result.total_bytes, result.total_duration.as_secs_f64());
+    Ok(())
+}
+```
+
+#### 🎬 FFmpeg fallback engine
+
+```rust,ignore
+use yt_dlp::Downloader;
+use yt_dlp::events::RecordingMethod;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
+
+    let result = downloader.record_live(&video, "live-recording.ts")
+        .with_method(RecordingMethod::Ffmpeg)
+        .with_max_duration(Duration::from_secs(600))
+        .execute()
+        .await?;
+
+    Ok(())
+}
+```
+
+**Implementation details:**
+- **Reqwest engine** (default): Pure-Rust HLS segment fetcher. Polls the media playlist, downloads new segments, and writes them sequentially. Zero-copy `bytes::Bytes`, progress events throttled at 50 ms.
+- **FFmpeg engine** (fallback): Spawns `ffmpeg -i <url> -c copy <output>`. Stops gracefully via stdin `q`. Useful for encrypted streams or complex HLS features.
+- Recording stops on cancellation token, `#EXT-X-ENDLIST`, or max duration.
+- Live events: `LiveRecordingStarted`, `LiveRecordingProgress`, `LiveRecordingStopped`, `LiveRecordingFailed`.
+
 ### 🎨 Post-Processing Options
 
 Apply advanced post-processing to videos using FFmpeg:
@@ -2580,10 +2655,15 @@ See [PROFILING.md](PROFILING.md) for detailed micro-benchmarks.
 
 ## 💡Features coming soon
 - [ ] Live streams serving, through a local server
-- [ ] Live streams recording, with `ffmpeg` or `reqwest`
+- [x] Live streams recording, with `ffmpeg` or `reqwest`
 - [x] Statistics and analytics on downloads and fetches
 - [x] Benchmark pure yt-dlp vs this library performance (`examples/compare.rs`)
 - [x] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
+- [ ] Clip extraction (download a specific time range)
+- [ ] Bandwidth throttling (limit download speed)
+- [ ] Chapter-based splitting (split video into chapter files)
+- [ ] Download queue persistence (resume queue across restarts)
+- [ ] SponsorBlock integration (skip/mark sponsor segments)
 
 ---
 

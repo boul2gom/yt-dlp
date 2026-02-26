@@ -25,4 +25,5 @@ fn main() {
     if persistent_count > 1 {
         println!("cargo::rustc-cfg=multiple_persistent_backends");
     }
+
 }

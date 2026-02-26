@@ -41,6 +41,10 @@ src/
 │   └── selector.rs     # VideoQuality, AudioQuality, StoryboardQuality, ThumbnailQuality enums
 ├── cache/              # VideoCache, DownloadCache, PlaylistCache (feature-gated)
 │   └── backend/        # Backend trait abstractions + implementations (memory/moka, json, redb, redis)
+├── live/               # Live stream recording (feature: live-recording)
+│   ├── hls.rs          # HLS manifest parsing via m3u8-rs
+│   ├── recording.rs    # LiveRecorder — reqwest-based HLS segment recorder (primary)
+│   └── ffmpeg_recording.rs  # FfmpegLiveRecorder — FFmpeg-based recorder (fallback)
 ├── stats/              # StatisticsTracker, GlobalSnapshot (feature: statistics)
 └── utils/              # fs, http, platform, retry, validation, url_expiry, subtitle
 ```
@@ -249,11 +253,12 @@ Feature Flags & Conditional Compilation
 
 Features in `Cargo.toml`:
 - `default = ["reqwest/default", "cache-memory"]`
-- **Cache hierarchy**: `cache-memory` (Moka in-memory), `cache-json` (JSON files), `cache-redb` (embedded redb), `cache-redis` (distributed Redis). The `cache` cfg is emitted by `build.rs` when any of these is enabled.
 - `hooks`, `webhooks`, `statistics` — zero-dependency feature flags.
-- `profiling` — optional `dhat` heap profiler.
+- **Cache hierarchy**: `cache-memory` (Moka in-memory), `cache-json` (JSON files), `cache-redb` (embedded redb), `cache-redis` (distributed Redis). The `cache` cfg is emitted by `build.rs` when any of these is enabled.
+- `live-recording` — live stream recording via HLS (pulls `m3u8-rs`).
 - `rustls` — optional TLS backend.
 - `hickory-dns` — optional async DNS resolver (passes `reqwest/hickory-dns`).
+- `profiling` — optional `dhat` heap profiler.
 
 Cache backend selection via `build.rs`:
 - Emits `cache` when any cache backend (`cache-memory`, `cache-json`, `cache-redb`, `cache-redis`) is enabled.
@@ -266,6 +271,7 @@ Usage patterns:
 - `#[cfg(feature = "cache-json")]` — backend-specific module declarations and imports.
 - `#[cfg(has_persistent_cache)]` — guard for any persistent backend code.
 - `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
+- `#[cfg(feature = "live-recording")]` — live recording module, error variants, event variants, executor streaming.
 
 HTTP Client Configuration
 

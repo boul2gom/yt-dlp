@@ -52,6 +52,9 @@ pub use bus::EventBus;
 pub use filters::EventFilter;
 pub use types::{DownloadEvent, MetadataType, PostProcessOperation};
 
+#[cfg(feature = "live-recording")]
+pub use types::RecordingMethod;
+
 #[cfg(feature = "hooks")]
 mod hooks;
 

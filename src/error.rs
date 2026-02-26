@@ -201,6 +201,26 @@ pub enum Error {
     #[error("Download {download_id} was cancelled")]
     DownloadCancelled { download_id: u64 },
 
+    // ==================== Live Stream Errors ====================
+    /// The video is not currently a live stream.
+    #[cfg(feature = "live-recording")]
+    #[error("Video at {url} is not live (status={live_status}): {reason}")]
+    LiveStreamUnavailable {
+        url: String,
+        live_status: String,
+        reason: String,
+    },
+
+    /// Failed to parse an HLS manifest.
+    #[cfg(feature = "live-recording")]
+    #[error("HLS parsing failed for {url}: {context}")]
+    HlsParsing { url: String, context: String },
+
+    /// A live recording operation failed.
+    #[cfg(feature = "live-recording")]
+    #[error("Live recording failed for {url}: {reason}")]
+    LiveRecording { url: String, reason: String },
+
     // ==================== Generic Errors ====================
     /// An unexpected error occurred that doesn't fit other categories.
     ///
@@ -506,6 +526,78 @@ impl Error {
 
         Self::DownloadFailed {
             download_id,
+            reason: reason_str,
+        }
+    }
+
+    /// Create a live stream unavailable error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the video
+    /// * `live_status` - The current live status of the video
+    /// * `reason` - Why the stream is not available
+    ///
+    /// # Returns
+    ///
+    /// An Error::LiveStreamUnavailable variant with the provided details
+    #[cfg(feature = "live-recording")]
+    pub fn live_unavailable(url: impl Into<String>, live_status: impl Into<String>, reason: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let live_status_str = live_status.into();
+        let reason_str = reason.into();
+
+        tracing::warn!(url = url_str, live_status = live_status_str, reason = reason_str, "📡 Live stream unavailable");
+
+        Self::LiveStreamUnavailable {
+            url: url_str,
+            live_status: live_status_str,
+            reason: reason_str,
+        }
+    }
+
+    /// Create an HLS parsing error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the manifest that failed to parse
+    /// * `context` - Description of the parsing failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::HlsParsing variant with the provided details
+    #[cfg(feature = "live-recording")]
+    pub fn hls_parsing(url: impl Into<String>, context: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let context_str = context.into();
+
+        tracing::warn!(url = url_str, context = context_str, "📡 HLS parsing failed");
+
+        Self::HlsParsing {
+            url: url_str,
+            context: context_str,
+        }
+    }
+
+    /// Create a live recording error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the live stream
+    /// * `reason` - Why the recording failed
+    ///
+    /// # Returns
+    ///
+    /// An Error::LiveRecording variant with the provided details
+    #[cfg(feature = "live-recording")]
+    pub fn live_recording(url: impl Into<String>, reason: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let reason_str = reason.into();
+
+        tracing::error!(url = url_str, reason = reason_str, "📥 Live recording failed");
+
+        Self::LiveRecording {
+            url: url_str,
             reason: reason_str,
         }
     }

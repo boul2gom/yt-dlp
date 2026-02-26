@@ -1,6 +1,7 @@
 //! Command execution module.
 //!
-//! This module provides tools for executing commands with timeout support.
+//! This module provides tools for executing commands with timeout support,
+//! and long-running streaming processes controllable via cancellation tokens.
 
 pub mod ffmpeg;
 pub mod process;
@@ -203,5 +204,112 @@ impl Executor {
         }
 
         result
+    }
+
+    /// Spawns the command as a long-running process without timeout.
+    ///
+    /// Returns a [`StreamingProcess`] handle that can be stopped gracefully
+    /// via stdin `q` (for FFmpeg) or killed. Intended for live recording.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the process could not be spawned.
+    #[cfg(feature = "live-recording")]
+    pub async fn execute_streaming(&self) -> Result<StreamingProcess> {
+        tracing::debug!(
+            executable = ?self.executable_path,
+            arg_count = self.args.len(),
+            "📥 Spawning long-running streaming process"
+        );
+
+        let mut command = tokio::process::Command::new(&self.executable_path);
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+
+        command.args(&self.args);
+
+        let child = command.spawn()?;
+
+        tracing::debug!(
+            executable = ?self.executable_path,
+            pid = ?child.id(),
+            "✅ Streaming process spawned"
+        );
+
+        Ok(StreamingProcess { child })
+    }
+}
+
+/// A long-running child process controllable via stdin or kill.
+///
+/// Used for FFmpeg-based live recording where the process runs indefinitely
+/// until explicitly stopped.
+#[cfg(feature = "live-recording")]
+pub struct StreamingProcess {
+    child: tokio::process::Child,
+}
+
+#[cfg(feature = "live-recording")]
+impl StreamingProcess {
+    /// Sends `q` to stdin to trigger a graceful FFmpeg quit, then waits for exit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing to stdin or waiting fails.
+    pub async fn stop(&mut self) -> Result<ProcessOutput> {
+        tracing::info!("📥 Stopping streaming process gracefully (stdin q)");
+
+        if let Some(stdin) = self.child.stdin.as_mut() {
+            use tokio::io::AsyncWriteExt;
+            // Ignore write errors (process may have already exited)
+            let _ = stdin.write_all(b"q").await;
+            let _ = stdin.flush().await;
+        }
+
+        self.wait().await
+    }
+
+    /// Forcefully kills the process.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the kill signal cannot be sent.
+    pub async fn kill(&mut self) -> Result<()> {
+        tracing::warn!("📥 Killing streaming process");
+        self.child.kill().await?;
+        Ok(())
+    }
+
+    /// Waits for the process to exit and collects output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if waiting for the process fails.
+    pub async fn wait(&mut self) -> Result<ProcessOutput> {
+        // Read stderr before waiting (stdout may be large for recordings)
+        let mut stderr_buf = String::new();
+        if let Some(stderr) = self.child.stderr.take() {
+            use tokio::io::AsyncReadExt;
+            let mut reader = tokio::io::BufReader::new(stderr);
+            let _ = reader.read_to_string(&mut stderr_buf).await;
+        }
+
+        let status = self.child.wait().await?;
+        let code = status.code().unwrap_or(-1);
+
+        tracing::debug!(
+            exit_code = code,
+            stderr_len = stderr_buf.len(),
+            "📥 Streaming process exited"
+        );
+
+        Ok(ProcessOutput { stdout: String::new(), stderr: stderr_buf, code })
     }
 }

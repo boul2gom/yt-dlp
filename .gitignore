@@ -8,6 +8,8 @@ libs/
 temp/
 
 example.json
+example-live.json
+AUDIT.md
 REPORT.md
 
 # Profiling artefacts
