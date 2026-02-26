@@ -1844,7 +1844,11 @@ impl Downloader {
     /// let downloader = downloader
     ///     .download_and_continue(&video, "output.mp4")
     ///     .await?
-    ///     .postprocess_video("output.mp4", "output_processed.mp4", PostProcessConfig::new())
+    ///     .postprocess_video(
+    ///         "output.mp4",
+    ///         "output_processed.mp4",
+    ///         PostProcessConfig::new(),
+    ///     )
     ///     .await?;
     /// # Ok(())
     /// # }
