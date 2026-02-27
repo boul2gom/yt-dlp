@@ -201,6 +201,10 @@ pub enum Error {
     #[error("Download {download_id} was cancelled")]
     DownloadCancelled { download_id: u64 },
 
+    /// A partial download range is invalid or the container format does not support seeking.
+    #[error("Invalid partial range: {reason}")]
+    InvalidPartialRange { reason: String },
+
     // ==================== Live Stream Errors ====================
     /// The video is not currently a live stream.
     #[cfg(feature = "live-recording")]
@@ -509,6 +513,21 @@ impl Error {
         }
     }
 
+    /// Create an invalid partial range error.
+    ///
+    /// # Arguments
+    ///
+    /// * `reason` - Description of why the partial range is invalid
+    ///
+    /// # Returns
+    ///
+    /// An Error::InvalidPartialRange variant with the provided reason
+    pub fn invalid_partial_range(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        tracing::warn!(reason = %reason, "⚙️ Invalid partial range");
+        Self::InvalidPartialRange { reason }
+    }
+
     /// Create a download failed error.
     ///
     /// # Arguments
@@ -705,6 +724,19 @@ impl From<redis::RedisError> for Error {
         Self::Redis {
             operation: "Redis operation".to_string(),
             source: err,
+        }
+    }
+}
+
+impl From<media_seek::Error> for Error {
+    fn from(err: media_seek::Error) -> Self {
+        tracing::warn!(
+            error = %err,
+            "⚙️ media-seek error (automatic conversion)"
+        );
+
+        Self::InvalidPartialRange {
+            reason: err.to_string(),
         }
     }
 }

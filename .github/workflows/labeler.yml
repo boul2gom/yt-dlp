@@ -60,7 +60,7 @@ jobs:
               return acc;
             }, {
               'cache': '🔍', 'download': '📥', 'events': '🔔',
-              'extractor': '📡', 'metadata': '🏷️',
+              'extractor': '📡', 'metadata': '🏷️', 'media-seek': '⚙️',
             });
 
             const label_config = {
@@ -69,6 +69,7 @@ jobs:
               'events':          { color: 'fbca04', description: 'Changes to hooks, webhooks, or event bus' },
               'extractor':       { color: 'd93f0b', description: 'Changes to video extractors' },
               'metadata':        { color: 'c5def5', description: 'Changes to metadata processing' },
+              'media-seek':      { color: '7b68ee', description: 'Changes to the media-seek container parsing crate' },
               'breaking_change': { color: 'b60205', description: 'PR introduces breaking API changes' },
               'performance':     { color: '006b75', description: 'Performance improvements or benchmarks' },
               'refactor':        { color: 'a2eeef', description: 'Code restructuring without behavior changes' },
@@ -103,11 +104,12 @@ jobs:
 
               // Module labels — matched against src/ subdirectories
               const module_map = {
-                'cache':     /^src\/cache\//,
-                'download':  /^src\/download\//,
-                'events':    /^src\/events\//,
-                'extractor': /^src\/extractor\//,
-                'metadata':  /^src\/metadata\//,
+                'cache':      /^src\/cache\//,
+                'download':   /^src\/download\//,
+                'events':     /^src\/events\//,
+                'extractor':  /^src\/extractor\//,
+                'metadata':   /^src\/metadata\//,
+                'media-seek': /^crates\/media-seek\//,
               };
 
               for (const [label, pattern] of Object.entries(module_map)) {

@@ -68,8 +68,8 @@ impl PartialRange {
         tracing::debug!(start = start, end = end, "⚙️ Creating time range for partial download");
 
         if start < 0.0 || start >= end {
-            return Err(Error::Unknown(format!(
-                "Invalid time range: start={start} must be non-negative and less than end={end}"
+            return Err(Error::invalid_partial_range(format!(
+                "start={start} must be non-negative and less than end={end}"
             )));
         }
         Ok(Self::TimeRange { start, end })
@@ -97,8 +97,8 @@ impl PartialRange {
         );
 
         if start > end {
-            return Err(Error::Unknown(format!(
-                "Invalid chapter range: start={start} must be <= end={end}"
+            return Err(Error::invalid_partial_range(format!(
+                "chapter start={start} must be <= end={end}"
             )));
         }
         Ok(Self::ChapterRange { start, end })

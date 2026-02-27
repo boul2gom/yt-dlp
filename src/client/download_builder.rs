@@ -2,12 +2,16 @@
 //!
 //! This module provides a builder pattern for configuring and executing downloads.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use media_seek::RangeFetcher;
+use tokio::io::AsyncWriteExt;
 
 use crate::client::Downloader;
 use crate::client::streams::selection::VideoSelection;
 use crate::download::partial::PartialRange;
+use crate::download::range_fetcher::HttpRangeFetcher;
 use crate::download::{DownloadPriority, DownloadStatus};
 use crate::error::Result;
 use crate::model::Video;
@@ -312,6 +316,124 @@ impl<'a> DownloadBuilder<'a> {
             .as_ref()
             .ok_or_else(|| Self::format_no_url(&self.video.id, &audio_format.format_id))?;
 
+        // Attempt media-seek partial download before falling back to a full fetch.
+        if let Some(range) = self.partial_range.as_ref() {
+            let time_range = if range.needs_chapter_metadata() {
+                range
+                    .to_time_range(&self.video.chapters)
+                    .ok_or_else(|| crate::error::Error::invalid_partial_range("chapter index out of bounds"))?
+            } else {
+                range.clone()
+            };
+
+            if let Some((start_secs, end_secs)) = time_range.get_times() {
+                let video_total_size = video_format
+                    .file_info
+                    .filesize
+                    .or(video_format.file_info.filesize_approx)
+                    .filter(|&n| n > 0)
+                    .map(|n| n as u64);
+                let audio_total_size = audio_format
+                    .file_info
+                    .filesize
+                    .or(audio_format.file_info.filesize_approx)
+                    .filter(|&n| n > 0)
+                    .map(|n| n as u64);
+
+                let video_clip_filename = format!(
+                    "clip_video_{}.{}",
+                    crate::utils::fs::random_filename(8),
+                    video_format.download_info.ext.as_str()
+                );
+                let video_clip_path = self.downloader.output_dir.join(&video_clip_filename);
+
+                let audio_clip_filename = format!(
+                    "clip_audio_{}.{}",
+                    crate::utils::fs::random_filename(8),
+                    audio_format.download_info.ext.as_str()
+                );
+                let audio_clip_path = self.downloader.output_dir.join(&audio_clip_filename);
+
+                let video_result = clip_stream(
+                    self.downloader,
+                    video_url,
+                    &video_format.download_info.http_headers,
+                    video_total_size,
+                    start_secs,
+                    end_secs,
+                    &video_clip_path,
+                )
+                .await;
+
+                match video_result {
+                    Ok(()) => {
+                        let audio_result = clip_stream(
+                            self.downloader,
+                            audio_url,
+                            &audio_format.download_info.http_headers,
+                            audio_total_size,
+                            start_secs,
+                            end_secs,
+                            &audio_clip_path,
+                        )
+                        .await;
+
+                        match audio_result {
+                            Ok(()) => {
+                                tracing::info!(
+                                    start_secs,
+                                    end_secs,
+                                    "✅ media-seek partial download succeeded, combining streams"
+                                );
+
+                                let output_path = if self.output.is_absolute() {
+                                    self.output.clone()
+                                } else {
+                                    self.downloader.output_dir.join(&self.output)
+                                };
+
+                                let combined_path = self
+                                    .downloader
+                                    .combine_audio_and_video_to_path(&audio_clip_path, &video_clip_path, &output_path)
+                                    .await?;
+
+                                // Precision trim: media-seek returns keyframe-aligned boundaries;
+                                // FFmpeg -c copy sharpens to the exact requested timestamps.
+                                let trimmed_name = format!(
+                                    "trimmed_{}.{}",
+                                    crate::utils::fs::random_filename(8),
+                                    combined_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4")
+                                );
+                                let trimmed_path = self.downloader.output_dir.join(&trimmed_name);
+
+                                self.downloader
+                                    .extract_time_range(&combined_path, &trimmed_path, start_secs, end_secs)
+                                    .await?;
+
+                                tokio::fs::rename(&trimmed_path, &combined_path).await.map_err(|e| {
+                                    crate::error::Error::io_with_path("renaming trimmed output", &combined_path, e)
+                                })?;
+
+                                return Ok(combined_path);
+                            }
+                            Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
+                                tracing::warn!(
+                                    "media-seek audio clip unavailable for this format, falling back to full download"
+                                );
+                            }
+                            Err(e) => return Err(e.into()),
+                        }
+                    }
+                    Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
+                        tracing::warn!(
+                            "media-seek video clip unavailable for this format, falling back to full download"
+                        );
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+
         // Create output paths
         let video_path = self.downloader.output_dir.join(&video_filename);
         let audio_path = self.downloader.output_dir.join(&audio_filename);
@@ -413,11 +535,10 @@ impl<'a> DownloadBuilder<'a> {
                 );
 
                 // Both downloads completed successfully, combine them
-                if self.output.is_absolute() {
-                    // Use the absolute path directly, bypassing output_dir
+                let combined_path = if self.output.is_absolute() {
                     self.downloader
                         .combine_audio_and_video_to_path(&audio_path, &video_path, &self.output)
-                        .await
+                        .await?
                 } else {
                     let output_str = self
                         .output
@@ -428,8 +549,39 @@ impl<'a> DownloadBuilder<'a> {
                         })?;
                     self.downloader
                         .combine_audio_and_video(&audio_filename, &video_filename, output_str)
+                        .await?
+                };
+
+                // Apply exact trim when a partial range was requested
+                if let Some(range) = self.partial_range {
+                    let time_range = if range.needs_chapter_metadata() {
+                        range
+                            .to_time_range(&self.video.chapters)
+                            .ok_or_else(|| crate::error::Error::invalid_partial_range("chapter index out of bounds"))?
+                    } else {
+                        range
+                    };
+                    let (start_secs, end_secs) = time_range.get_times().ok_or_else(|| {
+                        crate::error::Error::invalid_partial_range("could not resolve time boundaries for trim")
+                    })?;
+
+                    let trimmed_name = format!(
+                        "trimmed_{}.{}",
+                        crate::utils::fs::random_filename(8),
+                        combined_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4")
+                    );
+                    let trimmed_path = self.downloader.output_dir.join(&trimmed_name);
+
+                    self.downloader
+                        .extract_time_range(&combined_path, &trimmed_path, start_secs, end_secs)
+                        .await?;
+
+                    tokio::fs::rename(&trimmed_path, &combined_path)
                         .await
+                        .map_err(|e| crate::error::Error::io_with_path("renaming trimmed output", &combined_path, e))?;
                 }
+
+                Ok(combined_path)
             }
             (Some(DownloadStatus::Failed { reason }), _) => Err(crate::error::Error::download_failed(
                 video_download_id,
@@ -787,4 +939,135 @@ impl<'a> DownloadBuilder<'a> {
             format_id: format_id.to_string(),
         }
     }
+}
+
+/// Downloads only the bytes covering `[start_secs, end_secs]` from `url` using `media_seek`.
+///
+/// Uses `media_seek` to parse the container index and resolve timestamps to byte offsets.
+/// The init segment is fetched with a single request (typically a few KB). The clip data is
+/// routed through `DownloadManager.enqueue_range` so it benefits from parallel segments,
+/// speed profiles, retry logic, and progress tracking. Both are concatenated to `output`.
+///
+/// The caller should follow up with an FFmpeg `-c copy` trim pass to sharpen
+/// keyframe-aligned boundaries to the exact requested timestamps.
+///
+/// Returns `Err(media_seek::Error::UnsupportedFormat)` or `Err(media_seek::Error::ParseFailed)`
+/// when the container format cannot be seeked via byte ranges — callers should fall back to a
+/// full download in those cases. `Err(media_seek::Error::FetchFailed)` indicates an
+/// unrecoverable I/O or network failure.
+///
+/// # Arguments
+///
+/// * `downloader` - The downloader instance, used for the shared HTTP client and download manager.
+/// * `url` - The stream URL to fetch from.
+/// * `http_headers` - Format-specific HTTP headers (e.g. signed CDN cookies) sent on every request.
+/// * `total_size` - Total byte length of the stream, used by `media_seek` for bisection-based formats.
+/// * `start_secs` - Start of the requested clip in seconds.
+/// * `end_secs` - End of the requested clip in seconds.
+/// * `output` - Destination path where the init + clip bytes are written.
+///
+/// # Errors
+///
+/// Returns `media_seek::Error::UnsupportedFormat` or `ParseFailed` for unsupported containers.
+/// Returns `media_seek::Error::FetchFailed` on network or I/O failures.
+async fn clip_stream(
+    downloader: &Downloader,
+    url: &str,
+    http_headers: &crate::model::format::HttpHeaders,
+    total_size: Option<u64>,
+    start_secs: f64,
+    end_secs: f64,
+    output: &Path,
+) -> std::result::Result<(), media_seek::Error> {
+    // 1. Probe (512 KB) + parse container index
+    let headers = http_headers.to_header_map();
+    let rf = HttpRangeFetcher::new(Arc::clone(downloader.download_manager.client()), url, headers);
+
+    const PROBE_SIZE: u64 = 512 * 1024;
+    let probe = rf
+        .fetch(0, PROBE_SIZE - 1)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    let index = media_seek::parse(&probe, total_size, &rf).await?;
+
+    let (content_start, content_end) =
+        index
+            .find_byte_range(start_secs, end_secs)
+            .ok_or_else(|| media_seek::Error::ParseFailed {
+                reason: "time range not covered by container index".into(),
+            })?;
+
+    tracing::debug!(
+        start_secs,
+        end_secs,
+        init_end = index.init_end_byte,
+        content_start,
+        content_end,
+        "⚙️ media-seek byte range resolved"
+    );
+
+    // 2. Init segment — single request (typically < 100 KB)
+    let init_bytes = rf
+        .fetch(0, index.init_end_byte)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    // 3. Clip data — routed through DownloadManager (parallel segments, retry, progress)
+    let clip_tmp = output.with_file_name(format!("clip_tmp_{}.bin", crate::utils::fs::random_filename(8)));
+
+    let clip_id = downloader
+        .download_manager
+        .enqueue_range(
+            url,
+            &clip_tmp,
+            content_start,
+            content_end,
+            None,
+            Some(http_headers.clone()),
+        )
+        .await;
+
+    match downloader.download_manager.wait_for_completion(clip_id).await {
+        Some(DownloadStatus::Completed) => {}
+        Some(DownloadStatus::Failed { reason }) => {
+            return Err(media_seek::Error::FetchFailed(Box::new(std::io::Error::other(
+                format!("clip segment download failed: {reason}"),
+            ))));
+        }
+        _ => {
+            return Err(media_seek::Error::FetchFailed(Box::new(std::io::Error::other(
+                "clip segment download did not complete",
+            ))));
+        }
+    }
+
+    // 4. Concatenate: init_bytes + clip_tmp → output
+    let mut out_file = tokio::fs::File::create(output)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    out_file
+        .write_all(&init_bytes)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    let mut clip_file = tokio::fs::File::open(&clip_tmp)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    tokio::io::copy(&mut clip_file, &mut out_file)
+        .await
+        .map_err(|e| media_seek::Error::FetchFailed(Box::new(e)))?;
+
+    drop(clip_file);
+    tokio::fs::remove_file(&clip_tmp).await.ok();
+
+    tracing::debug!(
+        init_bytes = init_bytes.len(),
+        clip_bytes = content_end - content_start + 1,
+        "✅ media-seek clip stream written via DownloadManager"
+    );
+
+    Ok(())
 }

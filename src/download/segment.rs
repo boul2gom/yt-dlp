@@ -5,21 +5,29 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tokio::sync::Mutex;
-
 /// Context for segment download operations
 ///
 /// Provides shared state for parallel segment downloads including file handle,
 /// progress tracking, and callback notification
 pub struct SegmentContext {
-    /// Shared file handle for writing segments
-    pub file: Arc<Mutex<tokio::fs::File>>,
+    /// Shared file handle for positional (lock-free) segment writes.
+    pub file: Arc<std::fs::File>,
     /// Atomic counter for total downloaded bytes across all segments
     pub downloaded_bytes: Arc<AtomicU64>,
     /// Optional callback for progress notifications
     pub progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     /// Total size of the file in bytes
     pub total_bytes: u64,
+    /// Byte offset subtracted from URL-absolute segment positions to obtain file-write positions.
+    ///
+    /// For regular full-file downloads this is `0`. For range downloads it equals `byte_start`
+    /// so that segment data is always written from offset 0 in the destination file.
+    pub file_offset_base: u64,
+    /// Whether this download is resuming a partial file.
+    ///
+    /// When `false`, `is_segment_downloaded` checks are skipped — the file is freshly
+    /// created and cannot have any pre-existing segment data.
+    pub is_resuming: bool,
 }
 
 impl std::fmt::Debug for SegmentContext {
@@ -56,7 +64,7 @@ impl SegmentContext {
     ///
     /// A new SegmentContext instance
     pub fn new(
-        file: Arc<Mutex<tokio::fs::File>>,
+        file: Arc<std::fs::File>,
         total_bytes: u64,
         progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Self {
@@ -71,6 +79,8 @@ impl SegmentContext {
             downloaded_bytes: Arc::new(AtomicU64::new(0)),
             progress_callback,
             total_bytes,
+            file_offset_base: 0,
+            is_resuming: false,
         }
     }
 

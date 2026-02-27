@@ -1533,6 +1533,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "media-seek"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3785,6 +3794,7 @@ dependencies = [
  "lazy_static",
  "lofty",
  "m3u8-rs",
+ "media-seek",
  "moka",
  "mp4ameta",
  "ordered-float",

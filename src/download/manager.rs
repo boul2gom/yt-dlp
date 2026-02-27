@@ -85,6 +85,9 @@ struct DownloadTask {
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     /// Optional HTTP headers from yt-dlp to use for the download
     http_headers: Option<crate::model::format::HttpHeaders>,
+    /// Optional byte sub-range to download: only `[start, end]` bytes are fetched and
+    /// written from offset 0 in the destination file.
+    range_constraint: Option<(u64, u64)>,
 }
 
 impl std::fmt::Debug for DownloadTask {
@@ -94,6 +97,7 @@ impl std::fmt::Debug for DownloadTask {
             .field("destination", &self.destination)
             .field("priority", &self.priority)
             .field("id", &self.id)
+            .field("range_constraint", &self.range_constraint)
             .field(
                 "progress_callback",
                 &format_args!(
@@ -334,6 +338,11 @@ impl DownloadManager {
         self.config.retry_attempts
     }
 
+    /// Returns the speed profile configured for this download manager.
+    pub fn speed_profile(&self) -> SpeedProfile {
+        self.config.speed_profile
+    }
+
     /// Create a new download manager with default configuration
     pub fn new() -> Self {
         tracing::debug!("⚙️ Creating download manager with default config");
@@ -443,6 +452,7 @@ impl DownloadManager {
             priority.unwrap_or(DownloadPriority::Normal),
             None,
             None,
+            None,
         )
         .await
     }
@@ -472,6 +482,7 @@ impl DownloadManager {
             priority.unwrap_or(DownloadPriority::Normal),
             None,
             http_headers,
+            None,
         )
         .await
     }
@@ -504,6 +515,7 @@ impl DownloadManager {
             priority.unwrap_or(DownloadPriority::Normal),
             Some(Arc::new(progress_callback)),
             None,
+            None,
         )
         .await
     }
@@ -526,6 +538,45 @@ impl DownloadManager {
             priority.unwrap_or(DownloadPriority::Normal),
             Some(Arc::new(progress_callback)),
             http_headers,
+            None,
+        )
+        .await
+    }
+
+    /// Enqueues a partial download covering only `[byte_start, byte_end]` of the URL.
+    ///
+    /// The destination file will contain exactly `byte_end - byte_start + 1` bytes,
+    /// downloaded in parallel segments using the manager's speed profile and retry policy.
+    /// Progress events are emitted on the broadcast channel and the event bus as usual.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - URL to download from.
+    /// * `destination` - Output file path.
+    /// * `byte_start` - First byte to download (URL-absolute, inclusive).
+    /// * `byte_end` - Last byte to download (URL-absolute, inclusive).
+    /// * `priority` - Queue priority (default: Normal).
+    /// * `http_headers` - Optional format-specific HTTP headers.
+    ///
+    /// # Returns
+    ///
+    /// The download ID, usable with [`wait_for_completion`] and [`progress_stream`].
+    pub async fn enqueue_range(
+        &self,
+        url: impl AsRef<str>,
+        destination: impl Into<PathBuf>,
+        byte_start: u64,
+        byte_end: u64,
+        priority: Option<DownloadPriority>,
+        http_headers: Option<HttpHeaders>,
+    ) -> u64 {
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            priority.unwrap_or(DownloadPriority::Normal),
+            None,
+            http_headers,
+            Some((byte_start, byte_end)),
         )
         .await
     }
@@ -807,6 +858,7 @@ impl DownloadManager {
         priority: DownloadPriority,
         progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
         http_headers: Option<crate::model::format::HttpHeaders>,
+        range_constraint: Option<(u64, u64)>,
     ) -> u64 {
         let mut id_guard = self.next_id.lock().await;
         let id = *id_guard;
@@ -820,6 +872,7 @@ impl DownloadManager {
             id,
             progress_callback,
             http_headers,
+            range_constraint,
         };
 
         tracing::debug!(id = id, url = url, destination = ?destination, priority = ?priority, "📥 Enqueuing download");
@@ -1025,11 +1078,17 @@ fn prepare_task_fetcher(
         Fetcher::new(&task.url, config.proxy.as_ref(), headers)?
     };
 
-    Ok(fetcher
+    let mut fetcher = fetcher
         .with_segment_size(config.segment_size)
         .with_parallel_segments(config.parallel_segments)
         .with_retry_attempts(config.retry_attempts)
-        .with_speed_profile(config.speed_profile))
+        .with_speed_profile(config.speed_profile);
+
+    if let Some((start, end)) = task.range_constraint {
+        fetcher = fetcher.with_range(start, end);
+    }
+
+    Ok(fetcher)
 }
 
 // Minimum interval between progress event emissions (50ms)

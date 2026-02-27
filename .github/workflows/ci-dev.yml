@@ -42,7 +42,7 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
 
       - name: 🦀 Clippy (each feature in isolation)
-        run: cargo hack clippy --each-feature --exclude-all-features -- -D warnings
+        run: cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
 
   build-tiered-cache:
     name: 🦀 Setup and build (L1+L2, cache-memory + ${{ matrix.backend }})
@@ -68,7 +68,7 @@ jobs:
           components: clippy
 
       - name: 🦀 Clippy (cache-memory + ${{ matrix.backend }})
-        run: cargo clippy --features cache-memory,${{ matrix.backend }} -- -D warnings
+        run: cargo clippy --workspace --features cache-memory,${{ matrix.backend }} -- -D warnings
 
   check-format:
     name: 💄 Check formatting
@@ -90,15 +90,6 @@ jobs:
       - name: 💄 Check formatting
         run: cargo +nightly fmt --all -- --check
 
-      - name: 🧹 Check trailing blank lines
-        run: |
-          bad=$(find src examples benches -name '*.rs' -exec sh -c 'tail -c 2 "$1" | xxd -p | grep -q "0a0a" && echo "$1"' _ {} \;)
-          if [ -n "$bad" ]; then
-            echo "Files with trailing blank lines:"
-            echo "$bad"
-            exit 1
-          fi
-
   doc-tests:
     name: 📚 Test docs
     needs: [build-each-feature, build-tiered-cache]
@@ -119,7 +110,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: 📚 Run doc tests
-        run: cargo test --doc
+        run: cargo test --doc --workspace
 
   check-spell:
     name: 📝 Check spelling
@@ -171,6 +162,14 @@ jobs:
       - name: 🧹 Unused dependencies
         run: cargo machete
 
-      - name: 🚀 Check Semver compatibility
+      - name: 🚀 Check Semver compatibility (yt-dlp)
         continue-on-error: true
         uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        with:
+          package: yt-dlp
+
+      - name: 🚀 Check Semver compatibility (media-seek)
+        continue-on-error: true
+        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        with:
+          package: media-seek

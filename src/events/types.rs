@@ -253,6 +253,8 @@ pub enum PostProcessOperation {
     EmbedThumbnail { thumbnail_path: PathBuf },
     /// Custom FFmpeg operation
     Custom { description: String },
+    /// Splitting a video into individual chapter files
+    SplitChapters { source_path: PathBuf, chapter_count: usize },
 }
 
 impl fmt::Display for PostProcessOperation {
@@ -265,6 +267,7 @@ impl fmt::Display for PostProcessOperation {
             Self::EmbedSubtitles { .. } => f.write_str("EmbedSubtitles"),
             Self::EmbedThumbnail { .. } => f.write_str("EmbedThumbnail"),
             Self::Custom { description } => write!(f, "Custom(description={})", description),
+            Self::SplitChapters { chapter_count, .. } => write!(f, "SplitChapters(chapters={})", chapter_count),
         }
     }
 }

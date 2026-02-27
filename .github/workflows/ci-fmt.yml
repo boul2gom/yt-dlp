@@ -48,7 +48,7 @@ jobs:
 
       - name: 🧹 Remove trailing blank lines
         run: |
-          find src examples benches -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
+          find src crates examples benches -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
 
       - name: 🔐 Import GPG Key and setup Git
         uses: crazy-max/ghaction-import-gpg@v6.3.0

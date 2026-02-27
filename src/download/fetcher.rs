@@ -8,13 +8,17 @@
 
 use std::cmp::min;
 use std::fmt;
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{StreamExt, stream};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use crate::client::proxy::ProxyConfig;
@@ -53,6 +57,11 @@ pub struct Fetcher {
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     /// Speed profile for optimizing download parameters
     speed_profile: SpeedProfile,
+    /// Optional byte-range constraint: only download `[start, end]` from the URL.
+    ///
+    /// When set, [`fetch_asset`] delegates to [`fetch_asset_range`] and writes the
+    /// sub-range from offset 0 in the destination file.
+    range_constraint: Option<(u64, u64)>,
 }
 
 impl fmt::Debug for Fetcher {
@@ -63,6 +72,7 @@ impl fmt::Debug for Fetcher {
             .field("segment_size", &self.segment_size)
             .field("retry_attempts", &self.retry_attempts)
             .field("speed_profile", &self.speed_profile)
+            .field("range_constraint", &self.range_constraint)
             .field("has_callback", &self.progress_callback.is_some())
             .finish()
     }
@@ -72,9 +82,33 @@ impl fmt::Display for Fetcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Fetcher(url={}, segments={}, profile={})",
-            self.url, self.parallel_segments, self.speed_profile
+            "Fetcher(url={}, segments={}, profile={}, range={:?})",
+            self.url, self.parallel_segments, self.speed_profile, self.range_constraint
         )
+    }
+}
+
+/// RAII guard that removes the `.parts` tracking file on drop unless `commit()` is called.
+struct PartsGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl PartsGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+
+    fn commit(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for PartsGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -138,6 +172,7 @@ impl Fetcher {
             client,
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
+            range_constraint: None,
         }
     }
 
@@ -204,6 +239,21 @@ impl Fetcher {
     /// * `profile` - The speed profile to use
     pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
         self.speed_profile = profile;
+        self
+    }
+
+    /// Constrains the download to `[start, end]` bytes of the URL.
+    ///
+    /// When set, [`fetch_asset`] downloads only those bytes and writes them
+    /// starting from offset 0 in the destination file. HTTP requests still use
+    /// absolute `Range: bytes=start-end` headers against the URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - First byte to download (URL-absolute, inclusive).
+    /// * `end` - Last byte to download (URL-absolute, inclusive).
+    pub fn with_range(mut self, start: u64, end: u64) -> Self {
+        self.range_constraint = Some((start, end));
         self
     }
 
@@ -278,6 +328,11 @@ impl Fetcher {
     pub async fn fetch_asset(&self, destination: impl Into<PathBuf>) -> Result<()> {
         let destination: PathBuf = destination.into();
 
+        // Delegate to range variant when a byte constraint is configured
+        if let Some((start, end)) = self.range_constraint {
+            return self.fetch_asset_range(destination, start, end).await;
+        }
+
         tracing::debug!(
             url = %self.url,
             destination = ?destination,
@@ -326,55 +381,148 @@ impl Fetcher {
             return Ok(());
         }
 
-        let file = self.open_download_file(&destination, file_size, content_length).await?;
+        let file = Arc::new(self.open_download_file(&destination, file_size, content_length).await?);
 
-        // Create a mutex to share the file between tasks
-        let file = Arc::new(Mutex::new(file));
+        let segment_size = self.segment_size as u64;
+        let ranges: Vec<(u64, u64)> = (0..content_length.div_ceil(segment_size))
+            .map(|i| {
+                let start = i * segment_size;
+                let end = min(start + segment_size - 1, content_length - 1);
+                (start, end)
+            })
+            .collect();
 
-        // Calculate the optimal number of parallel segments based on file size
-        let optimal_segments = self.calculate_optimal_segments(content_length);
+        self.run_parallel_segments(file, file_exists, ranges, 0, content_length, &destination)
+            .await
+    }
+
+    /// Downloads only `[byte_start, byte_end]` from the URL and writes them from offset 0
+    /// in `destination`.
+    ///
+    /// Skips the `probe_range_support` call — range support is assumed to be confirmed by
+    /// the caller (e.g. `media_seek` already validated it during container parsing).
+    /// The file is pre-allocated to `byte_end - byte_start + 1` bytes and segments are
+    /// downloaded in parallel using the same machinery as [`fetch_asset`].
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - Path where the sub-range bytes are written (starting at offset 0).
+    /// * `byte_start` - First byte to download (URL-absolute, inclusive).
+    /// * `byte_end` - Last byte to download (URL-absolute, inclusive).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a segment download fails after all retry attempts or if the
+    /// destination file cannot be created.
+    pub(crate) async fn fetch_asset_range(
+        &self,
+        destination: impl Into<PathBuf>,
+        byte_start: u64,
+        byte_end: u64,
+    ) -> Result<()> {
+        let destination: PathBuf = destination.into();
+        let range_len = byte_end - byte_start + 1;
+
+        tracing::debug!(
+            url = %self.url,
+            destination = ?destination,
+            byte_start,
+            byte_end,
+            range_len,
+            parallel_segments = self.parallel_segments,
+            segment_size = self.segment_size,
+            "📥 Fetching asset range to file"
+        );
+
+        fs::create_parent_dir(&destination).await?;
+        if let Some(parent) = destination.parent()
+            && !parent.exists()
+        {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Check for an existing partial download of this range
+        let file_exists = destination.as_path().exists();
+        let file_size = if file_exists {
+            tokio::fs::metadata(&destination).await.ok().map(|m| m.len())
+        } else {
+            None
+        };
+
+        // If the file already has the exact expected size, the range was already downloaded
+        if file_size.is_some_and(|size| size == range_len) {
+            tracing::debug!(
+                destination = ?destination,
+                size = range_len,
+                "✅ Range already downloaded with correct size, skipping"
+            );
+            return Ok(());
+        }
+
+        let file = Arc::new(self.open_download_file(&destination, file_size, range_len).await?);
+
+        // Segments use URL-absolute offsets; file writes are remapped via file_offset_base
+        let segment_size = self.segment_size as u64;
+        let ranges: Vec<(u64, u64)> = (0..range_len.div_ceil(segment_size))
+            .map(|i| {
+                let seg_start = byte_start + i * segment_size;
+                let seg_end = min(seg_start + segment_size - 1, byte_end);
+                (seg_start, seg_end)
+            })
+            .collect();
+
+        self.run_parallel_segments(file, file_exists, ranges, byte_start, range_len, &destination)
+            .await?;
+
+        tracing::debug!(
+            byte_start,
+            byte_end,
+            destination = ?destination,
+            "✅ Asset range downloaded"
+        );
+
+        Ok(())
+    }
+
+    /// Runs the shared parallel segment download pipeline.
+    ///
+    /// Handles `.parts` progress tracking, resume detection, segment filtering,
+    /// concurrent downloading, progress callback, and cleanup. Both [`fetch_asset`]
+    /// and [`fetch_asset_range`] delegate to this method after computing their
+    /// respective byte ranges and file handles.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - Pre-allocated destination file.
+    /// * `file_exists` - Whether the file existed before this download (enables resume detection).
+    /// * `ranges` - Byte ranges to download (URL-absolute, inclusive `[start, end]` pairs).
+    /// * `file_offset_base` - Subtracted from each range's start to get the file-local write offset.
+    /// * `total_bytes` - Total byte count expected for the download (used for progress callbacks).
+    /// * `destination` - Destination path (used to derive the `.parts` tracking file path).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any segment fails after all retry attempts.
+    async fn run_parallel_segments(
+        &self,
+        file: Arc<std::fs::File>,
+        file_exists: bool,
+        ranges: Vec<(u64, u64)>,
+        file_offset_base: u64,
+        total_bytes: u64,
+        destination: &Path,
+    ) -> Result<()> {
+        let optimal_segments = self.calculate_optimal_segments(total_bytes);
         let parallel_segments = min(self.parallel_segments, optimal_segments);
 
         tracing::debug!(
-            parallel_segments = parallel_segments,
+            parallel_segments,
             segment_size = self.segment_size,
-            total_size = content_length,
-            optimal_segments = optimal_segments,
+            total_bytes,
+            optimal_segments,
             "⚙️ Calculated parallel download segments"
         );
 
-        // Calculate ranges for each segment
-        let segment_size = self.segment_size as u64;
-        let mut ranges = Vec::new();
-
-        for i in 0..content_length.div_ceil(segment_size) {
-            let start = i * segment_size;
-            let end = min(start + segment_size - 1, content_length - 1);
-            ranges.push((start, end));
-        }
-
-        // RAII guard: removes the .parts tracking file if an error occurs
-        struct PartsGuard {
-            path: PathBuf,
-            keep: bool,
-        }
-        impl PartsGuard {
-            fn new(path: PathBuf) -> Self {
-                Self { path, keep: false }
-            }
-            fn commit(&mut self) {
-                self.keep = true;
-            }
-        }
-        impl Drop for PartsGuard {
-            fn drop(&mut self) {
-                if !self.keep {
-                    let _ = std::fs::remove_file(&self.path);
-                }
-            }
-        }
-
-        // Create a temporary file to track downloaded segments
         let temp_file_path = format!("{}.parts", destination.display());
         let mut parts_guard = PartsGuard::new(PathBuf::from(&temp_file_path));
         let downloaded_segments = if file_exists && Path::new(&temp_file_path).exists() {
@@ -383,7 +531,6 @@ impl Fetcher {
             vec![false; ranges.len()]
         };
 
-        // Filter out already downloaded segments
         let ranges_to_download: Vec<(usize, (u64, u64))> = ranges
             .iter()
             .enumerate()
@@ -397,12 +544,9 @@ impl Fetcher {
             "🔄 Resuming download"
         );
 
-        // Limit the number of parallel tasks
         let parallel_count = min(parallel_segments, ranges_to_download.len());
 
-        // Create an atomic counter to track progress
         let downloaded_bytes = Arc::new(AtomicU64::new(
-            // Start with the sum of already downloaded segments
             downloaded_segments
                 .iter()
                 .enumerate()
@@ -413,13 +557,10 @@ impl Fetcher {
                 })
                 .sum(),
         ));
-        let total_bytes = content_length;
 
-        // Create a temporary file to track downloaded segments
         let temp_file_path_clone = temp_file_path.clone();
         let downloaded_segments = Arc::new(Mutex::new(downloaded_segments));
 
-        // Download segments in parallel with retry
         let results = stream::iter(ranges_to_download)
             .map(|(segment_index, (start, end))| {
                 let context = SegmentContext {
@@ -427,6 +568,8 @@ impl Fetcher {
                     downloaded_bytes: Arc::clone(&downloaded_bytes),
                     progress_callback: self.progress_callback.as_ref().map(Arc::clone),
                     total_bytes,
+                    file_offset_base,
+                    is_resuming: file_exists,
                 };
                 let downloaded_segments = Arc::clone(&downloaded_segments);
                 let temp_file_path = temp_file_path_clone.clone();
@@ -444,22 +587,17 @@ impl Fetcher {
                 }
             })
             .buffer_unordered(parallel_count)
-            .collect::<Vec<Result<()>>>();
+            .collect::<Vec<Result<()>>>()
+            .await;
 
-        // Wait for all downloads to complete
-        let results = results.await;
-
-        // Check if there were any errors
         for result in results {
             result?;
         }
 
-        // Call the callback one last time to indicate that the download is complete
         if let Some(callback) = &self.progress_callback {
             callback(total_bytes, total_bytes);
         }
 
-        // Remove the temporary file
         parts_guard.commit();
         fs::remove_temp_file(temp_file_path).await;
 
@@ -513,12 +651,15 @@ impl Fetcher {
     }
 
     /// Opens an existing file for resume or creates a new one, pre-allocated to the target size.
+    ///
+    /// Returns a `std::fs::File` so that parallel segments can perform lock-free positional
+    /// writes via `write_all_at` (Unix) / `seek_write` (Windows) without holding a Mutex.
     async fn open_download_file(
         &self,
         destination: &Path,
         file_size: Option<u64>,
         content_length: u64,
-    ) -> Result<tokio::fs::File> {
+    ) -> Result<std::fs::File> {
         if let Some(existing_size) = file_size {
             tracing::debug!(
                 destination = ?destination,
@@ -534,7 +675,7 @@ impl Fetcher {
                 .await?;
 
             file.set_len(content_length).await?;
-            Ok(file)
+            Ok(file.into_std().await)
         } else {
             tracing::debug!(
                 destination = ?destination,
@@ -545,7 +686,7 @@ impl Fetcher {
             fs::create_parent_dir(destination).await?;
             let file = fs::create_file(destination).await?;
             file.set_len(content_length).await?;
-            Ok(file)
+            Ok(file.into_std().await)
         }
     }
 
@@ -615,25 +756,44 @@ impl Fetcher {
     }
 
     /// Checks whether a segment range has already been downloaded by probing start and end bytes.
-    async fn is_segment_downloaded(file: &Mutex<tokio::fs::File>, start: u64, end: u64) -> Result<Option<bool>> {
-        let mut file_guard = file.lock().await;
+    ///
+    /// Uses positional reads (`read_at` / `seek_read`) via `spawn_blocking` so no lock is held.
+    /// Returns `None` when the start has data but the end does not (partial segment — re-download).
+    async fn is_segment_downloaded(
+        file: Arc<std::fs::File>,
+        start: u64,
+        end: u64,
+        file_offset_base: u64,
+    ) -> Result<Option<bool>> {
+        let local_start = start - file_offset_base;
+        let buf_len = SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize);
 
-        file_guard.seek(std::io::SeekFrom::Start(start)).await?;
-        let mut start_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize)];
-        let start_read = file_guard.read(&mut start_buffer).await?;
-        let start_has_data = start_read > 0 && start_buffer.iter().any(|&b| b != 0);
+        let file_a = Arc::clone(&file);
+        let start_has_data = tokio::task::spawn_blocking(move || -> std::io::Result<bool> {
+            let mut buf = [0u8; SEGMENT_CHECK_BUFFER_SIZE];
+            #[cfg(unix)]
+            let n = file_a.read_at(&mut buf[..buf_len], local_start)?;
+            #[cfg(windows)]
+            let n = file_a.seek_read(&mut buf[..buf_len], local_start)?;
+            Ok(n > 0 && buf[..n].iter().any(|&b| b != 0))
+        })
+        .await??;
 
         if !start_has_data {
             return Ok(Some(false));
         }
 
         let end_has_data = if (end - start + 1) > SEGMENT_CHECK_BUFFER_SIZE as u64 {
-            let seek_pos = end.saturating_sub(SEGMENT_CHECK_BUFFER_SIZE as u64 - 1);
-            file_guard.seek(std::io::SeekFrom::Start(seek_pos)).await?;
-
-            let mut end_buffer = vec![0; SEGMENT_CHECK_BUFFER_SIZE];
-            let end_read = file_guard.read(&mut end_buffer).await?;
-            end_read > 0 && end_buffer.iter().any(|&b| b != 0)
+            let seek_pos = (end - file_offset_base).saturating_sub(SEGMENT_CHECK_BUFFER_SIZE as u64 - 1);
+            tokio::task::spawn_blocking(move || -> std::io::Result<bool> {
+                let mut buf = [0u8; SEGMENT_CHECK_BUFFER_SIZE];
+                #[cfg(unix)]
+                let n = file.read_at(&mut buf, seek_pos)?;
+                #[cfg(windows)]
+                let n = file.seek_read(&mut buf, seek_pos)?;
+                Ok(n > 0 && buf[..n].iter().any(|&b| b != 0))
+            })
+            .await??
         } else {
             true
         };
@@ -643,33 +803,40 @@ impl Fetcher {
     }
 
     /// Downloads a specific segment of the file.
+    ///
+    /// File write position is derived from `start - context.file_offset_base`. For regular
+    /// downloads `file_offset_base` is `0`; for range downloads it is the first byte of the
+    /// range so the segment is always written from byte 0 in the destination file.
+    ///
+    /// Writes are performed via positional I/O (`write_all_at` / `seek_write`) inside
+    /// `spawn_blocking`, so multiple segments can write concurrently without holding a lock.
     async fn download_segment(&self, url: &str, start: u64, end: u64, context: &SegmentContext) -> Result<()> {
         let client = Arc::clone(&self.client);
 
-        // Check if the segment is already downloaded
-        match Self::is_segment_downloaded(&context.file, start, end).await? {
-            Some(true) => {
-                tracing::debug!(
-                    segment_start = start,
-                    segment_end = end,
-                    "✅ Segment already downloaded (verified), skipping"
-                );
-                return Ok(());
+        // Only check for existing data when resuming a partial download
+        if context.is_resuming {
+            match Self::is_segment_downloaded(Arc::clone(&context.file), start, end, context.file_offset_base).await? {
+                Some(true) => {
+                    tracing::debug!(
+                        segment_start = start,
+                        segment_end = end,
+                        "✅ Segment already downloaded (verified), skipping"
+                    );
+                    return Ok(());
+                }
+                None => {
+                    tracing::warn!(
+                        segment_start = start,
+                        segment_end = end,
+                        "🔄 Segment has data at start but not at end, re-downloading"
+                    );
+                }
+                Some(false) => {}
             }
-            None => {
-                tracing::warn!(
-                    segment_start = start,
-                    segment_end = end,
-                    "🔄 Segment has data at start but not at end, re-downloading"
-                );
-            }
-            Some(false) => {}
         }
 
-        // Create the Range header
         let range_header = format!("bytes={}-{}", start, end);
 
-        // Make the request with the Range header using retry logic
         let url_clone = url.to_string();
         let range_clone = range_header.clone();
 
@@ -683,34 +850,46 @@ impl Fetcher {
                         .await?
                         .error_for_status()?;
 
-                    let mut current_offset = start;
+                    // file_offset_base translates the URL-absolute offset to a file-local offset
+                    let mut current_offset = start - context.file_offset_base;
                     let mut chunk_stream = response.bytes_stream();
 
-                    // We write chunk by chunk, keeping the memory footprint low.
+                    // Write each chunk at its absolute file position — no seek, no lock.
                     while let Some(chunk_result) = chunk_stream.next().await {
                         let chunk = chunk_result?;
+                        let chunk_len = chunk.len() as u64;
+                        let offset = current_offset;
+                        let file = Arc::clone(&context.file);
 
-                        let mut file_guard = context.file.lock().await;
-                        file_guard.seek(std::io::SeekFrom::Start(current_offset)).await?;
-                        file_guard.write_all(&chunk).await?;
+                        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                            #[cfg(unix)]
+                            file.write_all_at(&chunk, offset)?;
+                            #[cfg(windows)]
+                            {
+                                let mut written = 0usize;
+                                while written < chunk.len() {
+                                    let n = file.seek_write(&chunk[written..], offset + written as u64)?;
+                                    if n == 0 {
+                                        return Err(std::io::Error::new(
+                                            std::io::ErrorKind::WriteZero,
+                                            "seek_write returned 0",
+                                        ));
+                                    }
+                                    written += n;
+                                }
+                            }
+                            Ok(())
+                        })
+                        .await??;
 
-                        current_offset += chunk.len() as u64;
+                        current_offset += chunk_len;
 
-                        // Update the progress counter WITHOUT holding the file lock
-                        let new_total = context
-                            .downloaded_bytes
-                            .fetch_add(chunk.len() as u64, Ordering::Relaxed)
-                            + chunk.len() as u64;
+                        let new_total = context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
 
-                        // Call the progress callback if available
                         if let Some(callback) = &context.progress_callback {
                             callback(new_total, context.total_bytes);
                         }
                     }
-
-                    // Flush after the segment is totally downloaded
-                    let mut file_guard = context.file.lock().await;
-                    file_guard.flush().await?;
 
                     Ok(())
                 },

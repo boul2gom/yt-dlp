@@ -17,7 +17,25 @@ Key Principles
 
 Project Architecture
 
-The codebase follows a strict module hierarchy:
+The workspace contains two crates:
+
+```
+Desktop/yt-dlp/
+├── Cargo.toml               ← workspace manifest ([workspace] + [package] for yt-dlp)
+├── src/                     ← yt-dlp crate source
+└── crates/
+    └── media-seek/          ← standalone container index parsing crate
+        ├── Cargo.toml
+        └── src/
+            ├── lib.rs       — RangeFetcher trait + parse() dispatch
+            ├── error.rs     — Error enum + Result<T> alias
+            ├── detect.rs    — magic-byte format detection
+            ├── index.rs     — ContainerIndex, SegmentEntry, Inner
+            ├── audio/       — mp3, ogg, flac, pcm (wav+aiff), adts
+            └── video/       — mp4, webm, flv, avi, ts
+```
+
+The `yt-dlp` crate source follows a strict module hierarchy:
 
 ```
 src/
@@ -394,14 +412,28 @@ Defined in `src/macros.rs` and `src/events/hooks.rs`:
 
 All macros use `$crate::` fully-qualified paths for robustness. Local `use` inside `macro_rules!` is the only exception to the top-level import rule.
 
+media-seek Conventions
+
+`crates/media-seek/` is a standalone crate with its own `Cargo.toml`. It is pure parsing — no `async_trait`, no `serde`, no `reqwest`.
+
+- All tracing follows the same rules as `yt-dlp` above (⚙️ for internal/utility, ✅ for success, structured fields, fully-qualified macros).
+- Error constructors in `error.rs` embed tracing (same pattern as `yt-dlp`): `parse()` logs `warn!`, `fetch()` logs `warn!`.
+- `Result<T>` alias defined in `error.rs` and re-exported from `lib.rs` as `pub use error::{Error, Result}`.
+- Parser modules live under `src/audio/` (mp3, ogg, flac, pcm, adts) and `src/video/` (mp4, webm, flv, avi, ts). Each is `pub(crate)`.
+- `RangeFetcher` trait uses RPITIT (not `#[async_trait]`) because dispatch is via concrete type, never `dyn`.
+- No feature flags in `media-seek`. All formats are always compiled in.
+
 Verification
 
 All edits must pass these checks:
 ```bash
-cargo hack clippy --each-feature --exclude-all-features -- -D warnings
-cargo clippy --features cache-memory,cache-json -- -D warnings
-cargo clippy --features cache-memory,cache-redb -- -D warnings
-cargo clippy --features cache-memory,cache-redis -- -D warnings
-cargo test --doc
+# Default-feature check: covers both yt-dlp and media-seek (cold cache)
+cargo clippy --workspace -- -D warnings
+
+# yt-dlp feature-combination lint (media-seek has no features, already covered above)
+cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
+cargo test --doc --workspace
 cargo deny check
 ```

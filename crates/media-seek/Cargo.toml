@@ -1,0 +1,34 @@
+[package]
+name = "media-seek"
+edition = "2024"
+version = "0.1.0"
+
+authors = ["boul2gom <contact@boul2gom.fr>"]
+description = "🔍 Container format index parsing and timestamp-to-byte-offset seeking for streaming media"
+
+license = "GPL-3.0-only"
+readme = "README.md"
+documentation = "https://docs.rs/media-seek"
+homepage = "https://github.com/boul2gom/yt-dlp/tree/develop/crates/media-seek"
+repository = "https://github.com/boul2gom/yt-dlp/tree/develop/crates/media-seek"
+
+categories = ["multimedia", "multimedia::audio", "multimedia::video", "parser-implementations"]
+keywords = ["media", "seek", "mp4", "webm", "container"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
+
+[package.metadata.release]
+tag-message = "🔖 media-seek v{{version}}"
+pre-release-commit-message = "🔖 media-seek v{{version}}"
+pre-release-replacements = [
+  # Update media-seek version in the yt-dlp root README
+  {file="../../README.md", search='media-seek = "[\d.]+"', replace='media-seek = "{{version}}"', min=1},
+  # Update media-seek version in this crate's own README
+  {file="README.md", search='media-seek = "[\d.]+"', replace='media-seek = "{{version}}"', min=1},
+]
+
+[dependencies]
+thiserror = "2.0.18"
+tracing = "0.1.44"
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }

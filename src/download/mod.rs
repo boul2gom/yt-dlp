@@ -8,6 +8,7 @@ pub mod manager;
 pub mod partial;
 pub mod postprocess;
 pub mod progress;
+pub mod range_fetcher;
 pub mod segment;
 pub mod speed_profile;
 

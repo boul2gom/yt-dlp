@@ -19,6 +19,7 @@ Thank you for your interest in contributing! This guide will help you understand
 - [🎯 Feature Flags](#-feature-flags)
 - [📝 Tracing & Logging](#-tracing--logging)
 - [📖 Documentation](#-documentation)
+- [🔍 Contributing to media-seek](#-contributing-to-media-seek)
 - [✅ Verification Checklist](#-verification-checklist)
 
 ---
@@ -35,16 +36,19 @@ Thank you for your interest in contributing! This guide will help you understand
 
 Every PR must pass these commands:
 ```bash
-# Lint each feature in isolation
-cargo hack clippy --each-feature --exclude-all-features -- -D warnings
+# media-seek standalone lint
+cargo clippy -p media-seek -- -D warnings
+
+# Lint each feature in isolation (workspace-wide, covers both crates)
+cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
 
 # Lint tiered cache combinations (L1 Moka + L2 persistent)
-cargo clippy --features cache-memory,cache-json -- -D warnings
-cargo clippy --features cache-memory,cache-redb -- -D warnings
-cargo clippy --features cache-memory,cache-redis -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
 
-# Run all doc-tests
-cargo test --doc
+# Run all doc-tests (workspace-wide)
+cargo test --doc --workspace
 
 # Check dependencies (licenses, advisories, bans)
 cargo deny check
@@ -61,7 +65,25 @@ cargo deny check
 
 ## 🏗️ Project Architecture
 
-The codebase follows a strict module hierarchy. Understanding it is essential before making changes:
+The codebase is a Cargo workspace with two crates. Understanding the layout is essential before making changes:
+
+```
+yt-dlp/
+├── Cargo.toml               ← workspace manifest ([workspace] + [package])
+├── src/                     ← yt-dlp crate source
+└── crates/
+    └── media-seek/          ← standalone container index parsing crate
+        ├── Cargo.toml
+        └── src/
+            ├── lib.rs       — RangeFetcher trait + parse() dispatch
+            ├── error.rs     — Error enum + Result<T> alias
+            ├── detect.rs    — magic-byte format detection
+            ├── index.rs     — ContainerIndex, SegmentEntry, Inner
+            ├── audio/       — mp3, ogg, flac, pcm (wav+aiff), adts
+            └── video/       — mp4, webm, flv, avi, ts
+```
+
+The `yt-dlp` crate module hierarchy:
 
 ```
 src/
@@ -668,15 +690,66 @@ All macros must use `$crate::` fully-qualified paths for robustness. The `use` i
 
 ---
 
+## 🔍 Contributing to media-seek
+
+`crates/media-seek/` is a standalone crate published independently to [crates.io](https://crates.io/crates/media-seek). Changes to it follow the same code conventions as the main crate, with a few important constraints.
+
+### Constraints
+
+| Rule | Detail |
+|------|--------|
+| **No feature flags** | All formats are always compiled in — no conditional compilation inside `media-seek` |
+| **No `reqwest`** | The crate is transport-agnostic. Callers implement `RangeFetcher`. |
+| **No `serde`** | No serialization — pure parsing only |
+| **No `async_trait`** | `RangeFetcher` uses RPITIT (`impl Future + Send`), not `#[async_trait]` |
+
+### Where to make changes
+
+| Change | Location |
+|--------|---------|
+| Audio format parser | `crates/media-seek/src/audio/` (`mp3.rs`, `ogg.rs`, `flac.rs`, `pcm.rs`, `adts.rs`) |
+| Video format parser | `crates/media-seek/src/video/` (`mp4.rs`, `webm.rs`, `flv.rs`, `avi.rs`, `ts.rs`) |
+| Format detection | `crates/media-seek/src/detect.rs` |
+| Index data types | `crates/media-seek/src/index.rs` |
+| Error handling | `crates/media-seek/src/error.rs` |
+| Public API | `crates/media-seek/src/lib.rs` |
+
+### Tracing conventions
+
+Every `pub(crate) fn parse()` / `pub(crate) async fn parse()` must have entry and success tracing:
+
+```rust
+// At function start:
+tracing::debug!(probe_len = probe.len(), "⚙️ Parsing <Format> stream");
+
+// Just before each successful return:
+tracing::debug!(segments = result.len(), "✅ <Format> index parsed");
+```
+
+Use `⚙️` for internal operations and `✅` for success — same as the main crate. No emoji on `warn!` or `error!`.
+
+### Checking your changes
+
+```bash
+# media-seek standalone lint
+cargo clippy -p media-seek -- -D warnings
+
+# Doc-tests (both crates)
+cargo test --doc --workspace
+```
+
+---
+
 ## ✅ Verification Checklist
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo hack clippy --each-feature --exclude-all-features -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --features cache-memory,cache-json -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --features cache-memory,cache-redb -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --features cache-memory,cache-redis -- -D warnings` — zero warnings
-- [ ] 🧪 `cargo test --doc` — all doc-tests pass
+- [ ] 🔍 `cargo clippy -p media-seek -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings` — zero warnings
+- [ ] 🧪 `cargo test --doc --workspace` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 📝 All new public items have rustdoc following the template
 - [ ] 🎨 All tracing uses structured fields + emoji prefix

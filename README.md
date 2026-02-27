@@ -2046,79 +2046,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### ✂️ Partial Download
+### ✂️ Clip extraction & chapter splitting
 
-Download only specific parts of a video using time ranges or chapters:
+The library supports downloading a specific time range or a specific chapter from a video without fetching the whole file. Seeking is handled by [`media-seek`](crates/media-seek/README.md) — a pure Rust container index parser that translates timestamps into HTTP Range byte offsets.
 
-#### ⏱️ Time-based partial download
-
-- ⏱️ Downloading a specific time range:
-```rust,no_run
-use yt_dlp::Downloader;
-use yt_dlp::download::partial::PartialRange;
-use yt_dlp::client::deps::Libraries;
-use std::path::PathBuf;
-
-#[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let libraries_dir = PathBuf::from("libs");
-    let output_dir = PathBuf::from("output");
-
-    let libraries = Libraries::new(
-        libraries_dir.join("yt-dlp"),
-        libraries_dir.join("ffmpeg")
-    );
-    let downloader = Downloader::builder(libraries, output_dir).build().await?;
-
-    let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    let video = downloader.fetch_video_infos(url).await?;
-
-    // Download from 1:30 to 5:00 (90 to 300 seconds)
-    let range = PartialRange::time_range(90.0, 300.0)?;
-    downloader.download_video_partial(&video, &range, "partial.mp4").await?;
-
-    Ok(())
-}
-```
-
-#### 📖 Chapter-based partial download
-
-- 📖 Downloading specific chapters:
-```rust,no_run
-use yt_dlp::Downloader;
-use yt_dlp::download::partial::PartialRange;
-use yt_dlp::client::deps::Libraries;
-use std::path::PathBuf;
-
-#[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let libraries_dir = PathBuf::from("libs");
-    let output_dir = PathBuf::from("output");
-
-    let libraries = Libraries::new(
-        libraries_dir.join("yt-dlp"),
-        libraries_dir.join("ffmpeg")
-    );
-    let downloader = Downloader::builder(libraries, output_dir).build().await?;
-
-    let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
-    let video = downloader.fetch_video_infos(url).await?;
-
-    // Download a single chapter (0-based index)
-    let single_chapter = PartialRange::single_chapter(2);
-    downloader.download_video_partial(&video, &single_chapter, "chapter2.mp4").await?;
-
-    // Download chapters 2 through 5
-    let chapter_range = PartialRange::chapter_range(2, 5)?;
-    downloader.download_video_partial(&video, &chapter_range, "chapters2-5.mp4").await?;
-
-    Ok(())
-}
-```
-
-#### ✨ Using DownloadBuilder for partial downloads
-
-- ✨ Partial download with the fluent API:
+- ✂️ Downloading a specific time range (seconds):
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::Libraries;
@@ -2126,21 +2058,19 @@ use std::path::PathBuf;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let libraries_dir = PathBuf::from("libs");
-    let output_dir = PathBuf::from("output");
-
     let libraries = Libraries::new(
-        libraries_dir.join("yt-dlp"),
-        libraries_dir.join("ffmpeg")
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
     );
-    let downloader = Downloader::builder(libraries, output_dir).build().await?;
+    let downloader = Downloader::builder(libraries, "output").build().await?;
 
-    let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
     let video = downloader.fetch_video_infos(url).await?;
 
-    // Download with fluent API
-    downloader.download(&video, "partial.mp4")
-        .time_range(90.0, 300.0)?  // Download from 1:30 to 5:00
+    // Download seconds [60, 120] only — no re-encoding
+    let clip_path = downloader
+        .download(&video, "clip.mp4")
+        .time_range(60.0, 120.0)?
         .execute()
         .await?;
 
@@ -2148,11 +2078,63 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**Implementation details:**
-- Uses `yt-dlp`'s `--download-sections` feature as the primary method
-- Automatically falls back to FFmpeg extraction if `yt-dlp` fails
-- Chapters are automatically converted to time ranges
-- Works with all video formats
+- 📖 Downloading a specific chapter by index range:
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Download chapters 0 through 2 (inclusive)
+    let clip_path = downloader
+        .download(&video, "chapters.mp4")
+        .chapters(0, 2)?
+        .execute()
+        .await?;
+
+    Ok(())
+}
+```
+
+- 🔪 Splitting a downloaded video into one file per chapter:
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let url = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Download and split into one file per chapter — FFmpeg stream copy, no re-encoding
+    let chapter_files: Vec<PathBuf> = downloader
+        .split_by_chapters(&video, "output/chapters/")
+        .await?;
+
+    for path in &chapter_files {
+        println!("Chapter file: {}", path.display());
+    }
+
+    Ok(())
+}
+```
 
 ### 🔴 Live Stream Recording (Feature: `live-recording`)
 
@@ -2654,22 +2636,38 @@ See [PROFILING.md](PROFILING.md) for detailed micro-benchmarks.
 ---
 
 ## 💡Features coming soon
-- [ ] Live streams serving, through a local server
-- [x] Live streams recording, with `ffmpeg` or `reqwest`
-- [x] Statistics and analytics on downloads and fetches
-- [x] Benchmark pure yt-dlp vs this library performance (`examples/compare.rs`)
-- [x] Profiling with `flamegraph`, `samply`, `dhat-rs`, `heaptrack`
-- [ ] Clip extraction (download a specific time range)
+- [ ] Cargo profile configuration for optimized release builds
+- [ ] Use `rust-ffmpeg` as safe bindings instead of commands, and keep Command fallback as a feature flag
+- [ ] Full test suite, with fake server (due to anti-bot measures)
+- [x] Clip extraction (download a specific time range)
 - [ ] Bandwidth throttling (limit download speed)
-- [ ] Chapter-based splitting (split video into chapter files)
+- [x] Chapter-based splitting (split video into chapter files)
 - [ ] Download queue persistence (resume queue across restarts)
 - [ ] SponsorBlock integration (skip/mark sponsor segments)
+
+---
+
+## 🔍 The `media-seek` crate
+
+This library uses [`media-seek`](crates/media-seek/README.md), a standalone sub-crate published independently on crates.io, for container index parsing. When you use clip extraction or chapter range downloads, `media-seek` parses the stream header to find the exact byte offsets — no subprocess, no FFmpeg involved for the seek step.
+
+**Supported container formats**: MP4/M4A (fMP4 SIDX), WebM/MKV (EBML Cues), MP3 (Xing/VBRI TOC or CBR), OGG (granule bisection), FLAC (SEEKTABLE), WAV, AIFF, AAC/ADTS, FLV (AMF0 keyframes), AVI (`idx1`), MPEG-TS (PCR binary search).
+
+You can also use `media-seek` directly in your own project:
+
+```toml
+[dependencies]
+media-seek = "0.1.0"
+```
+
+See the [`media-seek` README](crates/media-seek/README.md) for the full API reference and usage examples.
 
 ---
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+Make sure to follow the [Contributing Guidelines](CONTRIBUTING.md).
 
 ## 📄 License
 

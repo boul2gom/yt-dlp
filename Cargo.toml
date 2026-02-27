@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/media-seek"]
+resolver = "2"
+
 [package]
 name = "yt-dlp"
 edition = "2024"
@@ -23,7 +27,7 @@ features = ["cache-memory", "cache-redb", "hooks", "webhooks", "statistics", "pr
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [workspace.metadata.release]
-shared-version = true
+shared-version = false
 tag-message = "🔖 v{{version}}"
 pre-release-commit-message = "🔖 v{{version}}"
 pre-release-replacements = [
@@ -62,6 +66,9 @@ profiling = ["dep:dhat"]
 
 [dependencies]
 # The `cargo-outdated` tool is used with: `cargo outdated --root-deps-only`
+
+# Workspace crates
+media-seek = { path = "crates/media-seek" }
 
 # Runtime and async
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "fs", "time", "process", "io-util"], default-features = false }
