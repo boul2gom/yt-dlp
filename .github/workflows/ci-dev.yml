@@ -167,9 +167,12 @@ jobs:
         uses: obi1kenobi/cargo-semver-checks-action@v2.8
         with:
           package: yt-dlp
+          feature-group: only-explicit-features
+          features: cache-memory,hooks,webhooks,statistics,live-recording,hickory-dns,rustls,profiling
 
       - name: 🚀 Check Semver compatibility (media-seek)
         continue-on-error: true
         uses: obi1kenobi/cargo-semver-checks-action@v2.8
         with:
           package: media-seek
+          feature-group: default-features
