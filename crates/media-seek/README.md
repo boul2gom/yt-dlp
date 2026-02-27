@@ -73,7 +73,7 @@ There is no HTTP client bundled and no subprocess spawned. Callers implement the
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-media-seek = "0.1.0"
+media-seek = "0.2.4"
 ```
 
 Check the [releases](https://github.com/boul2gom/yt-dlp/releases) page for the latest version.

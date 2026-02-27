@@ -1,7 +1,7 @@
 [package]
 name = "media-seek"
 edition = "2024"
-version = "0.1.0"
+version = "0.2.4"
 
 authors = ["boul2gom <contact@boul2gom.fr>"]
 description = "🔍 Container format index parsing and timestamp-to-byte-offset seeking for streaming media"
@@ -19,6 +19,7 @@ keywords = ["media", "seek", "mp4", "webm", "container"]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [package.metadata.release]
+tag-name = "ms-v{{version}}"
 tag-message = "🔖 media-seek v{{version}}"
 pre-release-commit-message = "🔖 media-seek v{{version}}"
 pre-release-replacements = [
@@ -31,4 +32,4 @@ pre-release-replacements = [
 [dependencies]
 thiserror = "2.0.18"
 tracing = "0.1.44"
-futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }

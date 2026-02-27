@@ -2,10 +2,16 @@
 members = [".", "crates/media-seek"]
 resolver = "2"
 
+[workspace.metadata.release]
+consolidate-commits = false
+shared-version = false
+sign-commit = true
+sign-tag = true
+
 [package]
 name = "yt-dlp"
 edition = "2024"
-version = "2.1.0"
+version = "2.2.0"
 
 authors = ["boul2gom <contact@boul2gom.fr>"]
 description = "🎬️ A Rust library (with auto dependencies installation) for Youtube downloading"
@@ -26,10 +32,11 @@ debug = true
 features = ["cache-memory", "cache-redb", "hooks", "webhooks", "statistics", "profiling"]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
-[workspace.metadata.release]
-shared-version = false
+[package.metadata.release]
+tag-name = "v{{version}}"
 tag-message = "🔖 v{{version}}"
 pre-release-commit-message = "🔖 v{{version}}"
+
 pre-release-replacements = [
   # Matches: yt-dlp = "x.y.z"
   {file="README.md", search='yt-dlp = "[\d.]+"', replace='yt-dlp = "{{version}}"', min=1},
@@ -68,7 +75,7 @@ profiling = ["dep:dhat"]
 # The `cargo-outdated` tool is used with: `cargo outdated --root-deps-only`
 
 # Workspace crates
-media-seek = { path = "crates/media-seek" }
+media-seek = { version = "0.2.4", path = "crates/media-seek" }
 
 # Runtime and async
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "fs", "time", "process", "io-util"], default-features = false }

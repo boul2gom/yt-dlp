@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "media-seek"
-version = "0.1.0"
+version = "0.2.4"
 dependencies = [
  "futures-util",
  "thiserror 2.0.18",
@@ -3777,7 +3777,7 @@ dependencies = [
 
 [[package]]
 name = "yt-dlp"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "async-trait",
  "cfg-if",

@@ -5,17 +5,21 @@ on:
     - cron: '0 0 * * 1'
   workflow_dispatch:
     inputs:
+      force_release:
+        description: 'Force the release even if no updates are found'
+        type: boolean
+        default: false
       target:
         description: 'Which crate(s) to release'
         required: false
         type: choice
         options:
           - both
-          - yt-dlp
           - media-seek
+          - yt-dlp
         default: 'both'
       release_type:
-        description: 'Version bump level for yt-dlp (auto = detect via semver-checks)'
+        description: 'Version bump level for yt-dlp (Ignored if target is "media-seek"). Auto = detect via semver-checks'
         required: false
         type: choice
         options:
@@ -25,7 +29,7 @@ on:
           - major
         default: 'auto'
       release_type_ms:
-        description: 'Version bump level for media-seek (auto = detect via semver-checks)'
+        description: 'Version bump level for media-seek (Ignored if target is "yt-dlp"). Auto = detect via semver-checks'
         required: false
         type: choice
         options:
@@ -46,6 +50,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      one_has: ${{ steps.check_commits.outputs.one_has }}
       has_updates: ${{ steps.check_commits.outputs.has_updates }}
       has_ms_updates: ${{ steps.check_commits.outputs.has_ms_updates }}
 
@@ -110,6 +115,7 @@ jobs:
 
             if (relevant_commits.length === 0) {
               console.log('✨ No unreleased updates found');
+              core.setOutput('one_has', 'false');
               core.setOutput('has_updates', 'false');
               core.setOutput('has_ms_updates', 'false');
               return;
@@ -149,7 +155,26 @@ jobs:
               if (has_updates && has_ms_updates) break;
             }
 
-            console.log(`🎯 yt-dlp updates: ${has_updates} | media-seek updates: ${has_ms_updates}`);
+            // Override with force_release input
+            if ('${{ github.event.inputs.force_release }}' === 'true') {
+              console.log('🚀 Force release enabled — overriding commit analysis results');
+              has_updates = true;
+              has_ms_updates = true;
+            }
+
+            // Apply target filter (ignored during cron jobs since target will be empty)
+            const target = '${{ github.event.inputs.target }}';
+            if (target === 'media-seek') {
+              console.log('🎯 Target is media-seek only — ignoring yt-dlp');
+              has_updates = false;
+            } else if (target === 'yt-dlp') {
+              console.log('🎯 Target is yt-dlp only — ignoring media-seek');
+              has_ms_updates = false;
+            }
+
+            console.log(`🎯 Final status -> yt-dlp updates: ${has_updates} | media-seek updates: ${has_ms_updates}`);
+
+            core.setOutput('one_has', (has_updates || has_ms_updates).toString());
             core.setOutput('has_updates', has_updates.toString());
             core.setOutput('has_ms_updates', has_ms_updates.toString());
 
@@ -180,7 +205,7 @@ jobs:
   semver_gate:
     name: 🔖 Semver compatibility gate
     needs: [check_updates, check_status]
-    if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || needs.check_updates.outputs.has_ms_updates == 'true') }}
+    if: ${{ needs.check_status.outputs.ci_success == 'true' && needs.check_updates.outputs.one_has == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -202,6 +227,7 @@ jobs:
       - name: 🚀 Check Semver compatibility (yt-dlp)
         id: semver
         continue-on-error: true
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         uses: obi1kenobi/cargo-semver-checks-action@v2.8
         with:
           package: yt-dlp
@@ -211,6 +237,7 @@ jobs:
       - name: 🚀 Check Semver compatibility (media-seek)
         id: semver_ms
         continue-on-error: true
+        if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
         uses: obi1kenobi/cargo-semver-checks-action@v2.8
         with:
           package: media-seek
@@ -218,6 +245,7 @@ jobs:
 
       - name: 🔍 Resolve release type (yt-dlp)
         id: resolve
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         run: |
           EXPLICIT_TYPE="${{ github.event.inputs.release_type }}"
           SEMVER_OUTCOME="${{ steps.semver.outcome }}"
@@ -235,6 +263,7 @@ jobs:
 
       - name: 🔍 Resolve release type (media-seek)
         id: resolve_ms
+        if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
         run: |
           EXPLICIT_TYPE="${{ github.event.inputs.release_type_ms }}"
           SEMVER_OUTCOME="${{ steps.semver_ms.outcome }}"
@@ -253,8 +282,7 @@ jobs:
   create_release:
     name: 🔖 Create a new release
     needs: [check_updates, check_status, semver_gate]
-    if: ${{ needs.check_status.outputs.ci_success == 'true' && (needs.check_updates.outputs.has_updates == 'true' || needs.check_updates.outputs.has_ms_updates == 'true') }}
-
+    if: ${{ needs.check_status.outputs.ci_success == 'true' && needs.check_updates.outputs.one_has == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -272,7 +300,7 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
         with:
-          fetch-depth: 100
+          fetch-depth: 0 # Changed to 0 to fetch all history for changelog generation
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain
@@ -299,53 +327,29 @@ jobs:
           git_committer_name: "boul2gom-bot"
           git_committer_email: "actions-bot@boul2gom.com"
 
-      - name: 🎯 Compute release targets
-        id: targets
-        run: |
-          TARGET="${{ github.event.inputs.target }}"
-          HAS_YTDLP="${{ needs.check_updates.outputs.has_updates }}"
-          HAS_MS="${{ needs.check_updates.outputs.has_ms_updates }}"
-
-          if [[ "$TARGET" == "yt-dlp" ]]; then
-            release=true; RELEASE_MS=false
-          elif [[ "$TARGET" == "media-seek" ]]; then
-            release=false; RELEASE_MS=true
-          elif [[ "$TARGET" == "both" ]]; then
-            release=true; RELEASE_MS=true
-          else
-            # Cron (no target input): driven entirely by commit analysis
-            release="${HAS_YTDLP:-false}"
-            RELEASE_MS="${HAS_MS:-false}"
-          fi
-
-          echo "release=$release" >> $GITHUB_OUTPUT
-          echo "release_ms=$RELEASE_MS" >> $GITHUB_OUTPUT
-          echo "🎯 Release yt-dlp: $release | media-seek: $RELEASE_MS"
-
       - name: 🚀 Publish media-seek to crates.io
-        if: ${{ steps.targets.outputs.release_ms == 'true' }}
+        if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo release -p media-seek ${{ needs.semver_gate.outputs.resolved_ms_type }} --execute --no-confirm
-        continue-on-error: true
 
       - name: 🚀 Create a new ${{ needs.semver_gate.outputs.resolved_type }} release (yt-dlp)
-        if: ${{ steps.targets.outputs.release == 'true' }}
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo release -p yt-dlp ${{ needs.semver_gate.outputs.resolved_type }} --execute --no-confirm
 
       - name: 🔍 Get new version
-        if: ${{ steps.targets.outputs.release == 'true' }}
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: get_version
         run: |
           VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "yt-dlp") | .version')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: 📝 Generate releases notes
-        if: ${{ steps.targets.outputs.release == 'true' }}
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: generate_release_notes
         uses: actions/github-script@v8
         with:
@@ -361,11 +365,11 @@ jobs:
               const tags = await github.rest.repos.listTags({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                per_page: 2  // Get the last 2 tags
+                per_page: 2
               });
 
-              if (tags.data.length > 1) {  // We need at least 2 tags
-                const previous_tag = tags.data[1];  // Get the previous tag (before the one we just created)
+              if (tags.data.length > 1) {
+                const previous_tag = tags.data[1];
                 const tag_commit = await github.rest.repos.getCommit({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -398,7 +402,6 @@ jobs:
 
             let release_notes = `## 🚀 Release v${{ steps.get_version.outputs.version }}\n\n`;
 
-            // Categorize commits
             const categories = {
               features: [],
               bug_fixes: [],
@@ -406,34 +409,32 @@ jobs:
               dependencies: []
             };
 
-            commits.data.forEach(commit => {
+            for (const commit of commits.data) {
               const message = commit.commit.message.split('\n')[0];
               
               if (message.startsWith('🔖') || message.match(/v\d+\.\d+\.\d+(-[a-z0-9.]+)?$/)) {
                 console.log(`Skipping pre-release commit: ${message}`);
-                return;
+                continue;
               }
 
               if (message.includes('Format code with Cargo formatter [skip ci]')) {
                 console.log(`Skipping formatting commit: ${message}`);
-                return;
+                continue;
               }
 
-              // Skip commits that only touch crates/media-seek/ — they have their own release
+              // Use local git command instead of API to avoid rate limiting and speed up process
               try {
-                const commit_detail = await github.rest.repos.getCommit({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: commit.sha
-                });
-                const files = commit_detail.data.files || [];
-                const only_media_seek = files.length > 0 && files.every(f => f.filename.startsWith('crates/media-seek/'));
+                const execSync = require('child_process').execSync;
+                const filesOutput = execSync(`git diff-tree --no-commit-id --name-only -r ${commit.sha}`).toString().trim();
+                const files = filesOutput ? filesOutput.split('\n') : [];
+                
+                const only_media_seek = files.length > 0 && files.every(f => f.startsWith('crates/media-seek/'));
                 if (only_media_seek) {
                   console.log(`Skipping media-seek-only commit: ${message}`);
-                  return;
+                  continue;
                 }
               } catch (error) {
-                console.log(`Error fetching commit files for ${commit.sha}: ${error.message}`);
+                console.log(`Error checking local files for ${commit.sha}: ${error.message}`);
               }
 
               const author = commit.author ? commit.author.login : commit.commit.author.name;
@@ -447,7 +448,6 @@ jobs:
               const bug_tags = ["fix", "bug", "error", "patch", "hotfix", "🐛", "🚑"]
               const refactor_tags = ["refactor", "format", "lint", "cleanup", "rename", "restructure", "💄", "🎨"]
               
-              // Categorize based on message content
               const message_lower = message.toLowerCase();
               if (deps_tags.some(tag => message_lower.includes(tag))) {
                 categories.dependencies.push(commit_entry);
@@ -458,9 +458,8 @@ jobs:
               } else {
                 categories.features.push(commit_entry);
               }
-            });
+            }
 
-            // Add features section if there are any
             if (categories.features.length > 0) {
               release_notes += `✨ Features\n`;
               categories.features.forEach(entry => {
@@ -469,7 +468,6 @@ jobs:
               release_notes += '\n';
             }
 
-            // Add bug fixes section if there are any
             if (categories.bug_fixes.length > 0) {
               release_notes += `🐛 Bug Fixes\n`;
               categories.bug_fixes.forEach(entry => {
@@ -478,7 +476,6 @@ jobs:
               release_notes += '\n';
             }
 
-            // Add refactors section if there are any
             if (categories.refactors.length > 0) {
               release_notes += `💄 Refactors\n`;
               categories.refactors.forEach(entry => {
@@ -487,7 +484,6 @@ jobs:
               release_notes += '\n';
             }
 
-            // Add dependencies section if there are any
             if (categories.dependencies.length > 0) {
               release_notes += `📦 Dependencies Updates\n`;
               categories.dependencies.forEach(entry => {
@@ -498,7 +494,7 @@ jobs:
             core.setOutput('release_notes', release_notes);
 
       - name: 📝 Create GitHub Release
-        if: ${{ steps.targets.outputs.release == 'true' }}
+        if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ steps.app-token.outputs.token }}
