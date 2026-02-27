@@ -82,15 +82,15 @@ fn parse_sidx(sidx: &[u8], sidx_end_in_probe: usize) -> Result<ContainerIndex> {
             return Err(Error::parse("SIDX v0 too short"));
         }
         let ept = u32::from_be_bytes(sidx[12..16].try_into().unwrap()) as u64;
-        let fo = u32::from_be_bytes(sidx[16..20].try_into().unwrap()) as u64;
-        (ept, fo, 20usize)
+        let first_offset = u32::from_be_bytes(sidx[16..20].try_into().unwrap()) as u64;
+        (ept, first_offset, 20usize)
     } else {
         if sidx.len() < 28 {
             return Err(Error::parse("SIDX v1 too short"));
         }
         let ept = u64::from_be_bytes(sidx[12..20].try_into().unwrap());
-        let fo = u64::from_be_bytes(sidx[20..28].try_into().unwrap());
-        (ept, fo, 28usize)
+        let first_offset = u64::from_be_bytes(sidx[20..28].try_into().unwrap());
+        (ept, first_offset, 28usize)
     };
 
     if sidx.len() < header_end + 4 {

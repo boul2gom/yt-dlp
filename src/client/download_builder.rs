@@ -952,7 +952,7 @@ impl<'a> DownloadBuilder<'a> {
 /// keyframe-aligned boundaries to the exact requested timestamps.
 ///
 /// Returns `Err(media_seek::Error::UnsupportedFormat)` or `Err(media_seek::Error::ParseFailed)`
-/// when the container format cannot be seeked via byte ranges — callers should fall back to a
+/// when the container format cannot be sought via byte ranges — callers should fall back to a
 /// full download in those cases. `Err(media_seek::Error::FetchFailed)` indicates an
 /// unrecoverable I/O or network failure.
 ///
