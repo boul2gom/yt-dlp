@@ -376,7 +376,10 @@ where
             cues_slice = &probe[cues_abs as usize + id_len + sz_len..cues_end];
         } else {
             // Partially in probe — fetch the missing tail
-            cues_data = fetcher.fetch(cues_abs, (cues_end as u64).saturating_sub(1)).await.map_err(Error::fetch)?;
+            cues_data = fetcher
+                .fetch(cues_abs, (cues_end as u64).saturating_sub(1))
+                .await
+                .map_err(Error::fetch)?;
             let (_, id_len2) =
                 read_elem_id(&cues_data, 0).ok_or_else(|| Error::parse("fetched Cues data malformed"))?;
             let (_, sz_len2) =

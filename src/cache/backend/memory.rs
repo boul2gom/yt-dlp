@@ -86,10 +86,7 @@ impl VideoBackend for MokaVideoCache {
             }
         }
 
-        Err(crate::error::Error::cache_miss(format!(
-            "video:{}",
-            id
-        )))
+        Err(crate::error::Error::cache_miss(format!("video:{}", id)))
     }
 }
 

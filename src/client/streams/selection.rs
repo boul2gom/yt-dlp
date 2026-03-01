@@ -317,7 +317,9 @@ impl VideoSelection for Video {
                     "Requested video codec not available, falling back to all formats"
                 );
                 &video_formats
-            } else { &filtered }
+            } else {
+                &filtered
+            }
         };
 
         // Select based on quality preference
@@ -369,7 +371,9 @@ impl VideoSelection for Video {
                     "Requested audio codec not available, falling back to all formats"
                 );
                 &audio_formats
-            } else { &filtered }
+            } else {
+                &filtered
+            }
         };
 
         // Select based on quality preference

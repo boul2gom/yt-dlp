@@ -256,10 +256,7 @@ impl VideoBackend for RedbVideoCache {
                 }
             }
 
-            Err(crate::error::Error::cache_miss(format!(
-                "video:{}",
-                id_owned
-            )))
+            Err(crate::error::Error::cache_miss(format!("video:{}", id_owned)))
         })
         .await
         .map_err(|e| crate::error::Error::runtime("redb get video by id", e))?

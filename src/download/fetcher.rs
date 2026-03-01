@@ -326,11 +326,10 @@ impl Fetcher {
         let mut headers = HeaderMap::new();
 
         if let Some(auth_token) = auth_token {
-            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .map_err(|e| Error::InvalidHeader {
-                    header: "Authorization".to_string(),
-                    reason: e.to_string(),
-                })?;
+            let value = HeaderValue::from_str(&format!("Bearer {}", auth_token)).map_err(|e| Error::InvalidHeader {
+                header: "Authorization".to_string(),
+                reason: e.to_string(),
+            })?;
 
             headers.insert(reqwest::header::AUTHORIZATION, value);
         }
@@ -869,18 +868,13 @@ impl Fetcher {
         self.retry_policy
             .execute_with_condition(
                 || async {
-                    let mut req = client
-                        .get(&url_clone)
-                        .header(RANGE, &range_clone);
+                    let mut req = client.get(&url_clone).header(RANGE, &range_clone);
                     if let Some(ref headers) = self.extra_headers {
                         for (key, value) in headers.iter() {
                             req = req.header(key, value);
                         }
                     }
-                    let response = req
-                        .send()
-                        .await?
-                        .error_for_status()?;
+                    let response = req.send().await?.error_for_status()?;
 
                     // file_offset_base translates the URL-absolute offset to a file-local offset
                     let mut current_offset = start - context.file_offset_base;

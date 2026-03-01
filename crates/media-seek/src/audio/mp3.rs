@@ -41,7 +41,14 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     if frame.len() >= xing_offset + 4 {
         let tag = &frame[xing_offset..xing_offset + 4];
         if tag == b"Xing" || tag == b"Info" {
-            let result = parse_xing(frame, xing_offset, sample_rate, mpeg_version, frame_start as u64, probe.len() as u64);
+            let result = parse_xing(
+                frame,
+                xing_offset,
+                sample_rate,
+                mpeg_version,
+                frame_start as u64,
+                probe.len() as u64,
+            );
             tracing::debug!("✅ MP3 index parsed (mode=xing)");
             return result;
         }
@@ -50,7 +57,14 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     // Check for VBRI header (always at offset 36 after frame header start)
     const VBRI_OFFSET: usize = 36;
     if frame.len() >= VBRI_OFFSET + 4 && &frame[VBRI_OFFSET..VBRI_OFFSET + 4] == b"VBRI" {
-        let result = parse_vbri(frame, VBRI_OFFSET, sample_rate, mpeg_version, frame_start as u64, probe.len() as u64);
+        let result = parse_vbri(
+            frame,
+            VBRI_OFFSET,
+            sample_rate,
+            mpeg_version,
+            frame_start as u64,
+            probe.len() as u64,
+        );
         tracing::debug!("✅ MP3 index parsed (mode=vbri)");
         return result;
     }
@@ -163,10 +177,10 @@ fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize, u8)> {
 fn xing_header_offset(mpeg_version: u8, channels: u8) -> usize {
     // MPEG1: stereo=32, mono=17; MPEG2/2.5: stereo=17, mono=9
     let side_info = match (mpeg_version, channels) {
-        (3, 1) => 17,     // MPEG1 mono
-        (3, _) => 32,     // MPEG1 stereo
-        (_, 1) => 9,      // MPEG2/2.5 mono
-        _ => 17,          // MPEG2/2.5 stereo
+        (3, 1) => 17, // MPEG1 mono
+        (3, _) => 32, // MPEG1 stereo
+        (_, 1) => 9,  // MPEG2/2.5 mono
+        _ => 17,      // MPEG2/2.5 stereo
     };
     4 + side_info
 }

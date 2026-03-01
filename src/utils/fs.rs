@@ -456,14 +456,14 @@ pub fn random_filename(length: usize) -> String {
 }
 
 use std::sync::LazyLock;
+
 use regex::Regex;
 
 static VIDEO_ID_REGEX_1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})").expect("Invalid regex"));
 static VIDEO_ID_REGEX_2: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$").expect("Invalid regex"));
-static VIDEO_ID_REGEX_3: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[a-zA-Z0-9_-]{11}").expect("Invalid regex"));
+static VIDEO_ID_REGEX_3: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[a-zA-Z0-9_-]{11}").expect("Invalid regex"));
 
 /// Extracts a potential video ID from a filename.
 pub fn extract_video_id(filename: &str) -> Option<String> {

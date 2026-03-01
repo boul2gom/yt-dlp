@@ -77,12 +77,22 @@ impl VideoBackend for JsonVideoCache {
                         && cached.url == url
                     {
                         if is_expired(cached.cached_at, self.ttl) {
-                            tracing::debug!(url = url, cached_at = cached.cached_at, ttl = self.ttl, "⚙️ Cache expired for video");
+                            tracing::debug!(
+                                url = url,
+                                cached_at = cached.cached_at,
+                                ttl = self.ttl,
+                                "⚙️ Cache expired for video"
+                            );
                             let _ = tokio::fs::remove_file(&file_path).await;
                             let _ = tokio::fs::remove_file(&index_path).await;
                             return Ok(None);
                         }
-                        tracing::debug!(url = url, video_id = cached.id, video_title = cached.title, "✅ Cache hit for video (indexed)");
+                        tracing::debug!(
+                            url = url,
+                            video_id = cached.id,
+                            video_title = cached.title,
+                            "✅ Cache hit for video (indexed)"
+                        );
                         return Ok(Some(cached.video()?));
                     }
                 }

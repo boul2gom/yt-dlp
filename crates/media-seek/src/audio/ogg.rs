@@ -5,10 +5,11 @@
 //! binary-searches for page boundaries corresponding to the requested timestamps
 //! by fetching ranges from the stream.
 
+use futures_util::future::try_join_all;
+
 use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
-use futures_util::future::try_join_all;
 
 /// OGG page capture pattern.
 const OGG_CAPTURE: &[u8; 4] = b"OggS";
@@ -66,12 +67,10 @@ where
     }
 
     // Fetch all seek-point windows in parallel
-    let fetches = fetch_positions
-        .iter()
-        .map(|&(start, end)| async move {
-            let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
-            Ok::<_, Error>((start, chunk))
-        });
+    let fetches = fetch_positions.iter().map(|&(start, end)| async move {
+        let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
+        Ok::<_, Error>((start, chunk))
+    });
 
     let results = try_join_all(fetches).await?;
 
