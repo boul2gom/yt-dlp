@@ -17,7 +17,7 @@ use crate::model::playlist::Playlist;
 ///
 /// This extractor provides a simple wrapper around yt-dlp that works
 /// with any supported site. It includes helpers for authentication.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Generic {
     executable_path: PathBuf,
     extractor_name: Option<String>,
@@ -135,7 +135,6 @@ impl Generic {
     /// ```
     pub fn with_credentials(&mut self, username: &str, password: &str) -> &mut Self {
         tracing::debug!(
-            username = username,
             has_password = !password.is_empty(),
             "⚙️ Adding credentials for authentication"
         );

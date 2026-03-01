@@ -164,27 +164,27 @@ pub struct Downloader {
     /// The Generic extractor for all other sites
     pub(crate) generic_extractor: extractor::Generic,
     /// The required libraries.
-    pub libraries: Libraries,
+    pub(crate) libraries: Libraries,
 
     /// The directory where the video (or formats) will be downloaded.
-    pub output_dir: PathBuf,
+    pub(crate) output_dir: PathBuf,
     /// The arguments to pass to 'yt-dlp'.
-    pub args: Vec<String>,
+    pub(crate) args: Vec<String>,
     /// The requests user agent
-    pub user_agent: Option<String>,
+    pub(crate) user_agent: Option<String>,
     /// The timeout for command execution.
-    pub timeout: Duration,
+    pub(crate) timeout: Duration,
     /// Optional proxy configuration for HTTP requests and yt-dlp.
-    pub proxy: Option<client::proxy::ProxyConfig>,
+    pub(crate) proxy: Option<client::proxy::ProxyConfig>,
     /// The unified cache layer (videos, downloads, playlists).
     #[cfg(cache)]
-    pub cache: Option<Arc<CacheLayer>>,
+    pub(crate) cache: Option<Arc<CacheLayer>>,
     /// The download manager for managing parallel downloads.
-    pub download_manager: Arc<DownloadManager>,
+    pub(crate) download_manager: Arc<DownloadManager>,
     /// Cancellation token for graceful shutdown.
     pub(crate) cancellation_token: tokio_util::sync::CancellationToken,
     /// Event bus for broadcasting download events.
-    pub event_bus: events::EventBus,
+    pub(crate) event_bus: events::EventBus,
     /// Hook registry for Rust hooks (feature: hooks).
     #[cfg(feature = "hooks")]
     pub(crate) hook_registry: Option<events::HookRegistry>,
@@ -489,6 +489,88 @@ impl Downloader {
         &self.generic_extractor
     }
 
+    /// Returns a reference to the library paths.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the [`Libraries`] configuration.
+    pub fn libraries(&self) -> &Libraries {
+        &self.libraries
+    }
+
+    /// Returns the output directory path.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the output directory [`PathBuf`].
+    pub fn output_dir(&self) -> &Path {
+        &self.output_dir
+    }
+
+    /// Returns the current yt-dlp arguments.
+    ///
+    /// # Returns
+    ///
+    /// A slice of the current arguments.
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    /// Returns the current user agent, if set.
+    ///
+    /// # Returns
+    ///
+    /// The optional user agent string.
+    pub fn user_agent(&self) -> Option<&str> {
+        self.user_agent.as_deref()
+    }
+
+    /// Returns the execution timeout.
+    ///
+    /// # Returns
+    ///
+    /// The current [`Duration`] timeout.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// Returns the proxy configuration, if set.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the optional [`ProxyConfig`](client::proxy::ProxyConfig).
+    pub fn proxy(&self) -> Option<&client::proxy::ProxyConfig> {
+        self.proxy.as_ref()
+    }
+
+    /// Returns the cache layer, if configured.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the optional [`CacheLayer`].
+    #[cfg(cache)]
+    pub fn cache(&self) -> Option<&Arc<CacheLayer>> {
+        self.cache.as_ref()
+    }
+
+    /// Returns a reference to the download manager.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the [`DownloadManager`].
+    pub fn download_manager(&self) -> &Arc<DownloadManager> {
+        &self.download_manager
+    }
+
+    /// Returns a reference to the event bus.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the [`EventBus`](events::EventBus).
+    pub fn event_bus(&self) -> &events::EventBus {
+        &self.event_bus
+    }
+
     /// Sets the user agent for HTTP requests.
     ///
     /// # Arguments
@@ -498,7 +580,7 @@ impl Downloader {
     /// # Returns
     ///
     /// A mutable reference to `self` for method chaining.
-    pub fn with_user_agent(&mut self, user_agent: impl AsRef<str>) -> &mut Self {
+    pub fn set_user_agent(&mut self, user_agent: impl AsRef<str>) -> &mut Self {
         tracing::debug!(user_agent = user_agent.as_ref(), "🔧 Setting user agent");
         self.user_agent = Some(user_agent.as_ref().to_string());
         self
@@ -526,13 +608,24 @@ impl Downloader {
     /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// let args = vec!["--no-progress".to_string()];
-    /// downloader.with_args(args);
+    /// downloader.append_args(args);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_args(&mut self, mut args: Vec<String>) -> &mut Self {
-        tracing::debug!(arg_count = args.len(), "🔧 Setting custom yt-dlp arguments");
+    pub fn append_args(&mut self, mut args: Vec<String>) -> &mut Self {
+        tracing::debug!(arg_count = args.len(), "🔧 Appending custom yt-dlp arguments");
         self.args.append(&mut args);
+        self
+    }
+
+    /// Replaces all yt-dlp arguments with the provided ones.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The arguments to pass to yt-dlp.
+    pub fn set_args(&mut self, args: Vec<String>) -> &mut Self {
+        tracing::debug!(arg_count = args.len(), "🔧 Setting custom yt-dlp arguments");
+        self.args = args;
         self
     }
 
@@ -559,11 +652,11 @@ impl Downloader {
     /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
     /// // Set a longer timeout for large videos
-    /// downloader.with_timeout(Duration::from_secs(300));
+    /// downloader.set_timeout(Duration::from_secs(300));
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
+    pub fn set_timeout(&mut self, timeout: Duration) -> &mut Self {
         tracing::debug!(timeout = ?timeout, "🔧 Setting command execution timeout");
         self.timeout = timeout;
         self
@@ -590,11 +683,11 @@ impl Downloader {
     /// # let libraries = Libraries::new(youtube, ffmpeg);
     /// let mut downloader = Downloader::builder(libraries, output_dir).build().await?;
     ///
-    /// downloader.with_arg("--no-progress");
+    /// downloader.add_arg("--no-progress");
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_arg(&mut self, arg: impl AsRef<str>) -> &mut Self {
+    pub fn add_arg(&mut self, arg: impl AsRef<str>) -> &mut Self {
         tracing::debug!(arg = arg.as_ref(), "🔧 Adding custom yt-dlp argument");
         self.args.push(arg.as_ref().to_string());
         self
@@ -608,7 +701,7 @@ impl Downloader {
     /// # Arguments
     ///
     /// * `path` - Path to the Netscape cookie file
-    pub fn with_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
+    pub fn set_cookies(&mut self, path: impl AsRef<Path>) -> &mut Self {
         tracing::debug!(cookies_path = ?path.as_ref(), "🔧 Configuring cookie authentication");
         let s = path.as_ref().display().to_string();
         self.youtube_extractor.with_cookies(path.as_ref());
@@ -625,7 +718,7 @@ impl Downloader {
     /// # Arguments
     ///
     /// * `browser` - Browser name (e.g. `"chrome"`, `"firefox"`)
-    pub fn with_cookies_from_browser(&mut self, browser: impl AsRef<str>) -> &mut Self {
+    pub fn set_cookies_from_browser(&mut self, browser: impl AsRef<str>) -> &mut Self {
         tracing::debug!(browser = browser.as_ref(), "🔧 Configuring browser cookie extraction");
         let b = browser.as_ref();
         self.youtube_extractor.with_cookies_from_browser(b);
@@ -641,7 +734,7 @@ impl Downloader {
     /// # Returns
     ///
     /// A mutable reference to `self` for method chaining.
-    pub fn with_netrc(&mut self) -> &mut Self {
+    pub fn set_netrc(&mut self) -> &mut Self {
         tracing::debug!("🔧 Configuring .netrc authentication");
         self.youtube_extractor.with_netrc();
         self.generic_extractor.with_netrc();
@@ -1089,12 +1182,12 @@ impl Downloader {
     /// let config = CacheConfig::builder()
     ///     .cache_dir(PathBuf::from("cache"))
     ///     .build();
-    /// downloader.with_cache(config).await?;
+    /// downloader.set_cache(config).await?;
     /// # Ok(())
     /// # }
     /// ```
     #[cfg(cache)]
-    pub async fn with_cache(&mut self, config: CacheConfig) -> Result<&mut Self> {
+    pub async fn set_cache(&mut self, config: CacheConfig) -> Result<&mut Self> {
         tracing::debug!(config = %config, "🔍 Enabling cache layer");
 
         let layer = CacheLayer::from_config(&config).await?;
@@ -2203,7 +2296,7 @@ impl Downloader {
 
             tracing::debug!("✅ Event hook registered");
         } else {
-            tracing::warn!("🔔 Hook registry not available, hook not registered");
+            tracing::warn!("Hook registry not available, hook not registered");
         }
     }
 
@@ -2250,16 +2343,16 @@ impl Downloader {
 
             tracing::debug!("✅ Webhook registered");
         } else {
-            tracing::warn!("🔔 Webhook delivery not available, webhook not registered");
+            tracing::warn!("Webhook delivery not available, webhook not registered");
         }
     }
 }
 
 impl Clone for Downloader {
     fn clone(&self) -> Self {
-        // Create extractors with the same library paths
-        let youtube_extractor = extractor::Youtube::new(self.libraries.youtube.clone());
-        let generic_extractor = extractor::Generic::new(self.libraries.youtube.clone());
+        // Clone extractors to preserve auth state (cookies, netrc, browser cookies, args)
+        let youtube_extractor = self.youtube_extractor.clone();
+        let generic_extractor = self.generic_extractor.clone();
 
         Self {
             youtube_extractor,

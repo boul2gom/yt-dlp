@@ -35,15 +35,31 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
 fn find_sidx_with_end(data: &[u8]) -> Option<(&[u8], usize)> {
     let mut pos = 0usize;
     while pos + 8 <= data.len() {
-        let size = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
-        if size < 8 {
+        let size32 = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+
+        // Determine actual box size per ISO 14496-12:
+        // size == 1 → 64-bit extended size at offset 8
+        // size == 0 → box extends to end of data
+        // size < 8  → invalid (unless 0)
+        let (header_len, box_size) = if size32 == 1 {
+            if pos + 16 > data.len() {
+                return None;
+            }
+            let extended = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().ok()?) as usize;
+            (16, extended)
+        } else if size32 == 0 {
+            (8, data.len() - pos)
+        } else if size32 < 8 {
             return None;
-        }
+        } else {
+            (8, size32)
+        };
+
         if &data[pos + 4..pos + 8] == b"sidx" {
-            let end = (pos + size).min(data.len());
-            return Some((&data[pos + 8..end], pos + size));
+            let end = (pos + box_size).min(data.len());
+            return Some((&data[pos + header_len..end], pos + box_size));
         }
-        pos += size;
+        pos += box_size;
     }
     None
 }

@@ -310,7 +310,14 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_video_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() { &video_formats } else { &filtered }
+            if filtered.is_empty() {
+                tracing::warn!(
+                    video_id = %self.id,
+                    codec = ?codec,
+                    "Requested video codec not available, falling back to all formats"
+                );
+                &video_formats
+            } else { &filtered }
         };
 
         // Select based on quality preference
@@ -355,7 +362,14 @@ impl VideoSelection for Video {
                         .is_some_and(|c| matches_audio_codec(c, &codec))
                 })
                 .collect();
-            if filtered.is_empty() { &audio_formats } else { &filtered }
+            if filtered.is_empty() {
+                tracing::warn!(
+                    video_id = %self.id,
+                    codec = ?codec,
+                    "Requested audio codec not available, falling back to all formats"
+                );
+                &audio_formats
+            } else { &filtered }
         };
 
         // Select based on quality preference

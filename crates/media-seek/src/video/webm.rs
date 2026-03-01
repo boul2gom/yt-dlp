@@ -314,10 +314,19 @@ fn parse_cues(
     }
 
     // Fix the final entry
-    if let Some(last) = segments.last_mut() {
+    let seg_count = segments.len();
+    if seg_count >= 2 {
+        let first_start = segments[0].start_secs;
+        if let Some(last) = segments.last_mut() {
+            let total = total_size.unwrap_or(last.byte_offset);
+            last.byte_size = total.saturating_sub(last.byte_offset);
+            let avg_dur = (last.start_secs - first_start) / (seg_count - 1) as f64;
+            last.end_secs = last.start_secs + avg_dur;
+        }
+    } else if let Some(last) = segments.last_mut() {
         let total = total_size.unwrap_or(last.byte_offset);
         last.byte_size = total.saturating_sub(last.byte_offset);
-        last.end_secs = last.start_secs; // convention: last segment end == start
+        last.end_secs = last.start_secs;
     }
 
     segments
@@ -367,7 +376,7 @@ where
             cues_slice = &probe[cues_abs as usize + id_len + sz_len..cues_end];
         } else {
             // Partially in probe — fetch the missing tail
-            cues_data = fetcher.fetch(cues_abs, cues_end as u64).await.map_err(Error::fetch)?;
+            cues_data = fetcher.fetch(cues_abs, (cues_end as u64).saturating_sub(1)).await.map_err(Error::fetch)?;
             let (_, id_len2) =
                 read_elem_id(&cues_data, 0).ok_or_else(|| Error::parse("fetched Cues data malformed"))?;
             let (_, sz_len2) =
@@ -385,7 +394,7 @@ where
         // videos' Cues table, eliminating a second RTT in the common case.
         const INITIAL_FETCH: u64 = 262_144;
         let header_data = fetcher
-            .fetch(cues_abs, cues_abs + INITIAL_FETCH)
+            .fetch(cues_abs, cues_abs + INITIAL_FETCH - 1)
             .await
             .map_err(Error::fetch)?;
         let (_, id_len) = read_elem_id(&header_data, 0).ok_or_else(|| Error::parse("fetched Cues header malformed"))?;
@@ -399,7 +408,7 @@ where
             cues_slice = &cues_data[body_start..body_start + cues_body_size as usize];
         } else {
             cues_data = fetcher
-                .fetch(cues_abs, cues_abs + total_needed)
+                .fetch(cues_abs, cues_abs + total_needed - 1)
                 .await
                 .map_err(Error::fetch)?;
             cues_slice = &cues_data[body_start..body_start + cues_body_size as usize];

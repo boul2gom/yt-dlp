@@ -308,13 +308,18 @@ impl WebhookDelivery {
 
         tracing::debug!("⚙️ Spawning webhook delivery worker task");
 
-        // Spawn worker task to process webhook deliveries
+        // Spawn worker task to process webhook deliveries with concurrency limit
+        const MAX_CONCURRENT_DELIVERIES: usize = 16;
+        let delivery_semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DELIVERIES));
+
         tokio::spawn(async move {
             tracing::debug!("⚙️ Webhook delivery worker started");
 
             while let Some((config, event)) = rx.recv().await {
                 let client = client_clone.clone();
+                let permit = delivery_semaphore.clone().acquire_owned().await;
                 tokio::spawn(async move {
+                    let _permit = permit;
                     Self::deliver_webhook(client, config, event).await;
                 });
             }
@@ -362,7 +367,7 @@ impl WebhookDelivery {
             if webhook.filter.matches(event) {
                 matched_count += 1;
                 if let Err(e) = self.tx.try_send((webhook.clone(), event.clone())) {
-                    tracing::warn!(error = %e, "🔔 Webhook channel full, dropping event");
+                    tracing::warn!(error = %e, "Webhook channel full, dropping event");
                 }
             }
         }
@@ -447,7 +452,7 @@ impl WebhookDelivery {
                 tracing::debug!(url = config.url, "✅ Webhook delivered successfully");
             }
             Err(e) => {
-                tracing::error!(url = config.url, error = %e, "🔔 Webhook delivery failed after retries");
+                tracing::error!(url = config.url, error = %e, "Webhook delivery failed after retries");
             }
         }
     }

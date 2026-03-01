@@ -1,8 +1,8 @@
 fn main() {
     // Declare custom cfgs so rustc doesn't warn (required since Rust 1.80)
-    println!("cargo:rustc-check-cfg=cfg(cache)");
-    println!("cargo:rustc-check-cfg=cfg(has_persistent_cache)");
-    println!("cargo:rustc-check-cfg=cfg(multiple_persistent_backends)");
+    println!("cargo::rustc-check-cfg=cfg(cache)");
+    println!("cargo::rustc-check-cfg=cfg(persistent_cache)");
+    println!("cargo::rustc-check-cfg=cfg(multiple_persistent_backends)");
 
     let has_memory = std::env::var("CARGO_FEATURE_CACHE_MEMORY").is_ok();
     let has_json = std::env::var("CARGO_FEATURE_CACHE_JSON").is_ok();
@@ -18,7 +18,7 @@ fn main() {
 
     // Emit cfg if any persistent backend is enabled
     if persistent_count > 0 {
-        println!("cargo::rustc-cfg=has_persistent_cache");
+        println!("cargo::rustc-cfg=persistent_cache");
     }
 
     // Emit cfg if multiple persistent backends are enabled (triggers compile_error!)

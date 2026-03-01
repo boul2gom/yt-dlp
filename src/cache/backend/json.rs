@@ -2,6 +2,8 @@
 //!
 //! This module provides a simple file-system based cache where metadata is stored as JSON files.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
@@ -12,6 +14,13 @@ use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
+
+/// Compute a hex hash of a URL to use as an index filename.
+fn url_hash(url: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    url.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
 
 /// JSON-backed video cache implementation.
 ///
@@ -56,7 +65,33 @@ impl VideoBackend for JsonVideoCache {
             ttl = self.ttl,
             "🔍 Looking for video in JSON cache by URL"
         );
-        // Implementation detail: We will use a simple directory traversal for `get` by URL if no index.
+
+        // Try the URL→ID index first for O(1) lookup
+        let index_path = self.cache_dir.join(format!("{}.url", url_hash(url)));
+        if index_path.exists() {
+            if let Ok(id) = tokio::fs::read_to_string(&index_path).await {
+                let file_path = self.cache_dir.join(format!("{}.json", id.trim()));
+                if file_path.exists() {
+                    let content = tokio::fs::read_to_string(&file_path).await?;
+                    if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
+                        && cached.url == url
+                    {
+                        if is_expired(cached.cached_at, self.ttl) {
+                            tracing::debug!(url = url, cached_at = cached.cached_at, ttl = self.ttl, "⚙️ Cache expired for video");
+                            let _ = tokio::fs::remove_file(&file_path).await;
+                            let _ = tokio::fs::remove_file(&index_path).await;
+                            return Ok(None);
+                        }
+                        tracing::debug!(url = url, video_id = cached.id, video_title = cached.title, "✅ Cache hit for video (indexed)");
+                        return Ok(Some(cached.video()?));
+                    }
+                }
+            }
+            // Stale index entry
+            let _ = tokio::fs::remove_file(&index_path).await;
+        }
+
+        // Fallback: directory scan for backward compatibility with pre-index entries
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -95,10 +130,16 @@ impl VideoBackend for JsonVideoCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Caching video to JSON backend"
         );
-        let cached = CachedVideo::from((url, video));
+        let id = video.id.clone();
+        let cached = CachedVideo::from((url.clone(), video));
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
         let content = serde_json::to_string(&cached)?;
         tokio::fs::write(file_path, content).await?;
+
+        // Write URL→ID index for O(1) lookup
+        let index_path = self.cache_dir.join(format!("{}.url", url_hash(&url)));
+        tokio::fs::write(index_path, &id).await?;
+
         Ok(())
     }
 
@@ -108,6 +149,11 @@ impl VideoBackend for JsonVideoCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Removing video from JSON cache"
         );
+
+        // Remove URL→ID index
+        let index_path = self.cache_dir.join(format!("{}.url", url_hash(url)));
+        let _ = tokio::fs::remove_file(&index_path).await;
+
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -153,11 +199,11 @@ impl VideoBackend for JsonVideoCache {
                 serde_json::from_str(&content).map_err(|e| crate::error::Error::json("Deserialize cached video", e))?;
 
             if is_expired(cached.cached_at, self.ttl) {
-                return Err(crate::error::Error::Unknown("Expired".to_string()));
+                return Err(crate::error::Error::cache_expired(id));
             }
             return Ok(cached);
         }
-        Err(crate::error::Error::Unknown("Not found".to_string()))
+        Err(crate::error::Error::cache_miss(id))
     }
 }
 

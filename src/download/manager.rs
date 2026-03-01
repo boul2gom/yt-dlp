@@ -17,6 +17,7 @@ use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
+use tokio_util::sync::CancellationToken;
 use typed_builder::TypedBuilder;
 
 use crate::client::proxy::ProxyConfig;
@@ -135,8 +136,8 @@ impl Ord for DownloadTask {
             return priority_cmp;
         }
 
-        // Then by ID (smaller ID = older = more prioritary)
-        self.id.cmp(&other.id)
+        // Then by ID (smaller ID = older = more prioritary in a max-heap)
+        other.id.cmp(&self.id)
     }
 }
 
@@ -320,6 +321,8 @@ pub struct DownloadManager {
     worker_notify: Arc<tokio::sync::Notify>,
     /// Guards against spawning more than one worker task at a time
     worker_started: Arc<AtomicBool>,
+    /// Token to gracefully shut down the worker loop
+    shutdown_token: CancellationToken,
 }
 
 impl DownloadManager {
@@ -385,6 +388,7 @@ impl DownloadManager {
             progress_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             worker_notify: Arc::new(tokio::sync::Notify::new()),
             worker_started: Arc::new(AtomicBool::new(false)),
+            shutdown_token: CancellationToken::new(),
         }
     }
 
@@ -413,7 +417,10 @@ impl DownloadManager {
             ..Default::default()
         };
 
-        crate::utils::http::build_http_client(http_config).unwrap_or_else(|_| Arc::new(reqwest::Client::new()))
+        crate::utils::http::build_http_client(http_config).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to build configured HTTP client, falling back to default");
+            Arc::new(reqwest::Client::new())
+        })
     }
 
     /// Add a download to the queue
@@ -663,6 +670,11 @@ impl DownloadManager {
 
         {
             self.cancelled.lock().await.insert(id);
+        }
+
+        // Clean up progress counters to prevent leaks
+        {
+            self.progress_counters.lock().unwrap().remove(&id);
         }
 
         // Check if the download is in progress
@@ -949,9 +961,16 @@ impl DownloadManager {
         let notify = self.worker_notify.clone();
         let progress_counters = self.progress_counters.clone();
         let shared_client = Arc::clone(&self.client);
+        let shutdown = self.shutdown_token.clone();
 
         tokio::spawn(async move {
             loop {
+                // Check for shutdown before each drain cycle
+                if shutdown.is_cancelled() {
+                    tracing::debug!("🛑 Worker shutting down");
+                    return;
+                }
+
                 // --- Drain phase: process tasks until the queue is empty ---
                 loop {
                     let permit = match semaphore.clone().acquire_owned().await {
@@ -1049,10 +1068,25 @@ impl DownloadManager {
                     }
                 }
 
-                // Queue drained — wait for the next enqueue signal before looping
-                notify.notified().await;
+                // Queue drained — wait for the next enqueue signal or shutdown
+                tokio::select! {
+                    _ = notify.notified() => {}
+                    _ = shutdown.cancelled() => {
+                        tracing::debug!("🛑 Worker shutting down");
+                        return;
+                    }
+                }
             }
         });
+    }
+
+    /// Shuts down the worker task gracefully.
+    ///
+    /// # Returns
+    ///
+    /// Nothing. After calling this, no new tasks will be processed.
+    pub fn shutdown(&self) {
+        self.shutdown_token.cancel();
     }
 }
 
@@ -1072,10 +1106,9 @@ fn prepare_task_fetcher(
         .clone()
         .or_else(|| config.user_agent.clone().map(HttpHeaders::browser_defaults));
 
-    let fetcher = if headers.is_none() {
-        Fetcher::with_client(&task.url, Arc::clone(shared_client))
-    } else {
-        Fetcher::new(&task.url, config.proxy.as_ref(), headers)?
+    let fetcher = match headers {
+        None => Fetcher::with_client(&task.url, Arc::clone(shared_client)),
+        Some(h) => Fetcher::with_client_and_headers(&task.url, Arc::clone(shared_client), h),
     };
 
     let mut fetcher = fetcher
@@ -1192,7 +1225,7 @@ async fn run_download_task(
 
     match &result {
         Ok(_) => tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully"),
-        Err(e) => tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "📥 Download failed"),
+        Err(e) => tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "Download failed"),
     }
 
     let final_status = match &result {
@@ -1214,9 +1247,7 @@ async fn run_download_task(
         tasks.lock().await.remove(&task_id);
     }
     {
-        statuses.lock().await.remove(&task_id);
-    }
-    {
+        // Keep final status in the map for post-hoc querying
         cancelled.lock().await.remove(&task_id);
     }
 

@@ -299,7 +299,7 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
 ///
 /// Exactly one variant is compiled, determined by the enabled persistent feature.
 /// The compile_error in `cache/mod.rs` ensures at most one persistent backend.
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 #[derive(Debug)]
 pub enum PersistentVideoBackend {
     #[cfg(feature = "cache-json")]
@@ -311,7 +311,7 @@ pub enum PersistentVideoBackend {
 }
 
 /// Enum dispatch for persistent playlist backends.
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 #[derive(Debug)]
 pub enum PersistentPlaylistBackend {
     #[cfg(feature = "cache-json")]
@@ -323,7 +323,7 @@ pub enum PersistentPlaylistBackend {
 }
 
 /// Enum dispatch for persistent file backends.
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 #[derive(Debug)]
 pub enum PersistentFileBackend {
     #[cfg(feature = "cache-json")]
@@ -336,7 +336,7 @@ pub enum PersistentFileBackend {
 
 // ── Persistent video backend constructors & dispatch ──
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl PersistentVideoBackend {
     /// Creates the persistent video backend based on the enabled feature.
     ///
@@ -371,7 +371,7 @@ impl PersistentVideoBackend {
     }
 }
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl VideoBackend for PersistentVideoBackend {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
         match self {
@@ -431,7 +431,7 @@ impl VideoBackend for PersistentVideoBackend {
 
 // ── Persistent playlist backend constructors & dispatch ──
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl PersistentPlaylistBackend {
     /// Creates the persistent playlist backend based on the enabled feature.
     ///
@@ -466,7 +466,7 @@ impl PersistentPlaylistBackend {
     }
 }
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl PlaylistBackend for PersistentPlaylistBackend {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
         match self {
@@ -537,7 +537,7 @@ impl PlaylistBackend for PersistentPlaylistBackend {
 
 // ── Persistent file backend constructors & dispatch ──
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl PersistentFileBackend {
     /// Creates the persistent file backend based on the enabled feature.
     ///
@@ -571,7 +571,7 @@ impl PersistentFileBackend {
     }
 }
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 impl FileBackend for PersistentFileBackend {
     async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
         match self {

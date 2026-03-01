@@ -256,8 +256,8 @@ impl VideoBackend for RedbVideoCache {
                 }
             }
 
-            Err(crate::error::Error::Unknown(format!(
-                "Video with ID {} not found or expired in cache",
+            Err(crate::error::Error::cache_miss(format!(
+                "video:{}",
                 id_owned
             )))
         })

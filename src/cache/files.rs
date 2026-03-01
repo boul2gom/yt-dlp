@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::cache::FormatPreferences;
 use crate::cache::backend::FileBackend;
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 use crate::cache::backend::PersistentFileBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaFileCache;
@@ -52,7 +52,7 @@ fn guess_mime(path: &Path) -> &'static str {
 pub struct DownloadCache {
     #[cfg(feature = "cache-memory")]
     memory: MokaFileCache,
-    #[cfg(has_persistent_cache)]
+    #[cfg(persistent_cache)]
     persistent: PersistentFileBackend,
 }
 
@@ -87,7 +87,7 @@ impl DownloadCache {
         Ok(Self {
             #[cfg(feature = "cache-memory")]
             memory: MokaFileCache::new(cache_dir.clone(), Some(ttl_secs)).await?,
-            #[cfg(has_persistent_cache)]
+            #[cfg(persistent_cache)]
             persistent: PersistentFileBackend::new(
                 cache_dir,
                 #[cfg(feature = "cache-redis")]
@@ -118,7 +118,7 @@ impl DownloadCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(result) = self.persistent.get_by_hash(hash).await {
             tracing::debug!(hash = hash, "✅ File cache hit (L2 persistent)");
 
@@ -164,7 +164,7 @@ impl DownloadCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(result) = self.persistent.get_by_video_and_format(video_id, format_id).await {
             tracing::debug!(
                 video_id = video_id,
@@ -209,7 +209,7 @@ impl DownloadCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(result) = self
             .persistent
             .get_by_video_and_preferences(video_id, preferences)
@@ -249,7 +249,7 @@ impl DownloadCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(result) = self.persistent.get_thumbnail_by_video_id(video_id).await {
             tracing::debug!(video_id = video_id, "✅ Thumbnail cache hit (L2 persistent)");
 
@@ -294,7 +294,7 @@ impl DownloadCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(result) = self.persistent.get_subtitle_by_language(video_id, language).await {
             tracing::debug!(
                 video_id = video_id,
@@ -469,7 +469,7 @@ impl DownloadCache {
         #[cfg(feature = "cache-memory")]
         self.memory.remove(id).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.remove(id).await?;
 
         Ok(())
@@ -486,7 +486,7 @@ impl DownloadCache {
         #[cfg(feature = "cache-memory")]
         self.memory.clean().await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.clean().await?;
 
         Ok(())
@@ -568,7 +568,7 @@ impl DownloadCache {
         let _ = self.memory.put(file.clone(), source_path).await?;
 
         // L2: persistent (may copy actual file content)
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         {
             let path = self.persistent.put(file, source_path).await?;
             return Ok(path);
@@ -589,7 +589,7 @@ impl DownloadCache {
         #[cfg(feature = "cache-memory")]
         let _ = self.memory.put_thumbnail(thumbnail.clone(), source_path).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         {
             let path = self.persistent.put_thumbnail(thumbnail, source_path).await?;
             return Ok(path);

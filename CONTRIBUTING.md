@@ -132,7 +132,7 @@ src/
 | Visibility | When to use | Example |
 |-----------|-------------|---------|
 | `pub` | Types and methods exposed to library users | `pub fn fetch_video_infos(...)` |
-| `pub(crate)` | Internal fields of `Downloader`, internal helpers | `pub(crate) youtube_extractor: Youtube` |
+| `pub(crate)` | All fields of `Downloader`, internal helpers | `pub(crate) youtube_extractor: Youtube` |
 | Private | Implementation details | `fn audio_codec_for_mux(...)` |
 
 > 💡 Builder struct fields are always **private**. `TypedBuilder` config struct fields are always **`pub`**.
@@ -243,7 +243,7 @@ pub fn my_new_error(video_id: impl Into<String>, reason: impl Into<String>) -> S
     let video_id = video_id.into();
     let reason = reason.into();
 
-    tracing::warn!(video_id = video_id, reason = reason, "⚙️ Something failed");
+    tracing::warn!(video_id = video_id, reason = reason, "Something failed");
 
     Self::MyNewError { video_id, reason }
 }
@@ -293,6 +293,28 @@ pub struct ManagerConfig {
 |------|--------|
 | Field visibility | `pub` |
 | Defaults | `#[builder(default = ...)]` |
+
+### C) Post-build mutation on `Downloader`
+
+After `.build()`, use `set_*`/`add_*` methods (not `with_*`) to mutate the `Downloader` instance:
+
+```rust
+downloader.set_user_agent("my-agent");
+downloader.set_timeout(Duration::from_secs(30));
+downloader.set_args(vec!["--no-playlist".into()]);
+downloader.add_arg("--flat-playlist");
+downloader.set_cookies("cookies.txt");
+downloader.set_cookies_from_browser("chrome");
+downloader.set_netrc();
+```
+
+| Rule | Detail |
+|------|--------|
+| Self parameter | `&mut self` (borrowing) — returns `&mut Self` for chaining |
+| Prefix for replacing | `set_` (e.g. `set_cookies`, `set_user_agent`, `set_timeout`) |
+| Prefix for appending | `add_` (e.g. `add_arg`) |
+
+> 💡 **Don't confuse** builder `with_*` methods (consuming `mut self`, used before `.build()`) with post-build `set_*`/`add_*` methods (borrowing `&mut self`, used after `.build()`).
 
 ---
 
@@ -506,7 +528,7 @@ and it is invisible in `Cargo.toml`. Use `#[cfg(cache)]` to guard code that requ
 
 ### Backend selection
 
-`build.rs` emits `has_persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled, and `multiple_persistent_backends` if more than one is active (which triggers a `compile_error!`). At most one persistent backend may be enabled at a time.
+`build.rs` emits `persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled, and `multiple_persistent_backends` if more than one is active (which triggers a `compile_error!`). At most one persistent backend may be enabled at a time.
 
 ### Conditional compilation patterns
 
@@ -519,7 +541,7 @@ and it is invisible in `Cargo.toml`. Use `#[cfg(cache)]` to guard code that requ
 pub mod json;
 
 // Persistent backend guard (any of json/redb/redis)
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 
 // Feature-gated struct fields
 #[cfg(feature = "hooks")]

@@ -49,8 +49,8 @@ where
     let mut remote_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
 
     for i in 0..SEEK_POINTS {
-        let byte_pos = (i * total / SEEK_POINTS) & !(PKT_SIZE - 1); // align to packet boundary
-        let window_end = (byte_pos + PROBE_WINDOW).min(total);
+        let byte_pos = (i * total / SEEK_POINTS) / PKT_SIZE * PKT_SIZE; // align to packet boundary
+        let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
 
         if (byte_pos as usize) < probe.len() {
             let end = (window_end as usize).min(probe.len());
@@ -140,11 +140,15 @@ fn read_pat(data: &[u8]) -> Option<u16> {
         }
         let prog_num = u16::from_be_bytes(payload[off..off + 2].try_into().ok()?);
         if prog_num == 0 {
-            // NIT entry — skip
+            // NIT entry — skip and try next program entry
             if off + 8 > payload.len() {
                 continue;
             }
-            let pmt_pid = (((payload[off + 4] & 0x1F) as u16) << 8) | payload[off + 5] as u16;
+            let next_prog = u16::from_be_bytes(payload[off + 4..off + 6].try_into().ok()?);
+            if next_prog == 0 {
+                continue;
+            }
+            let pmt_pid = (((payload[off + 6] & 0x1F) as u16) << 8) | payload[off + 7] as u16;
             return Some(pmt_pid);
         }
         let pmt_pid = (((payload[off + 2] & 0x1F) as u16) << 8) | payload[off + 3] as u16;

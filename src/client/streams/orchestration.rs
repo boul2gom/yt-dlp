@@ -107,7 +107,7 @@ async fn fetch_probe(
     Ok((bytes.to_vec(), total_size))
 }
 
-/// Downloads a byte range from `url` and writes the bytes to `dest` in append mode.
+/// Downloads a byte range from `url` and appends the bytes to `dest`.
 ///
 /// If `dest` does not yet exist it is created; if it does exist the bytes are appended.
 async fn fetch_range_to_file(
@@ -134,18 +134,22 @@ async fn fetch_range_to_file(
         .bytes()
         .await
         .map_err(|e| Error::http(url, "reading byte range body", e))?;
-    let existing = if dest.exists() {
-        tokio::fs::read(dest)
-            .await
-            .map_err(|e| Error::io_with_path("reading partial file for append", dest, e))?
-    } else {
-        vec![]
-    };
-    let mut combined = existing;
-    combined.extend_from_slice(&bytes);
-    tokio::fs::write(dest, &combined)
+
+    // Append using OpenOptions instead of read-all + rewrite
+    use tokio::io::AsyncWriteExt;
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dest)
         .await
-        .map_err(|e| Error::io_with_path("writing partial file", dest, e))?;
+        .map_err(|e| Error::io_with_path("opening file for append", dest, e))?;
+    file.write_all(&bytes)
+        .await
+        .map_err(|e| Error::io_with_path("appending to file", dest, e))?;
+    file.flush()
+        .await
+        .map_err(|e| Error::io_with_path("flushing file", dest, e))?;
+
     Ok(())
 }
 
@@ -453,7 +457,7 @@ impl Downloader {
         match action(video.clone()).await {
             Ok(result) => Ok(result),
             Err(Error::UrlExpired) => {
-                tracing::warn!("🔄 URL expired, refreshing metadata and retrying...");
+                tracing::warn!("URL expired, refreshing metadata and retrying...");
 
                 // Refresh metadata bypassing cache
                 let video = self.fetch_video_infos_fresh(&url).await?;
@@ -1437,6 +1441,12 @@ impl Downloader {
         let playlist_start = std::time::Instant::now();
 
         loop {
+            // Check for cancellation before spawning new tasks
+            if self.cancellation_token.is_cancelled() {
+                tracing::info!(playlist_id = %playlist.id, "🛑 Playlist download cancelled");
+                break;
+            }
+
             // Spawn tasks up to max_concurrent limit
             while tasks.len() < max_concurrent {
                 let Some(entry) = entry_iter.next() else {
@@ -1515,7 +1525,7 @@ impl Downloader {
     ) where
         F: Fn(PlaylistDownloadProgress) + Send + Sync + 'static,
     {
-        tracing::warn!(title = entry.title, id = entry.id, "📋 Skipping unavailable video");
+        tracing::warn!(title = entry.title, id = entry.id, "Skipping unavailable video");
 
         self.emit_event(crate::events::DownloadEvent::PlaylistItemFailed {
             playlist_id: playlist.id.clone(),
@@ -1575,7 +1585,7 @@ impl Downloader {
 
             let filename = output_pattern
                 .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
-                .replace("%(title)s", &entry.title)
+                .replace("%(title)s", &crate::utils::validation::sanitize_filename(&entry.title))
                 .replace("%(id)s", &entry.id);
 
             let download_result = youtube.download_video(&video, &filename).await;
@@ -1688,7 +1698,7 @@ impl Downloader {
         for &index in indices {
             if let Some(entry) = playlist.get_entry_by_index(index) {
                 if !entry.is_available() {
-                    tracing::warn!(index = index, title = entry.title, "📋 Skipping unavailable video");
+                    tracing::warn!(index = index, title = entry.title, "Skipping unavailable video");
                     continue;
                 }
 
@@ -1699,7 +1709,7 @@ impl Downloader {
                 let filename = output_pattern
                     .as_ref()
                     .replace("%(playlist_index)s", &index.to_string())
-                    .replace("%(title)s", &entry.title)
+                    .replace("%(title)s", &crate::utils::validation::sanitize_filename(&entry.title))
                     .replace("%(id)s", &entry.id);
 
                 // Download the video
@@ -1746,7 +1756,7 @@ impl Downloader {
 
         for entry in entries {
             if !entry.is_available() {
-                tracing::warn!(title = entry.title, id = entry.id, "📋 Skipping unavailable video");
+                tracing::warn!(title = entry.title, id = entry.id, "Skipping unavailable video");
                 continue;
             }
 
@@ -1757,7 +1767,7 @@ impl Downloader {
             let filename = output_pattern
                 .as_ref()
                 .replace("%(playlist_index)s", &entry.index.unwrap_or(0).to_string())
-                .replace("%(title)s", &entry.title)
+                .replace("%(title)s", &crate::utils::validation::sanitize_filename(&entry.title))
                 .replace("%(id)s", &entry.id);
 
             // Download the video

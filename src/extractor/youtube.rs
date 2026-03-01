@@ -87,7 +87,7 @@ impl FormatPreset {
 ///
 /// This struct provides access to YouTube-specific features and optimizations
 /// that go beyond generic video downloading.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Youtube {
     executable_path: PathBuf,
     player_client: Option<PlayerClient>,
@@ -357,14 +357,7 @@ impl Youtube {
     pub fn supports_url(url: &str) -> bool {
         let url_lower = url.to_lowercase();
 
-        let has_valid_domain = ["youtube.com", "youtu.be", "youtube-nocookie.com"]
-            .iter()
-            .any(|domain| url_lower.contains(domain));
-
-        if has_valid_domain {
-            return true;
-        }
-
+        // Check search/playlist prefixes first
         let has_valid_prefix = ["ytsearch", "ytplaylist"]
             .iter()
             .any(|prefix| url_lower.starts_with(prefix));
@@ -373,7 +366,21 @@ impl Youtube {
             return true;
         }
 
-        false
+        // Extract host from URL to avoid substring false positives (e.g. "notyoutube.com")
+        let host = url_lower
+            .split("://")
+            .nth(1)
+            .unwrap_or(&url_lower)
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
+
+        ["youtube.com", "youtu.be", "youtube-nocookie.com"]
+            .iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{}", domain)))
     }
 }
 

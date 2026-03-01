@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::FormatPreferences;
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 use crate::cache::backend::PersistentVideoBackend;
 use crate::cache::backend::VideoBackend;
 #[cfg(feature = "cache-memory")]
@@ -49,7 +49,13 @@ impl CachedVideo {
 
 impl From<(String, Video)> for CachedVideo {
     fn from((url, video): (String, Video)) -> Self {
-        let video_json = serde_json::to_string(&video).unwrap_or_default();
+        let video_json = match serde_json::to_string(&video) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!(video_id = video.id, error = %e, "Failed to serialize video for cache");
+                String::new()
+            }
+        };
 
         Self {
             id: video.id.clone(),
@@ -204,7 +210,7 @@ impl std::fmt::Display for CachedThumbnail {
 pub struct VideoCache {
     #[cfg(feature = "cache-memory")]
     memory: MokaVideoCache,
-    #[cfg(has_persistent_cache)]
+    #[cfg(persistent_cache)]
     persistent: PersistentVideoBackend,
 }
 
@@ -234,7 +240,7 @@ impl VideoCache {
         Ok(Self {
             #[cfg(feature = "cache-memory")]
             memory: MokaVideoCache::new(cache_dir.clone(), ttl).await?,
-            #[cfg(has_persistent_cache)]
+            #[cfg(persistent_cache)]
             persistent: PersistentVideoBackend::new(
                 cache_dir,
                 #[cfg(feature = "cache-redis")]
@@ -269,7 +275,7 @@ impl VideoCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(video) = self.persistent.get(url).await? {
             tracing::debug!(url = url, "✅ Video cache hit (L2 persistent)");
 
@@ -299,7 +305,7 @@ impl VideoCache {
         #[cfg(feature = "cache-memory")]
         self.memory.put(url.clone(), video.clone()).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.put(url, video).await?;
 
         Ok(())
@@ -320,7 +326,7 @@ impl VideoCache {
         #[cfg(feature = "cache-memory")]
         self.memory.remove(url).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.remove(url).await?;
 
         Ok(())
@@ -337,7 +343,7 @@ impl VideoCache {
         #[cfg(feature = "cache-memory")]
         self.memory.clean().await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.clean().await?;
 
         Ok(())
@@ -367,7 +373,7 @@ impl VideoCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         {
             let cached = self.persistent.get_by_id(id).await?;
             tracing::debug!(video_id = id, "✅ Video cache hit by ID (L2 persistent)");
@@ -382,8 +388,8 @@ impl VideoCache {
         }
 
         #[allow(unreachable_code)]
-        Err(crate::error::Error::Unknown(format!(
-            "Video with ID {} not found in cache",
+        Err(crate::error::Error::cache_miss(format!(
+            "video:{}",
             id
         )))
     }

@@ -22,9 +22,11 @@ use crate::events::types::RecordingMethod;
 /// Progress throttle interval (50 ms) to avoid flooding the event bus.
 const PROGRESS_THROTTLE_NANOS: u64 = 50_000_000;
 
-/// Maximum number of segments to prefetch concurrently.
-#[allow(dead_code)]
-const PREFETCH_CONCURRENCY: usize = 3;
+/// Maximum number of retry attempts per segment fetch.
+const SEGMENT_RETRY_ATTEMPTS: u32 = 3;
+
+/// Delay between segment fetch retries.
+const SEGMENT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 /// Reqwest-based live stream recorder.
 ///
@@ -123,11 +125,14 @@ impl LiveRecorder {
             method: RecordingMethod::Native,
         });
 
-        // Create output file with buffered writer
+        // Create output file with buffered writer (offload blocking create to thread pool)
         if let Some(parent) = self.output_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let file = std::fs::File::create(&self.output_path)
+        let output_path = self.output_path.clone();
+        let file = tokio::task::spawn_blocking(move || std::fs::File::create(&output_path))
+            .await
+            .map_err(|e| Error::io("joining file creation task", e))?
             .map_err(|e| Error::io_with_path("creating recording output", &self.output_path, e))?;
         let mut writer = std::io::BufWriter::with_capacity(64 * 1024, file);
 
@@ -266,8 +271,34 @@ impl LiveRecorder {
         })
     }
 
-    /// Fetches a single segment's bytes.
+    /// Fetches a single segment's bytes with retries.
     async fn fetch_segment(&self, url: &str) -> Result<Vec<u8>> {
+        let mut last_error = None;
+
+        for attempt in 1..=SEGMENT_RETRY_ATTEMPTS {
+            match self.fetch_segment_once(url).await {
+                Ok(data) => return Ok(data),
+                Err(e) => {
+                    if attempt < SEGMENT_RETRY_ATTEMPTS {
+                        tracing::warn!(
+                            url = url,
+                            attempt = attempt,
+                            max_attempts = SEGMENT_RETRY_ATTEMPTS,
+                            error = %e,
+                            "Segment fetch failed, retrying"
+                        );
+                        tokio::time::sleep(SEGMENT_RETRY_DELAY).await;
+                    }
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
+
+    /// Single attempt to fetch a segment.
+    async fn fetch_segment_once(&self, url: &str) -> Result<Vec<u8>> {
         let response = self
             .client
             .get(url)

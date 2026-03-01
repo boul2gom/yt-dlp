@@ -282,7 +282,7 @@ impl StreamingProcess {
     ///
     /// Returns an error if the kill signal cannot be sent.
     pub async fn kill(&mut self) -> Result<()> {
-        tracing::warn!("📥 Killing streaming process");
+        tracing::warn!("Killing streaming process");
         self.child.kill().await?;
         Ok(())
     }

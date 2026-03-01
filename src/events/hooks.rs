@@ -133,7 +133,9 @@ impl HookRegistry {
             "🔔 Executing hooks for event"
         );
 
-        let hooks = self.hooks.read().await;
+        // Clone hooks under the lock then release it to avoid deadlock
+        // if any hook calls register()/clear()
+        let hooks: Vec<_> = self.hooks.read().await.clone();
 
         // Separate hooks into parallel and sequential
         let mut parallel_hooks = Vec::new();

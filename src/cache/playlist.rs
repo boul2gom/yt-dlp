@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(has_persistent_cache)]
+#[cfg(persistent_cache)]
 use crate::cache::backend::PersistentPlaylistBackend;
 use crate::cache::backend::PlaylistBackend;
 #[cfg(feature = "cache-memory")]
@@ -71,7 +71,7 @@ impl std::fmt::Display for CachedPlaylist {
 pub struct PlaylistCache {
     #[cfg(feature = "cache-memory")]
     memory: MokaPlaylistCache,
-    #[cfg(has_persistent_cache)]
+    #[cfg(persistent_cache)]
     persistent: PersistentPlaylistBackend,
 }
 
@@ -133,7 +133,7 @@ impl PlaylistCache {
         Ok(Self {
             #[cfg(feature = "cache-memory")]
             memory: MokaPlaylistCache::new(cache_dir.clone(), Some(ttl_seconds)).await?,
-            #[cfg(has_persistent_cache)]
+            #[cfg(persistent_cache)]
             persistent: PersistentPlaylistBackend::new(
                 cache_dir,
                 #[cfg(feature = "cache-redis")]
@@ -168,7 +168,7 @@ impl PlaylistCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(playlist) = self.persistent.get(url).await? {
             tracing::debug!(url = url, "✅ Playlist cache hit (L2 persistent)");
 
@@ -206,7 +206,7 @@ impl PlaylistCache {
         }
 
         // L2: persistent
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         if let Some(playlist) = self.persistent.get_by_id(id).await? {
             tracing::debug!(playlist_id = id, "✅ Playlist cache hit by ID (L2 persistent)");
             return Ok(Some(playlist));
@@ -231,7 +231,7 @@ impl PlaylistCache {
         #[cfg(feature = "cache-memory")]
         self.memory.put(url.clone(), playlist.clone()).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.put(url, playlist).await?;
 
         Ok(())
@@ -252,7 +252,7 @@ impl PlaylistCache {
         #[cfg(feature = "cache-memory")]
         self.memory.invalidate(url).await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.invalidate(url).await?;
 
         Ok(())
@@ -269,7 +269,7 @@ impl PlaylistCache {
         #[cfg(feature = "cache-memory")]
         self.memory.clean().await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.clean().await?;
 
         Ok(())
@@ -286,7 +286,7 @@ impl PlaylistCache {
         #[cfg(feature = "cache-memory")]
         self.memory.clear_all().await?;
 
-        #[cfg(has_persistent_cache)]
+        #[cfg(persistent_cache)]
         self.persistent.clear_all().await?;
 
         Ok(())

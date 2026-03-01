@@ -72,7 +72,7 @@ impl MetadataManager {
         tokio::task::spawn_blocking(move || {
             // Load existing tag
             let mut tag = MP4Tag::read_from_path(&file_path_clone)
-                .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("read MP4 tags", &file_path_clone, e.to_string()))?;
 
             // Add basic metadata
             for (key, value) in metadata {
@@ -98,7 +98,7 @@ impl MetadataManager {
 
             // Save the changes
             tag.write_to_path(&file_path)
-                .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("write MP4 tags", &file_path, e.to_string()))?;
 
             Ok::<_, Error>(())
         })
@@ -157,7 +157,7 @@ impl MetadataManager {
         tokio::task::spawn_blocking(move || {
             // Read the tag
             let mut tag = MP4Tag::read_from_path(&file_path_clone)
-                .map_err(|e| Error::Unknown(format!("Failed to read MP4 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("read MP4 tags", &file_path_clone, e.to_string()))?;
 
             // Create an Img object with the correct format
             let artwork = mp4ameta::Img::new(fmt, image_data);
@@ -165,7 +165,7 @@ impl MetadataManager {
 
             // Write the tag back to the file
             tag.write_to_path(&file_path_clone)
-                .map_err(|e| Error::Unknown(format!("Failed to write MP4 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("write MP4 tags", &file_path_clone, e.to_string()))?;
 
             Ok::<_, Error>(())
         })

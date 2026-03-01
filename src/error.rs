@@ -225,6 +225,42 @@ pub enum Error {
     #[error("Live recording failed for {url}: {reason}")]
     LiveRecording { url: String, reason: String },
 
+    // ==================== Metadata Errors ====================
+    /// A metadata tagging operation failed.
+    ///
+    /// This occurs when reading or writing audio/video tags (ID3, MP4, lofty).
+    #[error("Metadata {operation} failed for {path}: {reason}")]
+    Metadata {
+        operation: String,
+        path: PathBuf,
+        reason: String,
+    },
+
+    // ==================== Cache Errors ====================
+    /// The requested item was not found in the cache.
+    #[error("Cache miss for {key}")]
+    CacheMiss { key: String },
+
+    /// The cached item has expired.
+    #[error("Cache entry expired for {key}")]
+    CacheExpired { key: String },
+
+    /// A checksum verification failed after downloading.
+    #[error("Checksum mismatch for {path}: expected {expected}, got {actual}")]
+    ChecksumMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+
+    /// An HTTP header value was invalid.
+    #[error("Invalid header '{header}': {reason}")]
+    InvalidHeader { header: String, reason: String },
+
+    /// An HTTP response status was unexpected.
+    #[error("Unexpected HTTP status {status} for {url}")]
+    UnexpectedStatus { status: u16, url: String },
+
     // ==================== Generic Errors ====================
     /// An unexpected error occurred that doesn't fit other categories.
     ///
@@ -434,7 +470,7 @@ impl Error {
             error = %source,
             is_cancelled = source.is_cancelled(),
             is_panic = source.is_panic(),
-            "⚙️ Runtime task error occurred"
+            "Runtime task error occurred"
         );
 
         Self::Runtime {
@@ -457,7 +493,7 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        tracing::warn!(url = url_str, reason = reason_str, "⚙️ Video fetch failed");
+        tracing::warn!(url = url_str, reason = reason_str, "Video fetch failed");
 
         Self::VideoFetch {
             url: url_str,
@@ -505,7 +541,7 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        tracing::warn!(url = url_str, reason = reason_str, "⚙️ URL validation failed");
+        tracing::warn!(url = url_str, reason = reason_str, "URL validation failed");
 
         Self::UrlValidation {
             url: url_str,
@@ -524,7 +560,7 @@ impl Error {
     /// An Error::InvalidPartialRange variant with the provided reason
     pub fn invalid_partial_range(reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        tracing::warn!(reason = %reason, "⚙️ Invalid partial range");
+        tracing::warn!(reason = %reason, "Invalid partial range");
         Self::InvalidPartialRange { reason }
     }
 
@@ -541,7 +577,7 @@ impl Error {
     pub fn download_failed(download_id: u64, reason: impl Into<String>) -> Self {
         let reason_str = reason.into();
 
-        tracing::error!(download_id = download_id, reason = reason_str, "⚙️ Download failed");
+        tracing::error!(download_id = download_id, reason = reason_str, "Download failed");
 
         Self::DownloadFailed {
             download_id,
@@ -595,7 +631,7 @@ impl Error {
         let url_str = url.into();
         let context_str = context.into();
 
-        tracing::warn!(url = url_str, context = context_str, "📡 HLS parsing failed");
+        tracing::warn!(url = url_str, context = context_str, "HLS parsing failed");
 
         Self::HlsParsing {
             url: url_str,
@@ -618,12 +654,72 @@ impl Error {
         let url_str = url.into();
         let reason_str = reason.into();
 
-        tracing::error!(url = url_str, reason = reason_str, "📥 Live recording failed");
+        tracing::error!(url = url_str, reason = reason_str, "Live recording failed");
 
         Self::LiveRecording {
             url: url_str,
             reason: reason_str,
         }
+    }
+
+    /// Create a metadata error with operation and path context.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation` - Description of the metadata operation (e.g. "read MP4 tags")
+    /// * `path` - The file path involved
+    /// * `reason` - The reason for the failure
+    ///
+    /// # Returns
+    ///
+    /// An Error::Metadata variant with the provided context
+    pub fn metadata(operation: impl Into<String>, path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
+        let operation_str = operation.into();
+        let path_buf = path.into();
+        let reason_str = reason.into();
+
+        tracing::warn!(
+            operation = operation_str,
+            path = ?path_buf,
+            reason = reason_str,
+            "🏷️ Metadata operation failed"
+        );
+
+        Self::Metadata {
+            operation: operation_str,
+            path: path_buf,
+            reason: reason_str,
+        }
+    }
+
+    /// Create a cache miss error.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The cache key that was not found
+    ///
+    /// # Returns
+    ///
+    /// An Error::CacheMiss variant
+    pub fn cache_miss(key: impl Into<String>) -> Self {
+        let key_str = key.into();
+        tracing::debug!(key = key_str, "🔍 Cache miss");
+        Self::CacheMiss { key: key_str }
+    }
+
+    /// Create a cache expired error.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The cache key that expired
+    ///
+    /// # Returns
+    ///
+    /// An Error::CacheExpired variant
+    pub fn cache_expired(key: impl Into<String>) -> Self {
+        let key_str = key.into();
+        tracing::debug!(key = key_str, "🔍 Cache entry expired");
+        Self::CacheExpired { key: key_str }
     }
 }
 
@@ -635,7 +731,7 @@ impl From<tokio::task::JoinError> for Error {
             error = %err,
             is_cancelled = err.is_cancelled(),
             is_panic = err.is_panic(),
-            "⚙️ Task execution failed (automatic conversion)"
+            "Task execution failed (automatic conversion)"
         );
 
         Self::Runtime {

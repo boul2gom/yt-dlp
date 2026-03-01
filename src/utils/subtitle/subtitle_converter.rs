@@ -4,6 +4,7 @@
 //! primarily VTT (WebVTT) and SRT (SubRip).
 
 use std::path::Path;
+use std::sync::LazyLock;
 
 use regex::Regex;
 use tokio::fs;
@@ -205,21 +206,15 @@ fn srt_to_vtt(srt_content: &str) -> Result<String> {
 ///
 /// * `text` - The subtitle text potentially containing VTT tags
 fn remove_vtt_tags(text: &str) -> String {
-    // Remove voice tags: <v Speaker>
-    let re_voice = Regex::new(r"<v\s+[^>]+>").unwrap();
-    let text = re_voice.replace_all(text, "");
+    static RE_VOICE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<v\s+[^>]+>").unwrap());
+    static RE_CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<c\.[^>]+>").unwrap());
+    static RE_CLOSING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"</[cv]>").unwrap());
+    static RE_TIMESTAMP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<\d{2}:\d{2}:\d{2}\.\d{3}>").unwrap());
 
-    // Remove class tags: <c.classname>
-    let re_class = Regex::new(r"<c\.[^>]+>").unwrap();
-    let text = re_class.replace_all(&text, "");
-
-    // Remove closing tags: </c> or </v>
-    let re_closing = Regex::new(r"</[cv]>").unwrap();
-    let text = re_closing.replace_all(&text, "");
-
-    // Remove timestamp tags: <00:00:00.000>
-    let re_timestamp = Regex::new(r"<\d{2}:\d{2}:\d{2}\.\d{3}>").unwrap();
-    let text = re_timestamp.replace_all(&text, "");
+    let text = RE_VOICE.replace_all(text, "");
+    let text = RE_CLASS.replace_all(&text, "");
+    let text = RE_CLOSING.replace_all(&text, "");
+    let text = RE_TIMESTAMP.replace_all(&text, "");
 
     text.to_string()
 }

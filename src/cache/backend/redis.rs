@@ -167,8 +167,8 @@ impl VideoBackend for RedisVideoCache {
             return Ok(cached);
         }
 
-        Err(crate::error::Error::Unknown(format!(
-            "Video with ID {} not found in Redis cache",
+        Err(crate::error::Error::cache_miss(format!(
+            "video:{}",
             id
         )))
     }
@@ -302,20 +302,46 @@ impl PlaylistBackend for RedisPlaylistCache {
 
         let mut conn = self.conn().await?;
 
-        // Scan for all playlist keys and delete them
+        // Cursor-based scan for all playlist URL keys
         let pattern = format!("{}*", PREFIX_PLAYLIST);
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| crate::error::Error::redis("scan playlist keys", e))?;
+        let mut keys: Vec<String> = Vec::new();
+        let mut cursor: u64 = 0;
+        loop {
+            let (next_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| crate::error::Error::redis("scan playlist keys", e))?;
+            keys.extend(batch);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
 
         let pattern_id = format!("{}*", PREFIX_PLAYLIST_ID);
-        let keys_id: Vec<String> = redis::cmd("KEYS")
-            .arg(&pattern_id)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| crate::error::Error::redis("scan playlist id keys", e))?;
+        let mut keys_id: Vec<String> = Vec::new();
+        cursor = 0;
+        loop {
+            let (next_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern_id)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| crate::error::Error::redis("scan playlist id keys", e))?;
+            keys_id.extend(batch);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
 
         let all_keys: Vec<&str> = keys.iter().chain(keys_id.iter()).map(|s| s.as_str()).collect();
         if !all_keys.is_empty() {
@@ -415,7 +441,24 @@ impl FileBackend for RedisFileCache {
         // Scan all file keys for this video and check preferences
         let mut conn = self.conn().await.ok()?;
         let pattern = format!("{}vf:{}:*", PREFIX_FILE, video_id);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.ok()?;
+        let mut keys: Vec<String> = Vec::new();
+        let mut cursor: u64 = 0;
+        loop {
+            let (next_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await
+                .ok()?;
+            keys.extend(batch);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
 
         for key in keys {
             let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
@@ -461,6 +504,17 @@ impl FileBackend for RedisFileCache {
             conn.set_ex::<_, _, ()>(&vf_key, &bytes, self.ttl)
                 .await
                 .map_err(|e| crate::error::Error::redis("set file by video+format", e))?;
+        }
+
+        // Store subtitle files by video+language for lookup via get_subtitle_by_language
+        if file.file_type == "subtitle"
+            && let Some(ref vid) = file.video_id
+            && let Some(ref lang) = file.language_code
+        {
+            let sub_key = format!("{}sub:{}:{}", PREFIX_FILE, vid, lang);
+            conn.set_ex::<_, _, ()>(&sub_key, &bytes, self.ttl)
+                .await
+                .map_err(|e| crate::error::Error::redis("set file by video+language", e))?;
         }
 
         Ok(dest_path)

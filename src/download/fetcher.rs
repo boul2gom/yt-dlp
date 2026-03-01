@@ -52,6 +52,8 @@ pub struct Fetcher {
     retry_policy: RetryPolicy,
     /// Shared HTTP client with connection pooling for efficient request handling.
     client: Arc<reqwest::Client>,
+    /// Per-request headers applied on top of the shared client's defaults.
+    extra_headers: Option<reqwest::header::HeaderMap>,
     /// Callback optional for tracking download progress
     #[allow(clippy::type_complexity)]
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
@@ -170,10 +172,36 @@ impl Fetcher {
             retry_attempts: DEFAULT_RETRY_ATTEMPTS,
             retry_policy: RetryPolicy::default(),
             client,
+            extra_headers: None,
             progress_callback: None,
             speed_profile: SpeedProfile::default(),
             range_constraint: None,
         }
+    }
+
+    /// Creates a new fetcher reusing an existing HTTP client with per-request headers.
+    ///
+    /// This preserves the shared connection pool while applying format-specific headers
+    /// (User-Agent, cookies) to each request.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL from which to download the data.
+    /// * `client` - A shared HTTP client with connection pooling.
+    /// * `headers` - Format-specific HTTP headers to apply per-request.
+    pub fn with_client_and_headers(
+        url: impl AsRef<str>,
+        client: Arc<reqwest::Client>,
+        headers: crate::model::format::HttpHeaders,
+    ) -> Self {
+        let mut header_map = headers.to_header_map();
+        if let Ok(ua) = reqwest::header::HeaderValue::from_str(&headers.user_agent) {
+            header_map.insert(reqwest::header::USER_AGENT, ua);
+        }
+
+        let mut fetcher = Self::with_client(url, client);
+        fetcher.extra_headers = Some(header_map);
+        fetcher
     }
 
     /// Configures the number of parallel segments for downloading.
@@ -299,7 +327,10 @@ impl Fetcher {
 
         if let Some(auth_token) = auth_token {
             let value = HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .map_err(|e| Error::Unknown(format!("Invalid authorization header value: {e}")))?;
+                .map_err(|e| Error::InvalidHeader {
+                    header: "Authorization".to_string(),
+                    reason: e.to_string(),
+                })?;
 
             headers.insert(reqwest::header::AUTHORIZATION, value);
         }
@@ -615,7 +646,15 @@ impl Fetcher {
         let response = self
             .retry_policy
             .execute_with_condition(
-                || async { client.get(&url).header(RANGE, "bytes=0-0").send().await },
+                || async {
+                    let mut req = client.get(&url).header(RANGE, "bytes=0-0");
+                    if let Some(ref headers) = self.extra_headers {
+                        for (key, value) in headers.iter() {
+                            req = req.header(key, value);
+                        }
+                    }
+                    req.send().await
+                },
                 is_http_error_retryable,
             )
             .await?;
@@ -707,7 +746,8 @@ impl Fetcher {
         downloaded
     }
 
-    /// Downloads a single segment with retry logic and tracks progress in the .parts file.
+    /// Downloads a single segment and tracks progress in the .parts file.
+    /// Retry logic is handled internally by `download_segment` via `retry_policy`.
     async fn download_and_track_segment(
         &self,
         segment_index: usize,
@@ -717,36 +757,22 @@ impl Fetcher {
         downloaded_segments: &Mutex<Vec<bool>>,
         temp_file_path: &str,
     ) -> Result<()> {
-        for attempt in 0..self.retry_attempts {
-            match self.download_segment(&self.url, start, end, context).await {
-                Ok(_) => {
-                    let mut segments = downloaded_segments.lock().await;
-                    segments[segment_index] = true;
+        self.download_segment(&self.url, start, end, context).await?;
 
-                    if let Ok(mut file) = tokio::fs::OpenOptions::new()
-                        .create(true)
-                        .write(true)
-                        .append(true)
-                        .open(temp_file_path)
-                        .await
-                    {
-                        let _ = file.write_all(format!("{}\n", segment_index).as_bytes()).await;
-                    }
+        let mut segments = downloaded_segments.lock().await;
+        segments[segment_index] = true;
 
-                    return Ok(());
-                }
-                Err(error) if attempt < self.retry_attempts - 1 => {
-                    tracing::warn!(attempt = attempt + 1, error = %error, "🔄 Segment download failed");
-                    tokio::time::sleep(tokio::time::Duration::from_millis(250 * 2u64.pow(attempt as u32))).await;
-                }
-                Err(error) => return Err(error),
-            }
+        if let Ok(mut file) = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(temp_file_path)
+            .await
+        {
+            let _ = file.write_all(format!("{}\n", segment_index).as_bytes()).await;
         }
 
-        Err(Error::Unknown(format!(
-            "Failed to download segment after {} attempts for URL '{}'",
-            self.retry_attempts, self.url
-        )))
+        Ok(())
     }
 
     /// Calculate the optimal number of parallel segments based on file size and speed profile
@@ -843,9 +869,15 @@ impl Fetcher {
         self.retry_policy
             .execute_with_condition(
                 || async {
-                    let response = client
+                    let mut req = client
                         .get(&url_clone)
-                        .header(RANGE, &range_clone)
+                        .header(RANGE, &range_clone);
+                    if let Some(ref headers) = self.extra_headers {
+                        for (key, value) in headers.iter() {
+                            req = req.header(key, value);
+                        }
+                    }
+                    let response = req
                         .send()
                         .await?
                         .error_for_status()?;
@@ -854,21 +886,67 @@ impl Fetcher {
                     let mut current_offset = start - context.file_offset_base;
                     let mut chunk_stream = response.bytes_stream();
 
-                    // Write each chunk at its absolute file position — no seek, no lock.
+                    // Batch chunks before writing to reduce spawn_blocking calls
+                    const WRITE_BATCH_SIZE: usize = 256 * 1024; // 256 KB
+                    let mut write_buf: Vec<u8> = Vec::with_capacity(WRITE_BATCH_SIZE);
+                    let mut buf_offset = current_offset;
+
                     while let Some(chunk_result) = chunk_stream.next().await {
                         let chunk = chunk_result?;
                         let chunk_len = chunk.len() as u64;
-                        let offset = current_offset;
+                        write_buf.extend_from_slice(&chunk);
+                        current_offset += chunk_len;
+
+                        if write_buf.len() >= WRITE_BATCH_SIZE {
+                            let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
+                            let offset = buf_offset;
+                            let file = Arc::clone(&context.file);
+
+                            tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                                #[cfg(unix)]
+                                file.write_all_at(&batch, offset)?;
+                                #[cfg(windows)]
+                                {
+                                    let mut written = 0usize;
+                                    while written < batch.len() {
+                                        let n = file.seek_write(&batch[written..], offset + written as u64)?;
+                                        if n == 0 {
+                                            return Err(std::io::Error::new(
+                                                std::io::ErrorKind::WriteZero,
+                                                "seek_write returned 0",
+                                            ));
+                                        }
+                                        written += n;
+                                    }
+                                }
+                                Ok(())
+                            })
+                            .await??;
+
+                            buf_offset = current_offset;
+                        }
+
+                        let new_total = context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
+
+                        if let Some(callback) = &context.progress_callback {
+                            callback(new_total, context.total_bytes);
+                        }
+                    }
+
+                    // Flush remaining buffered data
+                    if !write_buf.is_empty() {
+                        let batch = write_buf;
+                        let offset = buf_offset;
                         let file = Arc::clone(&context.file);
 
                         tokio::task::spawn_blocking(move || -> std::io::Result<()> {
                             #[cfg(unix)]
-                            file.write_all_at(&chunk, offset)?;
+                            file.write_all_at(&batch, offset)?;
                             #[cfg(windows)]
                             {
                                 let mut written = 0usize;
-                                while written < chunk.len() {
-                                    let n = file.seek_write(&chunk[written..], offset + written as u64)?;
+                                while written < batch.len() {
+                                    let n = file.seek_write(&batch[written..], offset + written as u64)?;
                                     if n == 0 {
                                         return Err(std::io::Error::new(
                                             std::io::ErrorKind::WriteZero,
@@ -881,14 +959,6 @@ impl Fetcher {
                             Ok(())
                         })
                         .await??;
-
-                        current_offset += chunk_len;
-
-                        let new_total = context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
-
-                        if let Some(callback) = &context.progress_callback {
-                            callback(new_total, context.total_bytes);
-                        }
                     }
 
                     Ok(())
@@ -981,6 +1051,11 @@ impl Fetcher {
                     if let Some(ref range) = range_header {
                         req = req.header(RANGE, range);
                     }
+                    if let Some(ref headers) = self.extra_headers {
+                        for (key, value) in headers.iter() {
+                            req = req.header(key, value);
+                        }
+                    }
                     req.send().await
                 },
                 is_http_error_retryable,
@@ -999,9 +1074,10 @@ impl Fetcher {
         let is_partial = status == reqwest::StatusCode::PARTIAL_CONTENT;
 
         if !is_partial && status != reqwest::StatusCode::OK {
-            return Err(Error::Unknown(format!(
-                "Unexpected status code {status} for URL '{url}'"
-            )));
+            return Err(Error::UnexpectedStatus {
+                status: status.as_u16(),
+                url: url.to_string(),
+            });
         }
 
         let response = response.error_for_status()?;

@@ -162,7 +162,7 @@ async fn run_event_loop(inner: Arc<RwLock<StatsInner>>, mut rx: tokio::sync::bro
                 handle_event(&mut state, &event);
             }
             Err(RecvError::Lagged(missed)) => {
-                tracing::warn!(missed = missed, "📊 Statistics tracker lagged, some events were missed");
+                tracing::warn!(missed = missed, "Statistics tracker lagged, some events were missed");
             }
             Err(RecvError::Closed) => break,
         }
@@ -203,6 +203,8 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             total_bytes,
             ..
         } => {
+            state.queued = state.queued.saturating_sub(1);
+
             if let Some(entry) = state.in_progress.get_mut(download_id) {
                 entry.started_at = Some(Instant::now());
                 entry.total_bytes = *total_bytes;

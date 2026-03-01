@@ -202,10 +202,11 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
     open_options.read(true);
     open_options.write(true);
     open_options.create(true);
+    open_options.truncate(true);
 
     #[cfg(not(target_os = "windows"))]
     {
-        open_options.mode(0o755);
+        open_options.mode(0o644);
     }
 
     let file = open_options.open(&destination).await?;
@@ -454,14 +455,15 @@ pub fn random_filename(length: usize) -> String {
     uuid.chars().take(length).collect()
 }
 
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use regex::Regex;
 
-lazy_static! {
-    static ref VIDEO_ID_REGEX_1: Regex = Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})").expect("Invalid regex");
-    static ref VIDEO_ID_REGEX_2: Regex = Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$").expect("Invalid regex");
-    static ref VIDEO_ID_REGEX_3: Regex = Regex::new(r"[a-zA-Z0-9_-]{11}").expect("Invalid regex");
-}
+static VIDEO_ID_REGEX_1: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:video|audio)-([a-zA-Z0-9_-]{11})").expect("Invalid regex"));
+static VIDEO_ID_REGEX_2: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([a-zA-Z0-9_-]{11})\.[a-zA-Z0-9]+$").expect("Invalid regex"));
+static VIDEO_ID_REGEX_3: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[a-zA-Z0-9_-]{11}").expect("Invalid regex"));
 
 /// Extracts a potential video ID from a filename.
 pub fn extract_video_id(filename: &str) -> Option<String> {
@@ -507,7 +509,7 @@ pub async fn remove_temp_file(file_path: impl Into<PathBuf>) -> bool {
     let result = tokio::fs::remove_file(&file_path).await;
 
     if let Err(ref e) = result {
-        tracing::warn!(path = ?file_path, error = %e, "⚙️ Failed to remove temporary file");
+        tracing::warn!(path = ?file_path, error = %e, "Failed to remove temporary file");
     }
 
     result.is_ok()

@@ -61,7 +61,7 @@ pub fn validate_youtube_url(url: &str) -> Result<()> {
     let is_youtube = Youtube::supports_url(url);
 
     if !is_youtube {
-        tracing::warn!(url = url, host = host, "⚙️ URL validation failed: not a YouTube domain");
+        tracing::warn!(url = url, host = host, "URL validation failed: not a YouTube domain");
         return Err(Error::url_validation(
             url,
             format!("URL must be from YouTube (got: {})", host),

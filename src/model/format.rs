@@ -113,7 +113,7 @@ impl Format {
             (true, true) => FormatType::AudioVideo,
             (true, false) => FormatType::Audio,
             (false, true) => FormatType::Video,
-            _ => FormatType::Manifest,
+            _ => FormatType::Unknown,
         }
     }
 
@@ -388,9 +388,12 @@ impl HttpHeaders {
     ///
     /// # Returns
     ///
-    /// A `HeaderMap` with Accept, Accept-Language, and Sec-Fetch-Mode set.
+    /// A `HeaderMap` with User-Agent, Accept, Accept-Language, and Sec-Fetch-Mode set.
     pub fn to_header_map(&self) -> reqwest::header::HeaderMap {
         let mut map = HeaderMap::new();
+        if let Ok(hv) = HeaderValue::from_str(&self.user_agent) {
+            map.insert(header::USER_AGENT, hv);
+        }
         if let Ok(hv) = HeaderValue::from_str(&self.accept) {
             map.insert(header::ACCEPT, hv);
         }

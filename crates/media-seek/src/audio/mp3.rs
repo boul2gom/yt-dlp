@@ -33,15 +33,15 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         return Err(Error::parse("MP3 frame header truncated"));
     }
 
-    let (sample_rate, channels, bitrate_bps, _frame_size) =
+    let (sample_rate, channels, bitrate_bps, _frame_size, mpeg_version) =
         parse_frame_header(frame).ok_or_else(|| Error::parse("invalid MP3 frame header"))?;
 
     // Check for Xing/Info header at the standard offset after the frame header
-    let xing_offset = xing_header_offset(channels);
+    let xing_offset = xing_header_offset(mpeg_version, channels);
     if frame.len() >= xing_offset + 4 {
         let tag = &frame[xing_offset..xing_offset + 4];
         if tag == b"Xing" || tag == b"Info" {
-            let result = parse_xing(frame, xing_offset, sample_rate, frame_start as u64, probe.len() as u64);
+            let result = parse_xing(frame, xing_offset, sample_rate, mpeg_version, frame_start as u64, probe.len() as u64);
             tracing::debug!("✅ MP3 index parsed (mode=xing)");
             return result;
         }
@@ -50,7 +50,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     // Check for VBRI header (always at offset 36 after frame header start)
     const VBRI_OFFSET: usize = 36;
     if frame.len() >= VBRI_OFFSET + 4 && &frame[VBRI_OFFSET..VBRI_OFFSET + 4] == b"VBRI" {
-        let result = parse_vbri(frame, VBRI_OFFSET, sample_rate, frame_start as u64, probe.len() as u64);
+        let result = parse_vbri(frame, VBRI_OFFSET, sample_rate, mpeg_version, frame_start as u64, probe.len() as u64);
         tracing::debug!("✅ MP3 index parsed (mode=vbri)");
         return result;
     }
@@ -105,8 +105,9 @@ fn find_sync_frame(data: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// Parses an MPEG frame header and returns (sample_rate, channels, bitrate_bps, frame_size).
-fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize)> {
+/// Parses an MPEG frame header and returns (sample_rate, channels, bitrate_bps, frame_size, mpeg_version).
+/// mpeg_version: 3=MPEG1, 2=MPEG2, 0=MPEG2.5
+fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize, u8)> {
     if frame.len() < 4 {
         return None;
     }
@@ -154,13 +155,25 @@ fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize)> {
     let bitrate_bps = bitrate_kbps * 1000;
     let frame_size = (144 * bitrate_bps / sample_rate + padding as u32) as usize;
 
-    Some((sample_rate, channels, bitrate_bps, frame_size))
+    Some((sample_rate, channels, bitrate_bps, frame_size, mpeg_version))
 }
 
 /// Returns the offset of the Xing header within a frame (after the side information).
-fn xing_header_offset(channels: u8) -> usize {
-    // MPEG1 stereo: 32 bytes side info; MPEG1 mono: 17 bytes; simplified to mono/stereo only
-    4 + if channels == 1 { 17 } else { 32 }
+/// Side info size depends on MPEG version and channel count.
+fn xing_header_offset(mpeg_version: u8, channels: u8) -> usize {
+    // MPEG1: stereo=32, mono=17; MPEG2/2.5: stereo=17, mono=9
+    let side_info = match (mpeg_version, channels) {
+        (3, 1) => 17,     // MPEG1 mono
+        (3, _) => 32,     // MPEG1 stereo
+        (_, 1) => 9,      // MPEG2/2.5 mono
+        _ => 17,          // MPEG2/2.5 stereo
+    };
+    4 + side_info
+}
+
+/// Returns the number of samples per frame for the given MPEG version (Layer III).
+fn samples_per_frame(mpeg_version: u8) -> u64 {
+    if mpeg_version == 3 { 1152 } else { 576 }
 }
 
 /// Parses a Xing/Info VBR header and constructs a segmented `ContainerIndex`.
@@ -168,6 +181,7 @@ fn parse_xing(
     frame: &[u8],
     xing_off: usize,
     sample_rate: u32,
+    mpeg_version: u8,
     frame_start_byte: u64,
     total_size: u64,
 ) -> Result<ContainerIndex> {
@@ -215,8 +229,8 @@ fn parse_xing(
 
     if total_frames == 0 {
         // No frame count — fall back to a linear approximation using total_bytes
-        let samples_per_frame = 1152u64; // MP3 Layer III
-        let duration_secs = total_frames as f64 * samples_per_frame as f64 / sample_rate as f64;
+        let spf = samples_per_frame(mpeg_version);
+        let duration_secs = total_frames as f64 * spf as f64 / sample_rate as f64;
         let byte_rate = if duration_secs > 0.0 {
             total_bytes as f64 / duration_secs
         } else {
@@ -231,8 +245,8 @@ fn parse_xing(
         });
     }
 
-    let samples_per_frame = 1152u64;
-    let total_duration = total_frames as f64 * samples_per_frame as f64 / sample_rate as f64;
+    let spf = samples_per_frame(mpeg_version);
+    let total_duration = total_frames as f64 * spf as f64 / sample_rate as f64;
 
     if let Some(toc) = toc {
         // Convert the 100-entry TOC into SegmentEntry slices
@@ -273,6 +287,7 @@ fn parse_vbri(
     frame: &[u8],
     vbri_off: usize,
     sample_rate: u32,
+    mpeg_version: u8,
     frame_start_byte: u64,
     _total_size: u64,
 ) -> Result<ContainerIndex> {
@@ -294,8 +309,8 @@ fn parse_vbri(
         return Err(Error::parse("VBRI table truncated or invalid entry_bytes"));
     }
 
-    let samples_per_frame = 1152u64;
-    let total_duration = total_frames as f64 * samples_per_frame as f64 / sample_rate as f64;
+    let spf = samples_per_frame(mpeg_version);
+    let total_duration = total_frames as f64 * spf as f64 / sample_rate as f64;
     let _ = total_bytes; // might be 0; use offsets directly
 
     let mut segments = Vec::with_capacity(table_size);
@@ -307,8 +322,8 @@ fn parse_vbri(
             entry_val = (entry_val << 8) | frame[off + j] as u64;
         }
         let chunk_bytes = entry_val * table_scale;
-        let start_secs = i as f64 * frames_per_entry as f64 * samples_per_frame as f64 / sample_rate as f64;
-        let end_secs = (i + 1) as f64 * frames_per_entry as f64 * samples_per_frame as f64 / sample_rate as f64;
+        let start_secs = i as f64 * frames_per_entry as f64 * spf as f64 / sample_rate as f64;
+        let end_secs = (i + 1) as f64 * frames_per_entry as f64 * spf as f64 / sample_rate as f64;
         segments.push(SegmentEntry {
             start_secs,
             end_secs: end_secs.min(total_duration),

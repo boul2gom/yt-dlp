@@ -44,6 +44,7 @@ impl media_seek::RangeFetcher for HttpRangeFetcher {
                 .header("Range", format!("bytes={}-{}", start, end))
                 .send()
                 .await?
+                .error_for_status()?
                 .bytes()
                 .await
                 .map(|b| b.to_vec())

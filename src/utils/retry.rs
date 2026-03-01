@@ -112,7 +112,7 @@ impl RetryPolicy {
                 Err(e) => {
                     // Check if the error is retryable
                     if !is_retryable(&e) {
-                        tracing::warn!(error = %e, "🔄 Non-retryable error encountered");
+                        tracing::warn!(error = %e, "Non-retryable error encountered");
                         return Err(e);
                     }
 
@@ -202,7 +202,7 @@ impl RetryPolicy {
         let final_delay_ms = if self.jitter {
             use rand::prelude::*;
             let mut rng = rand::rng();
-            let jitter_factor: f64 = rng.random_range(0.8..=1.0);
+            let jitter_factor: f64 = rng.random_range(0.5..=1.5);
             delay_ms * jitter_factor
         } else {
             delay_ms

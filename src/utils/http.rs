@@ -17,6 +17,7 @@ const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 32;
 const HTTP_TCP_KEEPALIVE_SECS: u64 = 60;
 const REQUEST_TIMEOUT_SECS: u64 = 60;
+const CONNECT_TIMEOUT_SECS: u64 = 10;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
@@ -70,6 +71,7 @@ pub fn build_http_client(config: HttpClientConfig) -> crate::error::Result<Arc<C
 
     let mut builder = Client::builder()
         .timeout(timeout)
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
         .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS))
         .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
         .tcp_keepalive(Duration::from_secs(HTTP_TCP_KEEPALIVE_SECS))

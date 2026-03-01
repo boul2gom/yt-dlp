@@ -76,7 +76,7 @@ Module Conventions:
 
 Visibility Conventions:
 - `pub` — For types and methods exposed to library users.
-- `pub(crate)` — For internal fields of `Downloader` (extractors, cancellation_token, hook_registry, webhook_delivery, statistics) and internal helpers.
+- `pub(crate)` — For all fields of `Downloader` (libraries, output_dir, args, user_agent, timeout, proxy, cache, download_manager, cancellation_token, event_bus, youtube_extractor, generic_extractor, hook_registry, webhook_delivery, statistics) and internal helpers. Public getter methods expose read access (e.g. `libraries()`, `output_dir()`, `args()`, `timeout()`, `proxy()`, `cache()`, `download_manager()`, `event_bus()`, `statistics()`).
 - Private — Default for implementation details that don't need crate-wide access.
 - Builder struct fields are private; `TypedBuilder` config struct fields are `pub`.
 
@@ -126,6 +126,19 @@ pub async fn build(self) -> Result<Downloader> { ... }
 - Terminal method: `.build()` (async for `DownloaderBuilder`, sync for `FfmpegArgs`) or `.execute()` for `DownloadBuilder`.
 - `DownloadBuilder<'a>` holds a reference `&'a Downloader`.
 - Builder struct fields are private.
+
+**Post-build mutation methods on `Downloader`** — After `.build()`, use `set_*`/`add_*` methods (not `with_*`) to mutate the instance:
+```rust
+downloader.set_user_agent("my-agent");
+downloader.set_timeout(Duration::from_secs(30));
+downloader.set_args(vec!["--no-playlist".into()]);
+downloader.add_arg("--flat-playlist");
+downloader.set_cookies("cookies.txt");
+downloader.set_cookies_from_browser("chrome");
+downloader.set_netrc();
+```
+- These take `&mut self` (borrowing), return `&mut Self` for chaining.
+- Prefix: `set_` for replacing a value, `add_` for appending.
 
 **B) `TypedBuilder` derive** — For config structs (`ManagerConfig`, `RetryPolicy`, `ExpiryConfig`):
 ```rust
@@ -235,7 +248,7 @@ Rules:
 - `std::sync::Mutex` only for `ProgressCounters` and other non-async contexts (progress callbacks from sync closures).
 - Never hold a `tokio` lock across `.await` points.
 - Prefer `Arc<AtomicU64>` over `Arc<Mutex<u64>>` for simple counters.
-- Caches stored as `Option<Arc<VideoCache>>` on `Downloader`.
+- Caches stored as `Option<Arc<CacheLayer>>` on `Downloader`.
 
 Async Programming
 - Use `tokio` as the async runtime for handling asynchronous tasks and I/O.
@@ -280,14 +293,14 @@ Features in `Cargo.toml`:
 
 Cache backend selection via `build.rs`:
 - Emits `cache` when any cache backend (`cache-memory`, `cache-json`, `cache-redb`, `cache-redis`) is enabled.
-- Emits `has_persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled.
+- Emits `persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled.
 - Emits `multiple_persistent_backends` (triggers `compile_error!`) if more than one persistent backend is active.
-- Architecture: tiered L1 (Moka, `#[cfg(feature = "cache-memory")]`) + L2 (persistent, `#[cfg(has_persistent_cache)]`).
+- Architecture: tiered L1 (Moka, `#[cfg(feature = "cache-memory")]`) + L2 (persistent, `#[cfg(persistent_cache)]`).
 
 Usage patterns:
 - `#[cfg(cache)]` — single guard for all cache code (emitted by `build.rs`, not a Cargo feature).
 - `#[cfg(feature = "cache-json")]` — backend-specific module declarations and imports.
-- `#[cfg(has_persistent_cache)]` — guard for any persistent backend code.
+- `#[cfg(persistent_cache)]` — guard for any persistent backend code.
 - `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
 - `#[cfg(feature = "live-recording")]` — live recording module, error variants, event variants, executor streaming.
 

@@ -2009,9 +2009,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Apply cookies after build — propagates to both extractors and download args
-    downloader.with_cookies("cookies.txt");
-    // or: downloader.with_cookies_from_browser("chrome");
-    // or: downloader.with_netrc();
+    downloader.set_cookies("cookies.txt");
+    // or: downloader.set_cookies_from_browser("chrome");
+    // or: downloader.set_netrc();
 
     let video = downloader.fetch_video_infos("https://www.youtube.com/watch?v=gXtp6C-3JKo").await?;
     downloader.download_video(&video, "video.mp4").await?;

@@ -381,12 +381,11 @@ impl WantedRelease {
             if actual_checksum != *expected_checksum {
                 // Delete the invalid file
                 let _ = tokio::fs::remove_file(&destination).await;
-                return Err(crate::error::Error::Unknown(format!(
-                    "Checksum verification failed for '{}'. Expected: {}, Actual: {}",
-                    destination.display(),
-                    expected_checksum,
-                    actual_checksum
-                )));
+                return Err(crate::error::Error::ChecksumMismatch {
+                    path: destination.clone(),
+                    expected: expected_checksum.to_string(),
+                    actual: actual_checksum.clone(),
+                });
             }
 
             tracing::debug!(

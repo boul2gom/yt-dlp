@@ -420,16 +420,30 @@ impl<'a> DownloadBuilder<'a> {
                                 tracing::warn!(
                                     "media-seek audio clip unavailable for this format, falling back to full download"
                                 );
+                                // Clean up temp files from partial clip attempt
+                                let _ = tokio::fs::remove_file(&video_clip_path).await;
+                                let _ = tokio::fs::remove_file(&audio_clip_path).await;
                             }
-                            Err(e) => return Err(e.into()),
+                            Err(e) => {
+                                let _ = tokio::fs::remove_file(&video_clip_path).await;
+                                let _ = tokio::fs::remove_file(&audio_clip_path).await;
+                                return Err(e.into());
+                            }
                         }
                     }
                     Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
                         tracing::warn!(
                             "media-seek video clip unavailable for this format, falling back to full download"
                         );
+                        // Clean up temp files from partial clip attempt
+                        let _ = tokio::fs::remove_file(&video_clip_path).await;
+                        let _ = tokio::fs::remove_file(&audio_clip_path).await;
                     }
-                    Err(e) => return Err(e.into()),
+                    Err(e) => {
+                        let _ = tokio::fs::remove_file(&video_clip_path).await;
+                        let _ = tokio::fs::remove_file(&audio_clip_path).await;
+                        return Err(e.into());
+                    }
                 }
             }
         }
@@ -523,8 +537,10 @@ impl<'a> DownloadBuilder<'a> {
             "📥 Waiting for downloads to complete"
         );
 
-        let video_status = self.downloader.wait_for_download(video_download_id).await;
-        let audio_status = self.downloader.wait_for_download(audio_download_id).await;
+        let (video_status, audio_status) = tokio::join!(
+            self.downloader.wait_for_download(video_download_id),
+            self.downloader.wait_for_download(audio_download_id),
+        );
 
         // Check if downloads were successful
         match (video_status, audio_status) {

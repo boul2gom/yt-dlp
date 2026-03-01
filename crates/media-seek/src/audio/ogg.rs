@@ -8,6 +8,7 @@
 use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
+use futures_util::future::try_join_all;
 
 /// OGG page capture pattern.
 const OGG_CAPTURE: &[u8; 4] = b"OggS";
@@ -46,6 +47,7 @@ where
     const WINDOW: u64 = 8192; // bytes to fetch per probe
 
     let mut points: Vec<(u64, u64)> = Vec::new(); // (granule, byte_offset)
+    let mut fetch_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
 
     // Always include the first page granule
     if let Some((granule, page_end)) = read_page_granule(probe, 0) {
@@ -58,16 +60,26 @@ where
 
     for i in 1..SEEK_POINTS {
         let byte_pos = i * total / SEEK_POINTS;
-        let window_end = (byte_pos + WINDOW).min(total);
+        let window_end = (byte_pos + WINDOW).min(total).saturating_sub(1);
 
-        let chunk = fetcher.fetch(byte_pos, window_end).await.map_err(Error::fetch)?;
+        fetch_positions.push((byte_pos, window_end));
+    }
 
-        // Scan the chunk for the first OGG page sync pattern
+    // Fetch all seek-point windows in parallel
+    let fetches = fetch_positions
+        .iter()
+        .map(|&(start, end)| async move {
+            let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
+            Ok::<_, Error>((start, chunk))
+        });
+
+    let results = try_join_all(fetches).await?;
+
+    for (byte_pos, chunk) in results {
         if let Some(sync_off) = find_ogg_sync(&chunk)
             && let Some((granule, _)) = read_page_granule(&chunk, sync_off)
             && granule != u64::MAX
         {
-            // granule 0xFFFF_FFFF_FFFF_FFFF means "no packets complete on this page"
             points.push((granule, byte_pos + sync_off as u64));
         }
     }
@@ -120,11 +132,26 @@ fn read_sample_rate(data: &[u8]) -> Option<u32> {
         return Some(sr);
     }
     if pkt.len() >= 16 && pkt.starts_with(b"OpusHead") {
-        let sr = u32::from_le_bytes(pkt[12..16].try_into().ok()?);
-        return Some(sr);
+        // Opus granule positions are always in 48 kHz units regardless of input_sample_rate
+        return Some(48000);
     }
-    // FLAC-in-OGG: `\x7fFLAC` — sample rate encoded differently; use 44100 as safe default
-    if pkt.starts_with(b"\x7fFLAC") {
+    // FLAC-in-OGG: `\x7fFLAC` header followed by STREAMINFO
+    // OGG FLAC mapping: \x7fFLAC + version(2) + num_headers(2) + fLaC(4) + block_header(4) + STREAMINFO
+    // STREAMINFO has sample rate at bytes 10-12 (20 bits starting at bit 80)
+    if pkt.starts_with(b"\x7fFLAC") && pkt.len() >= 21 {
+        // Skip: \x7fFLAC(5) + major(1) + minor(1) + num_headers(2) + fLaC(4) + block_header(4) = 17
+        // STREAMINFO starts at offset 17; sample rate is at bytes 10-12 of STREAMINFO (offset 27)
+        // But first 4 bytes of STREAMINFO are min/max block size, next 3+3 are min/max frame size
+        // Then bytes 8-11 contain: sample_rate(20 bits) + channels(3 bits) + bps(5 bits) + ...
+        let streaminfo_start = 17; // after \x7fFLAC(5) + version(2) + num_headers(2) + fLaC(4) + block_header(4)
+        if pkt.len() >= streaminfo_start + 12 {
+            let si = &pkt[streaminfo_start..];
+            // Bytes 8-10 of STREAMINFO: sample_rate is top 20 bits of bytes[8..11]
+            let sr = ((si[8] as u32) << 12) | ((si[9] as u32) << 4) | ((si[10] as u32) >> 4);
+            if sr > 0 {
+                return Some(sr);
+            }
+        }
         return Some(44100);
     }
     None

@@ -148,9 +148,9 @@ impl MetadataManager {
 
         task::spawn_blocking(move || {
             let mut tagged = Probe::open(&file_path_clone)
-                .map_err(|e| Error::Unknown(format!("Failed to open file for lofty: {}", e)))?
+                .map_err(|e| Error::metadata("open file for lofty", &file_path_clone, e.to_string()))?
                 .read()
-                .map_err(|e| Error::Unknown(format!("Failed to read tags via lofty: {}", e)))?;
+                .map_err(|e| Error::metadata("read tags via lofty", &file_path_clone, e.to_string()))?;
 
             let tag = get_or_create_tag(&mut tagged, tag_type);
 
@@ -162,7 +162,7 @@ impl MetadataManager {
 
             tagged
                 .save_to_path(&file_path_clone, WriteOptions::default())
-                .map_err(|e| Error::Unknown(format!("Failed to save lofty tags: {}", e)))?;
+                .map_err(|e| Error::metadata("save lofty tags", &file_path_clone, e.to_string()))?;
 
             Ok::<_, Error>(())
         })
@@ -195,9 +195,9 @@ fn write_lofty_tags(
     playlist_info: Option<&(String, usize, Option<usize>)>,
 ) -> Result<()> {
     let mut tagged = Probe::open(file_path)
-        .map_err(|e| Error::Unknown(format!("Failed to open file for lofty: {}", e)))?
+        .map_err(|e| Error::metadata("open file for lofty", file_path, e.to_string()))?
         .read()
-        .map_err(|e| Error::Unknown(format!("Failed to read tags via lofty: {}", e)))?;
+        .map_err(|e| Error::metadata("read tags via lofty", file_path, e.to_string()))?;
 
     let tag = get_or_create_tag(&mut tagged, tag_type);
 
@@ -219,7 +219,7 @@ fn write_lofty_tags(
 
     tagged
         .save_to_path(file_path, WriteOptions::default())
-        .map_err(|e| Error::Unknown(format!("Failed to save lofty tags: {}", e)))?;
+        .map_err(|e| Error::metadata("save lofty tags", file_path, e.to_string()))?;
 
     Ok(())
 }

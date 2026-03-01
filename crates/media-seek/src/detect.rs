@@ -67,9 +67,21 @@ pub(crate) fn detect(probe: &[u8]) -> Option<Format> {
     }
 
     // AAC ADTS sync — 0xFFF1 (MPEG-4 AAC) or 0xFFF0 (MPEG-2 AAC) at start
-    // Both have the top 12 bits set (0xFFF) and sync_word check
-    if probe.len() >= 2 && probe[0] == 0xFF && (probe[1] & 0xF6) == 0xF0 {
-        return Some(Format::Adts);
+    // Verify frame_length from header bytes 3-5 and check for second sync word
+    if probe.len() >= 7 && probe[0] == 0xFF && (probe[1] & 0xF6) == 0xF0 {
+        let frame_length =
+            ((probe[3] as usize & 0x03) << 11) | ((probe[4] as usize) << 3) | ((probe[5] as usize) >> 5);
+        if frame_length >= 7 {
+            // If we have enough data, validate the second sync word
+            if probe.len() > frame_length + 1 {
+                if probe[frame_length] == 0xFF && (probe[frame_length + 1] & 0xF6) == 0xF0 {
+                    return Some(Format::Adts);
+                }
+            } else {
+                // Not enough data for second sync, trust the first header
+                return Some(Format::Adts);
+            }
+        }
     }
 
     // MP3 sync frame without ID3 (0xFF 0xE*  or 0xFF 0xF* with layer bits indicating MP3)
@@ -105,7 +117,7 @@ pub(crate) fn detect(probe: &[u8]) -> Option<Format> {
     // ISO Base Media File Format — check 4-byte box type at offset 4
     if probe.len() >= 8 {
         let box_type = &probe[4..8];
-        const ISOBMFF_BOXES: &[&[u8]] = &[b"ftyp", b"moov", b"moof", b"mdat", b"sidx", b"free", b"skip", b"wide"];
+        const ISOBMFF_BOXES: &[&[u8]] = &[b"ftyp", b"styp", b"moov", b"moof", b"mdat", b"sidx", b"free", b"skip", b"wide"];
         if ISOBMFF_BOXES.contains(&box_type) {
             return Some(Format::Mp4);
         }

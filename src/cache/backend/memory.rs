@@ -86,8 +86,8 @@ impl VideoBackend for MokaVideoCache {
             }
         }
 
-        Err(crate::error::Error::Unknown(format!(
-            "Video with ID {} not found in cache",
+        Err(crate::error::Error::cache_miss(format!(
+            "video:{}",
             id
         )))
     }

@@ -14,6 +14,7 @@ pub struct SegmentEntry {
 }
 
 /// Internal storage for the seek index.
+#[derive(Debug, Clone)]
 pub(crate) enum Inner {
     /// Explicit segment list (fMP4, WebM, OGG, FLAC, FLV, AVI, TS, MP3 VBR).
     Segments(Vec<SegmentEntry>),
@@ -28,6 +29,7 @@ pub(crate) enum Inner {
 /// Returned by [`crate::parse`]. Call [`find_byte_range`](ContainerIndex::find_byte_range)
 /// to translate a `[start_secs, end_secs]` window into the byte ranges needed for
 /// a partial download.
+#[derive(Debug, Clone)]
 pub struct ContainerIndex {
     /// Last byte (inclusive) of the codec initialisation data (moov, EBML header, etc.).
     ///

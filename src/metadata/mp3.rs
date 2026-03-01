@@ -67,7 +67,7 @@ impl MetadataManager {
             apply_id3_technical_metadata(&mut tag, &audio_info);
 
             tag.write_to_path(&file_path_clone, ID3Version::Id3v24)
-                .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("write ID3 tags", &file_path_clone, e.to_string()))?;
 
             Ok::<_, Error>(())
         })
@@ -137,7 +137,7 @@ impl MetadataManager {
 
             // Save the tag
             tag.write_to_path(&file_path_clone, ID3Version::Id3v24)
-                .map_err(|e| Error::Unknown(format!("Failed to write ID3 tags: {}", e)))?;
+                .map_err(|e| Error::metadata("write ID3 tags", &file_path_clone, e.to_string()))?;
 
             Ok::<_, Error>(())
         })

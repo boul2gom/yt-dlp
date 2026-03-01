@@ -132,11 +132,11 @@ impl MetadataManager {
             .to_str()
             .ok_or_else(|| Error::path_validation(&metadata_file, "Invalid metadata path"))?;
 
-        // Build FFmpeg command
+        // Build FFmpeg command — preserve global metadata from input 0, add chapters from input 1
         let ffmpeg_args = crate::executor::FfmpegArgs::new()
             .input(input_str)
             .input(metadata_str)
-            .args(["-map_metadata", "1", "-map_chapters", "1"])
+            .args(["-map_metadata", "0", "-map_chapters", "1"])
             .codec_copy()
             .output(output_str)
             .build();

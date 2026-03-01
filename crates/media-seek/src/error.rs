@@ -23,13 +23,13 @@ impl Error {
     /// Convenience constructor for `ParseFailed`.
     pub(crate) fn parse(reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        tracing::warn!(reason = %reason, "⚙️ Container index parse failed");
+        tracing::warn!(reason = %reason, "Container index parse failed");
         Self::ParseFailed { reason }
     }
 
     /// Convenience constructor for `FetchFailed`.
     pub(crate) fn fetch<E: std::error::Error + Send + Sync + 'static>(source: E) -> Self {
-        tracing::warn!(error = %source, "⚙️ Extra Range fetch failed");
+        tracing::warn!(error = %source, "Extra Range fetch failed");
         Self::FetchFailed(Box::new(source))
     }
 }
