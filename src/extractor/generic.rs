@@ -117,6 +117,10 @@ impl Generic {
 
     /// Use credentials for sites requiring login.
     ///
+    /// **Security note:** Credentials are passed via `--username` and `--password` CLI arguments,
+    /// which may be visible in process listings. For sensitive environments, prefer
+    /// [`with_netrc`] or [`with_cookies`] on the `Downloader` instead.
+    ///
     /// # Arguments
     ///
     /// * `username` - Username for authentication
@@ -137,6 +141,9 @@ impl Generic {
         tracing::debug!(
             has_password = !password.is_empty(),
             "⚙️ Adding credentials for authentication"
+        );
+        tracing::warn!(
+            "Credentials passed as CLI arguments are visible in process listings — consider using netrc or cookies instead"
         );
 
         self.args.push(format!("--username={}", username));

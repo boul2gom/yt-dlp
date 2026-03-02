@@ -107,19 +107,23 @@ impl DownloadCache {
     /// # Returns
     ///
     /// The cached file metadata and its path, or `None` if not found.
-    pub async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying cache backend fails.
+    pub async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(hash = hash, "🔍 Looking up file by hash");
 
         // L1: Moka
         #[cfg(feature = "cache-memory")]
-        if let Some(result) = self.memory.get_by_hash(hash).await {
+        if let Some(result) = self.memory.get_by_hash(hash).await? {
             tracing::debug!(hash = hash, "✅ File cache hit (L1 memory)");
-            return Some(result);
+            return Ok(Some(result));
         }
 
         // L2: persistent
         #[cfg(persistent_cache)]
-        if let Some(result) = self.persistent.get_by_hash(hash).await {
+        if let Some(result) = self.persistent.get_by_hash(hash).await? {
             tracing::debug!(hash = hash, "✅ File cache hit (L2 persistent)");
 
             // Backfill L1
@@ -129,10 +133,10 @@ impl DownloadCache {
                 let _ = self.memory.put(result.0.clone(), path).await;
             }
 
-            return Some(result);
+            return Ok(Some(result));
         }
 
-        None
+        Ok(None)
     }
 
     /// Retrieve a file by video ID and format ID.
@@ -145,7 +149,11 @@ impl DownloadCache {
     /// # Returns
     ///
     /// The cached file metadata and its path, or `None` if not found.
-    pub async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying cache backend fails.
+    pub async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -154,18 +162,18 @@ impl DownloadCache {
 
         // L1: Moka
         #[cfg(feature = "cache-memory")]
-        if let Some(result) = self.memory.get_by_video_and_format(video_id, format_id).await {
+        if let Some(result) = self.memory.get_by_video_and_format(video_id, format_id).await? {
             tracing::debug!(
                 video_id = video_id,
                 format_id = format_id,
                 "✅ File cache hit (L1 memory)"
             );
-            return Some(result);
+            return Ok(Some(result));
         }
 
         // L2: persistent
         #[cfg(persistent_cache)]
-        if let Some(result) = self.persistent.get_by_video_and_format(video_id, format_id).await {
+        if let Some(result) = self.persistent.get_by_video_and_format(video_id, format_id).await? {
             tracing::debug!(
                 video_id = video_id,
                 format_id = format_id,
@@ -178,10 +186,10 @@ impl DownloadCache {
                 let _ = self.memory.put(result.0.clone(), path).await;
             }
 
-            return Some(result);
+            return Ok(Some(result));
         }
 
-        None
+        Ok(None)
     }
 
     /// Retrieve a file by video ID and quality/codec preferences.
@@ -194,18 +202,22 @@ impl DownloadCache {
     /// # Returns
     ///
     /// The cached file metadata and its path, or `None` if no match.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying cache backend fails.
     pub async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> Option<(CachedFile, PathBuf)> {
+    ) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(video_id = video_id, "🔍 Looking up file by preferences");
 
         // L1: Moka
         #[cfg(feature = "cache-memory")]
-        if let Some(result) = self.memory.get_by_video_and_preferences(video_id, preferences).await {
+        if let Some(result) = self.memory.get_by_video_and_preferences(video_id, preferences).await? {
             tracing::debug!(video_id = video_id, "✅ File cache hit by preferences (L1 memory)");
-            return Some(result);
+            return Ok(Some(result));
         }
 
         // L2: persistent
@@ -213,7 +225,7 @@ impl DownloadCache {
         if let Some(result) = self
             .persistent
             .get_by_video_and_preferences(video_id, preferences)
-            .await
+            .await?
         {
             tracing::debug!(video_id = video_id, "✅ File cache hit by preferences (L2 persistent)");
 
@@ -223,10 +235,10 @@ impl DownloadCache {
                 let _ = self.memory.put(result.0.clone(), path).await;
             }
 
-            return Some(result);
+            return Ok(Some(result));
         }
 
-        None
+        Ok(None)
     }
 
     /// Retrieve a thumbnail by video ID.
@@ -238,19 +250,23 @@ impl DownloadCache {
     /// # Returns
     ///
     /// The cached thumbnail metadata and its path, or `None` if not found.
-    pub async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying cache backend fails.
+    pub async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
         tracing::debug!(video_id = video_id, "🔍 Looking up thumbnail by video ID");
 
         // L1: Moka
         #[cfg(feature = "cache-memory")]
-        if let Some(result) = self.memory.get_thumbnail_by_video_id(video_id).await {
+        if let Some(result) = self.memory.get_thumbnail_by_video_id(video_id).await? {
             tracing::debug!(video_id = video_id, "✅ Thumbnail cache hit (L1 memory)");
-            return Some(result);
+            return Ok(Some(result));
         }
 
         // L2: persistent
         #[cfg(persistent_cache)]
-        if let Some(result) = self.persistent.get_thumbnail_by_video_id(video_id).await {
+        if let Some(result) = self.persistent.get_thumbnail_by_video_id(video_id).await? {
             tracing::debug!(video_id = video_id, "✅ Thumbnail cache hit (L2 persistent)");
 
             #[cfg(feature = "cache-memory")]
@@ -259,10 +275,10 @@ impl DownloadCache {
                 let _ = self.memory.put_thumbnail(result.0.clone(), path).await;
             }
 
-            return Some(result);
+            return Ok(Some(result));
         }
 
-        None
+        Ok(None)
     }
 
     /// Retrieve a subtitle by video ID and language code.
@@ -275,7 +291,11 @@ impl DownloadCache {
     /// # Returns
     ///
     /// The cached subtitle file metadata and its path, or `None` if not found.
-    pub async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying cache backend fails.
+    pub async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             language = language,
@@ -284,18 +304,18 @@ impl DownloadCache {
 
         // L1: Moka
         #[cfg(feature = "cache-memory")]
-        if let Some(result) = self.memory.get_subtitle_by_language(video_id, language).await {
+        if let Some(result) = self.memory.get_subtitle_by_language(video_id, language).await? {
             tracing::debug!(
                 video_id = video_id,
                 language = language,
                 "✅ Subtitle cache hit (L1 memory)"
             );
-            return Some(result);
+            return Ok(Some(result));
         }
 
         // L2: persistent
         #[cfg(persistent_cache)]
-        if let Some(result) = self.persistent.get_subtitle_by_language(video_id, language).await {
+        if let Some(result) = self.persistent.get_subtitle_by_language(video_id, language).await? {
             tracing::debug!(
                 video_id = video_id,
                 language = language,
@@ -308,10 +328,10 @@ impl DownloadCache {
                 let _ = self.memory.put(result.0.clone(), path).await;
             }
 
-            return Some(result);
+            return Ok(Some(result));
         }
 
-        None
+        Ok(None)
     }
 
     /// Store a file in the cache (both layers).
@@ -528,7 +548,10 @@ impl DownloadCache {
         video_id: Option<String>,
         format: Option<&Format>,
     ) -> Result<CachedFile> {
-        let size = std::fs::metadata(source_path).map(|m| m.len() as i64).unwrap_or(0);
+        let size = tokio::runtime::Handle::current()
+            .block_on(tokio::fs::metadata(source_path))
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
 
         let mime = guess_mime(source_path).to_string();
 

@@ -13,9 +13,13 @@ const AMF_BOOL: u8 = 0x01;
 const AMF_STRING: u8 = 0x02;
 const AMF_OBJECT: u8 = 0x03;
 const AMF_NULL: u8 = 0x05;
+const AMF_UNDEFINED: u8 = 0x06;
+const AMF_REFERENCE: u8 = 0x07;
 const AMF_ECMA_ARRAY: u8 = 0x08;
 const AMF_OBJECT_END: u8 = 0x09;
 const AMF_STRICT_ARRAY: u8 = 0x0A;
+const AMF_DATE: u8 = 0x0B;
+const AMF_LONG_STRING: u8 = 0x0C;
 
 /// FLV file header size: "FLV" (3) + version (1) + flags (1) + header_size (4).
 const FLV_HEADER_SIZE: usize = 9;
@@ -327,7 +331,11 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
             let (_, n) = skip_amf_value(data, pos)?;
             pos += n;
         },
-        AMF_NULL => {}
+        AMF_NULL | AMF_UNDEFINED => {}
+        AMF_REFERENCE => {
+            // 2-byte reference index
+            pos += 2;
+        }
         AMF_ECMA_ARRAY => {
             if pos + 4 > data.len() {
                 return Err(Error::parse("ECMA array count truncated"));
@@ -358,6 +366,18 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
                 let (_, n) = skip_amf_value(data, pos)?;
                 pos += n;
             }
+        }
+        AMF_DATE => {
+            // 8-byte f64 timestamp + 2-byte timezone offset
+            pos += 10;
+        }
+        AMF_LONG_STRING => {
+            // 4-byte length prefix + N bytes payload
+            if pos + 4 > data.len() {
+                return Err(Error::parse("AMF0 long string length truncated"));
+            }
+            let len = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
+            pos += 4 + len;
         }
         _ => {
             // Unknown type — cannot determine length; stop

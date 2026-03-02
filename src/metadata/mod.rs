@@ -31,11 +31,8 @@ use crate::error::Result;
 pub mod api;
 pub mod base;
 pub mod chapters;
-pub mod ffmpeg;
-pub mod lofty;
-pub mod mp3;
-pub mod mp4;
 pub mod postprocess;
+pub mod writers;
 
 // Re-export the trait
 pub use base::BaseMetadata;

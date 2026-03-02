@@ -126,6 +126,15 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
     let mut keyframes: Vec<(u64, u64)> = Vec::new(); // (frame_index, byte_offset)
     let mut frame_index = 0u64;
 
+    // Heuristic: check whether idx1 offsets are absolute (>= movi_start)
+    // or relative to the movi list. Some muxers write absolute file offsets.
+    let first_offset = if idx1.len() >= IDX1_ENTRY_SIZE {
+        u32::from_le_bytes(idx1[8..12].try_into().unwrap()) as u64
+    } else {
+        0
+    };
+    let offsets_are_absolute = movi_start > 0 && first_offset >= movi_start;
+
     for i in 0..n_entries {
         let off = i * IDX1_ENTRY_SIZE;
         if off + IDX1_ENTRY_SIZE > idx1.len() {
@@ -139,7 +148,12 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
         let is_video = chunk_id.len() == 4 && (chunk_id[2] == b'd') && (chunk_id[3] == b'b' || chunk_id[3] == b'c');
         if is_video {
             if flags & AVIIF_KEYFRAME != 0 {
-                keyframes.push((frame_index, movi_start + chunk_offset));
+                let abs_offset = if offsets_are_absolute {
+                    chunk_offset
+                } else {
+                    movi_start + chunk_offset
+                };
+                keyframes.push((frame_index, abs_offset));
             }
             frame_index += 1;
         }

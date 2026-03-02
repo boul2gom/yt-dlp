@@ -177,10 +177,9 @@ impl Libraries {
             "📦 Installing required dependencies"
         );
 
-        let youtube = self.install_youtube().await?;
-        let ffmpeg = self.install_ffmpeg().await?;
+        let (youtube, ffmpeg) = tokio::join!(self.install_youtube(), self.install_ffmpeg());
 
-        Ok(Self::new(youtube, ffmpeg))
+        Ok(Self::new(youtube?, ffmpeg?))
     }
 
     /// Install the required dependencies with an authentication token.

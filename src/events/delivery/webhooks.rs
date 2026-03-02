@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Serialize;
 use tokio::sync::{RwLock, mpsc};
 
-use super::{DownloadEvent, EventFilter, RetryStrategy};
+use crate::events::{DownloadEvent, EventFilter, RetryStrategy};
 use crate::utils::retry::RetryPolicy;
 
 /// HTTP method for webhook delivery

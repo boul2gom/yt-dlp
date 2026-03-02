@@ -89,10 +89,13 @@ pub struct Video {
     pub channel_is_verified: Option<bool>,
 
     /// The available formats of the video.
+    #[serde(default)]
     pub formats: Vec<Format>,
     /// The thumbnails of the video.
+    #[serde(default)]
     pub thumbnails: Vec<Thumbnail>,
     /// The automatic captions of the video.
+    #[serde(default)]
     pub automatic_captions: HashMap<String, Vec<AutomaticCaption>>,
     /// The subtitles of the video (user-uploaded and automatic).
     #[serde(default)]
@@ -106,8 +109,10 @@ pub struct Video {
     pub heatmap: Option<Heatmap>,
 
     /// The tags of the video.
+    #[serde(default)]
     pub tags: Vec<String>,
     /// The categories of the video.
+    #[serde(default)]
     pub categories: Vec<String>,
 
     /// If the video is age restricted, the age limit is different from 0.

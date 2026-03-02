@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::client::Libraries;
-use crate::download::postprocess::PostProcessConfig;
+use crate::download::config::postprocess::PostProcessConfig;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 

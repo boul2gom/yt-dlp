@@ -6,290 +6,26 @@
 //! - Resuming interrupted downloads
 //! - Optimizing memory usage
 
-use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
-use typed_builder::TypedBuilder;
 
-use crate::client::proxy::ProxyConfig;
-use crate::download::fetcher::Fetcher;
-use crate::download::speed_profile::SpeedProfile;
+use crate::download::config::speed_profile::SpeedProfile;
+// Re-export types for backward compatibility with `use crate::download::manager::*`
+pub use crate::download::types::{DownloadPriority, DownloadStatus, ManagerConfig, ProgressUpdate};
+use crate::download::types::{DownloadTask, ProgressCounters, ProgressCallback};
+use crate::download::worker::{
+    WorkerContext, build_progress_callback, emit_bus_event, prepare_task_fetcher, run_download_task,
+};
 use crate::error::Result;
 use crate::model::format::HttpHeaders;
-
-/// Per-task byte counters used by the progress callback (downloaded, total).
-type ProgressCounters = Arc<std::sync::Mutex<HashMap<u64, (Arc<AtomicU64>, Arc<AtomicU64>)>>>;
-
-// Download manager default configuration constants
-const DEFAULT_RETRY_ATTEMPTS: usize = 3;
-const DEFAULT_CLEANUP_THRESHOLD: usize = 1000; // Cleanup after 1000 entries
-
-/// Download priority
-#[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum DownloadPriority {
-    /// Low priority
-    Low = 0,
-    /// Normal priority
-    #[default]
-    Normal = 1,
-    /// High priority
-    High = 2,
-    /// Critical priority
-    Critical = 3,
-}
-
-impl DownloadPriority {
-    /// Converts an integer to priority
-    pub fn from_i32(value: i32) -> Self {
-        match value {
-            0 => Self::Low,
-            1 => Self::Normal,
-            2 => Self::High,
-            3 => Self::Critical,
-            _ => Self::Normal,
-        }
-    }
-}
-
-impl std::fmt::Display for DownloadPriority {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Low => f.write_str("Low"),
-            Self::Normal => f.write_str("Normal"),
-            Self::High => f.write_str("High"),
-            Self::Critical => f.write_str("Critical"),
-        }
-    }
-}
-
-/// Download task
-struct DownloadTask {
-    /// URL to download
-    url: String,
-    /// Destination path
-    destination: PathBuf,
-    /// Download priority
-    priority: DownloadPriority,
-    /// Unique ID of the task
-    id: u64,
-    /// Progress callback
-    #[allow(clippy::type_complexity)]
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    /// Optional HTTP headers from yt-dlp to use for the download
-    http_headers: Option<crate::model::format::HttpHeaders>,
-    /// Optional byte sub-range to download: only `[start, end]` bytes are fetched and
-    /// written from offset 0 in the destination file.
-    range_constraint: Option<(u64, u64)>,
-}
-
-impl std::fmt::Debug for DownloadTask {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DownloadTask")
-            .field("url", &self.url)
-            .field("destination", &self.destination)
-            .field("priority", &self.priority)
-            .field("id", &self.id)
-            .field("range_constraint", &self.range_constraint)
-            .field(
-                "progress_callback",
-                &format_args!(
-                    "{}",
-                    if self.progress_callback.is_some() {
-                        "Some(Fn)"
-                    } else {
-                        "None"
-                    }
-                ),
-            )
-            .finish()
-    }
-}
-
-impl PartialEq for DownloadTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for DownloadTask {}
-
-impl PartialOrd for DownloadTask {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DownloadTask {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // First compare by priority (higher priority = more prioritary)
-        let priority_cmp = (other.priority as i32).cmp(&(self.priority as i32));
-        if priority_cmp != Ordering::Equal {
-            return priority_cmp;
-        }
-
-        // Then by ID (smaller ID = older = more prioritary in a max-heap)
-        other.id.cmp(&self.id)
-    }
-}
-
-/// Download manager configuration
-#[derive(Debug, Clone, TypedBuilder)]
-pub struct ManagerConfig {
-    /// Maximum number of concurrent downloads
-    #[builder(default = SpeedProfile::default().max_concurrent_downloads())]
-    pub max_concurrent_downloads: usize,
-    /// Segment size for parallel download (in bytes)
-    #[builder(default = SpeedProfile::default().segment_size())]
-    pub segment_size: usize,
-    /// Number of parallel segments per download
-    #[builder(default = SpeedProfile::default().parallel_segments())]
-    pub parallel_segments: usize,
-    /// Number of download attempts in case of failure
-    #[builder(default = DEFAULT_RETRY_ATTEMPTS)]
-    pub retry_attempts: usize,
-    /// Maximum buffer size per download (in bytes)
-    #[builder(default = SpeedProfile::default().max_buffer_size())]
-    pub max_buffer_size: usize,
-    /// Optional proxy configuration
-    #[builder(default)]
-    pub proxy: Option<ProxyConfig>,
-    /// Speed profile for automatic optimization
-    #[builder(default)]
-    pub speed_profile: SpeedProfile,
-    /// Threshold for automatic cleanup of finished downloads
-    #[builder(default = DEFAULT_CLEANUP_THRESHOLD)]
-    pub cleanup_threshold: usize,
-    /// Optional User-Agent string
-    #[builder(default)]
-    pub user_agent: Option<String>,
-}
-
-impl ManagerConfig {
-    /// Create a ManagerConfig from a speed profile
-    ///
-    /// This automatically configures all download parameters based on the profile.
-    ///
-    /// # Arguments
-    ///
-    /// * `profile` - The speed profile to use
-    pub fn from_speed_profile(profile: SpeedProfile) -> Self {
-        Self {
-            max_concurrent_downloads: profile.max_concurrent_downloads(),
-            segment_size: profile.segment_size(),
-            parallel_segments: profile.parallel_segments(),
-            retry_attempts: DEFAULT_RETRY_ATTEMPTS,
-            max_buffer_size: profile.max_buffer_size(),
-            proxy: None,
-            speed_profile: profile,
-            cleanup_threshold: DEFAULT_CLEANUP_THRESHOLD,
-            user_agent: None,
-        }
-    }
-
-    /// Set the speed profile and update all related parameters
-    ///
-    /// # Arguments
-    ///
-    /// * `profile` - The speed profile to use
-    pub fn with_speed_profile(mut self, profile: SpeedProfile) -> Self {
-        self.max_concurrent_downloads = profile.max_concurrent_downloads();
-        self.segment_size = profile.segment_size();
-        self.parallel_segments = profile.parallel_segments();
-        self.max_buffer_size = profile.max_buffer_size();
-        self.speed_profile = profile;
-        self
-    }
-}
-
-impl Default for ManagerConfig {
-    fn default() -> Self {
-        Self::from_speed_profile(SpeedProfile::default())
-    }
-}
-
-impl std::fmt::Display for ManagerConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ManagerConfig(concurrent={}, segments={}, segment_size={}, retries={}, profile={})",
-            self.max_concurrent_downloads,
-            self.parallel_segments,
-            self.segment_size,
-            self.retry_attempts,
-            self.speed_profile
-        )
-    }
-}
-
-/// Progress update event for streaming API
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgressUpdate {
-    /// Download ID
-    pub download_id: u64,
-    /// Downloaded bytes
-    pub downloaded_bytes: u64,
-    /// Total bytes
-    pub total_bytes: u64,
-}
-
-impl std::fmt::Display for ProgressUpdate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ProgressUpdate(id={}, downloaded={}, total={})",
-            self.download_id, self.downloaded_bytes, self.total_bytes
-        )
-    }
-}
-
-/// Download status
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DownloadStatus {
-    /// Queued
-    Queued,
-    /// Downloading
-    Downloading {
-        /// Downloaded bytes
-        downloaded_bytes: u64,
-        /// Total size in bytes
-        total_bytes: u64,
-    },
-    /// Download completed
-    Completed,
-    /// Download failed
-    Failed {
-        /// Reason of failure
-        reason: String,
-    },
-    /// Download canceled
-    Canceled,
-}
-
-impl std::fmt::Display for DownloadStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Queued => f.write_str("Queued"),
-            Self::Downloading {
-                downloaded_bytes,
-                total_bytes,
-            } => {
-                write!(f, "Downloading(downloaded={}, total={})", downloaded_bytes, total_bytes)
-            }
-            Self::Completed => f.write_str("Completed"),
-            Self::Failed { reason } => write!(f, "Failed(reason={})", reason),
-            Self::Canceled => f.write_str("Canceled"),
-        }
-    }
-}
 
 /// Download manager
 pub struct DownloadManager {
@@ -869,7 +605,7 @@ impl DownloadManager {
         url: String,
         destination: PathBuf,
         priority: DownloadPriority,
-        progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+        progress_callback: Option<ProgressCallback>,
         http_headers: Option<crate::model::format::HttpHeaders>,
         range_constraint: Option<(u64, u64)>,
     ) -> u64 {
@@ -1050,18 +786,21 @@ impl DownloadManager {
                     ));
 
                     let task_id = task.id;
+                    let ctx = WorkerContext {
+                        statuses: statuses.clone(),
+                        tasks: tasks.clone(),
+                        cancelled: cancelled.clone(),
+                        completion_tx: completion_tx.clone(),
+                        event_bus: event_bus.clone(),
+                        progress_counters: progress_counters.clone(),
+                    };
                     let handle = tokio::spawn(run_download_task(
                         task_id,
                         task.url.clone(),
                         task.destination.clone(),
                         fetcher,
                         permit,
-                        statuses.clone(),
-                        tasks.clone(),
-                        cancelled.clone(),
-                        completion_tx.clone(),
-                        event_bus.clone(),
-                        progress_counters.clone(),
+                        ctx,
                     ));
 
                     {
@@ -1088,203 +827,6 @@ impl DownloadManager {
     /// Nothing. After calling this, no new tasks will be processed.
     pub fn shutdown(&self) {
         self.shutdown_token.cancel();
-    }
-}
-
-fn emit_bus_event(event_bus: &Option<crate::events::EventBus>, event: crate::events::DownloadEvent) {
-    if let Some(bus) = event_bus {
-        bus.emit(event);
-    }
-}
-
-fn prepare_task_fetcher(
-    task: &DownloadTask,
-    config: &ManagerConfig,
-    shared_client: &Arc<reqwest::Client>,
-) -> Result<Fetcher> {
-    let headers = task
-        .http_headers
-        .clone()
-        .or_else(|| config.user_agent.clone().map(HttpHeaders::browser_defaults));
-
-    let fetcher = match headers {
-        None => Fetcher::with_client(&task.url, Arc::clone(shared_client)),
-        Some(h) => Fetcher::with_client_and_headers(&task.url, Arc::clone(shared_client), h),
-    };
-
-    let mut fetcher = fetcher
-        .with_segment_size(config.segment_size)
-        .with_parallel_segments(config.parallel_segments)
-        .with_retry_attempts(config.retry_attempts)
-        .with_speed_profile(config.speed_profile);
-
-    if let Some((start, end)) = task.range_constraint {
-        fetcher = fetcher.with_range(start, end);
-    }
-
-    Ok(fetcher)
-}
-
-// Minimum interval between progress event emissions (50ms)
-const PROGRESS_THROTTLE_NANOS: u64 = 50_000_000;
-
-fn build_progress_callback(
-    task_id: u64,
-    progress_counters: &ProgressCounters,
-    progress_tx: broadcast::Sender<ProgressUpdate>,
-    event_bus: Option<crate::events::EventBus>,
-    user_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-) -> impl Fn(u64, u64) + Send + Sync + 'static {
-    let dl_counter = Arc::new(AtomicU64::new(0));
-    let total_counter = Arc::new(AtomicU64::new(0));
-
-    {
-        let mut counters = progress_counters.lock().unwrap();
-        counters.insert(task_id, (dl_counter.clone(), total_counter.clone()));
-    }
-
-    let speed_start_nanos = Arc::new(AtomicU64::new(0));
-    let last_emit_nanos = Arc::new(AtomicU64::new(0));
-
-    move |downloaded, total| {
-        // Lock-free counter update is always performed
-        dl_counter.store(downloaded, AtomicOrdering::Relaxed);
-        total_counter.store(total, AtomicOrdering::Relaxed);
-
-        let now_nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-
-        // Throttle event emission: skip if less than PROGRESS_THROTTLE_NANOS since last emit
-        // Always emit for the final update (downloaded == total)
-        let prev_emit = last_emit_nanos.load(AtomicOrdering::Relaxed);
-        if downloaded != total && now_nanos.saturating_sub(prev_emit) < PROGRESS_THROTTLE_NANOS {
-            return;
-        }
-        last_emit_nanos.store(now_nanos, AtomicOrdering::Relaxed);
-
-        let start_nanos = speed_start_nanos
-            .compare_exchange(0, now_nanos, AtomicOrdering::Relaxed, AtomicOrdering::Relaxed)
-            .unwrap_or_else(|current| current);
-        let elapsed_nanos = now_nanos.saturating_sub(start_nanos);
-        let speed = if elapsed_nanos > 0 {
-            downloaded as f64 / (elapsed_nanos as f64 / 1_000_000_000.0)
-        } else {
-            0.0
-        };
-
-        let _ = progress_tx.send(ProgressUpdate {
-            download_id: task_id,
-            downloaded_bytes: downloaded,
-            total_bytes: total,
-        });
-
-        emit_bus_event(
-            &event_bus,
-            crate::events::DownloadEvent::DownloadProgress {
-                download_id: task_id,
-                downloaded_bytes: downloaded,
-                total_bytes: total,
-                speed_bytes_per_sec: speed,
-                eta_seconds: None,
-            },
-        );
-
-        if let Some(ref callback) = user_callback {
-            callback(downloaded, total);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_download_task(
-    task_id: u64,
-    task_url: String,
-    destination: PathBuf,
-    fetcher: Fetcher,
-    permit: tokio::sync::OwnedSemaphorePermit,
-    statuses: Arc<Mutex<HashMap<u64, DownloadStatus>>>,
-    tasks: Arc<Mutex<HashMap<u64, JoinHandle<Result<()>>>>>,
-    cancelled: Arc<Mutex<HashSet<u64>>>,
-    completion_tx: broadcast::Sender<(u64, DownloadStatus)>,
-    event_bus: Option<crate::events::EventBus>,
-    progress_counters: ProgressCounters,
-) -> Result<()> {
-    let _permit = permit;
-    let start_time = std::time::Instant::now();
-
-    tracing::debug!(
-        task_id = task_id,
-        url = %task_url,
-        destination = ?destination,
-        "📥 Starting download attempt"
-    );
-
-    let result = fetcher.fetch_asset(&destination).await;
-    let duration = start_time.elapsed();
-
-    match &result {
-        Ok(_) => tracing::info!(task_id = task_id, url = %task_url, ?duration, "✅ Download completed successfully"),
-        Err(e) => tracing::warn!(task_id = task_id, url = %task_url, error = %e, ?duration, "Download failed"),
-    }
-
-    let final_status = match &result {
-        Ok(_) => DownloadStatus::Completed,
-        Err(e) => DownloadStatus::Failed { reason: e.to_string() },
-    };
-
-    {
-        statuses.lock().await.insert(task_id, final_status.clone());
-    }
-    {
-        progress_counters.lock().unwrap().remove(&task_id);
-    }
-
-    emit_download_result(&event_bus, &final_status, task_id, &task_url, &destination, duration).await;
-
-    let _ = completion_tx.send((task_id, final_status));
-    {
-        tasks.lock().await.remove(&task_id);
-    }
-    {
-        // Keep final status in the map for post-hoc querying
-        cancelled.lock().await.remove(&task_id);
-    }
-
-    result
-}
-
-async fn emit_download_result(
-    event_bus: &Option<crate::events::EventBus>,
-    status: &DownloadStatus,
-    task_id: u64,
-    url: &str,
-    destination: &std::path::Path,
-    duration: std::time::Duration,
-) {
-    let Some(bus) = event_bus else { return };
-
-    match status {
-        DownloadStatus::Completed => {
-            let total_bytes = tokio::fs::metadata(destination).await.map(|m| m.len()).unwrap_or(0);
-            bus.emit(crate::events::DownloadEvent::DownloadCompleted {
-                download_id: task_id,
-                url: url.to_string(),
-                output_path: destination.to_path_buf(),
-                duration,
-                total_bytes,
-            });
-        }
-        DownloadStatus::Failed { reason } => {
-            bus.emit(crate::events::DownloadEvent::DownloadFailed {
-                download_id: task_id,
-                url: url.to_string(),
-                error: reason.clone(),
-                retry_count: 0,
-            });
-        }
-        _ => {}
     }
 }
 

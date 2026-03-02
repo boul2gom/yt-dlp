@@ -28,6 +28,24 @@ use crate::events::types::RecordingMethod;
 use crate::model::Video;
 use crate::model::format::Format;
 
+/// Common configuration shared across live recording engines.
+pub struct RecordingConfig {
+    /// The HLS stream URL to record.
+    pub stream_url: String,
+    /// The output file path.
+    pub output_path: PathBuf,
+    /// The video ID (for event emission).
+    pub video_id: String,
+    /// Quality label (e.g. "1080p").
+    pub quality: String,
+    /// Optional maximum recording duration.
+    pub max_duration: Option<Duration>,
+    /// Cancellation token for graceful stop.
+    pub cancellation_token: CancellationToken,
+    /// The event bus for emitting recording events.
+    pub event_bus: crate::events::EventBus,
+}
+
 /// The result of a live recording session.
 #[derive(Debug, Clone)]
 pub struct RecordingResult {
@@ -215,31 +233,31 @@ impl<'a> LiveRecordingBuilder<'a> {
                         .map_err(|e| Error::http(&stream_url, "building HTTP client", e))?,
                 );
 
-                let recorder = LiveRecorder::new(
+                let config = RecordingConfig {
                     stream_url,
-                    self.output_path,
-                    &self.video.id,
-                    &quality,
-                    self.max_duration,
+                    output_path: self.output_path,
+                    video_id: self.video.id.clone(),
+                    quality,
+                    max_duration: self.max_duration,
                     cancellation_token,
-                    client,
-                    self.downloader.event_bus.clone(),
-                );
+                    event_bus: self.downloader.event_bus.clone(),
+                };
 
+                let recorder = LiveRecorder::new(config, client);
                 recorder.record().await
             }
             RecordingMethod::Fallback => {
-                let recorder = FfmpegLiveRecorder::new(
+                let config = RecordingConfig {
                     stream_url,
-                    self.output_path,
-                    &self.downloader.libraries.ffmpeg,
-                    &self.video.id,
-                    &quality,
-                    self.max_duration,
+                    output_path: self.output_path,
+                    video_id: self.video.id.clone(),
+                    quality,
+                    max_duration: self.max_duration,
                     cancellation_token,
-                    self.downloader.event_bus.clone(),
-                );
+                    event_bus: self.downloader.event_bus.clone(),
+                };
 
+                let recorder = FfmpegLiveRecorder::new(config, &self.downloader.libraries.ffmpeg);
                 recorder.record().await
             }
         }

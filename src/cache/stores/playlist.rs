@@ -48,7 +48,9 @@ impl CachedPlaylist {
 
 impl From<(String, Playlist)> for CachedPlaylist {
     fn from((url, playlist): (String, Playlist)) -> Self {
-        let playlist_json = serde_json::to_string(&playlist).unwrap_or_default();
+        // Serialization failure here would indicate a Playlist struct that can't
+        // round-trip, which is a programming error — panic is appropriate.
+        let playlist_json = serde_json::to_string(&playlist).expect("Playlist serialization must not fail");
 
         Self {
             id: playlist.id.clone(),

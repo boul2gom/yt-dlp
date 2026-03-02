@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use rand::prelude::*;
 use tokio::time::sleep;
 use typed_builder::TypedBuilder;
 
@@ -201,7 +202,6 @@ impl RetryPolicy {
 
         // Add jitter if enabled (random factor between 0.5x and 1.5x, i.e. ±50%)
         let final_delay_ms = if self.jitter {
-            use rand::prelude::*;
             let mut rng = rand::rng();
             let jitter_factor: f64 = rng.random_range(0.5..=1.5);
             delay_ms * jitter_factor

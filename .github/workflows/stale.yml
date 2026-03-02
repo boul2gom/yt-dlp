@@ -1,0 +1,49 @@
+name: "🧹 Stale Issues and PRs"
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    manage-stale:
+        name: "🧹 Mark stale issues and PRs"
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: "🔐 Generate ephemeral token from GitHub App"
+              id: app-token
+              uses: actions/create-github-app-token@v2.2.1
+              with:
+                app-id: ${{ secrets.CI_APP_ID }}
+                private-key: ${{ secrets.CI_APP_KEY }}
+
+            - name: "📁 Check out the repository"
+              uses: actions/checkout@v6.0.2
+              with:
+                token: ${{ steps.app-token.outputs.token }}
+
+            - name: "🧹 Mark stale issues and PRs"
+              uses: actions/stale@v10.2.0
+              with:
+                repo-token: ${{ steps.app-token.outputs.token }}
+                days-before-stale: 30
+                days-before-close: 7
+
+                stale-issue-message: |
+                    Hi there! 👋
+                    This issue has been inactive for 30 days. I'm marking it as `stale`.
+                    If this is still relevant, please leave a comment. Otherwise, it will be automatically closed in 7 days. Thanks for your contribution!
+                close-issue-message: |
+                    Hi there! 👋
+                    This issue has been automatically closed due to inactivity. If it's still relevant, please feel free to reopen it or open a new one. Thanks for your contribution!
+                stale-pr-message: |
+                    Hi there! 👋
+                    This pull request has been inactive for 30 days. I'm marking it as `stale`.
+                    If you'd like to continue working on it, just leave a comment or push a new commit. Otherwise, it will be automatically closed in 7 days. Thanks for your contribution!
+                close-pr-message: |
+                    Hi there! 👋
+                    This pull request has been automatically closed due to inactivity. If you'd like to continue working on it, please feel free to reopen it or open a new one. Thanks for your contribution!Projet

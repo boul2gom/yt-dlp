@@ -317,3 +317,10 @@ impl StreamingProcess {
         })
     }
 }
+#[cfg(feature = "live-recording")]
+impl Drop for StreamingProcess {
+    fn drop(&mut self) {
+        // Prevent orphaned FFmpeg processes: send SIGKILL on drop
+        let _ = self.child.start_kill();
+    }
+}

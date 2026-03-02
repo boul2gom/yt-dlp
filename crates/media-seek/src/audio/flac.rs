@@ -111,9 +111,16 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
             let (next_sample, next_off) = if i + 1 < points.len() {
                 (points[i + 1].0, audio_start + points[i + 1].1)
             } else {
-                // Last segment: use audio_start + stream_off as end so byte_size = 0
-                // (unknown extent — callers should treat 0 as "until EOF")
-                (total_samples, byte_offset)
+                // Last segment: use total_samples if known, otherwise estimate from
+                // the previous segment's duration to avoid end_secs=0 inversion.
+                let last_sample = if total_samples > 0 {
+                    total_samples
+                } else {
+                    // Estimate: double the interval from this seek point
+                    let prev_sample = if i > 0 { points[i - 1].0 } else { 0 };
+                    sample_num + (sample_num - prev_sample)
+                };
+                (last_sample, byte_offset)
             };
             let end_secs = next_sample as f64 / sample_rate as f64;
             let byte_size = next_off.saturating_sub(byte_offset);

@@ -1,4 +1,4 @@
-name: Github CI - Format
+name: "🎨 Github CI - Format"
 
 on:
   push:

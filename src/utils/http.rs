@@ -86,11 +86,16 @@ pub fn build_http_client(config: HttpClientConfig) -> crate::error::Result<Arc<C
         builder = builder.default_headers(headers);
     }
 
-    if let Some(proxy_config) = config.proxy
-        && let Ok(proxy) = proxy_config.to_reqwest_proxy()
-    {
-        tracing::debug!("⚙️ Adding proxy configuration to HTTP client");
-        builder = builder.proxy(proxy);
+    if let Some(proxy_config) = config.proxy {
+        match proxy_config.to_reqwest_proxy() {
+            Ok(proxy) => {
+                tracing::debug!("⚙️ Adding proxy configuration to HTTP client");
+                builder = builder.proxy(proxy);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Proxy configuration failed — client will connect directly without proxy");
+            }
+        }
     }
 
     let client = builder.build()?;

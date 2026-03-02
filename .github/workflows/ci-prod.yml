@@ -1,8 +1,10 @@
-name: Github CI - Production
+name: "🔌 Github CI - Production"
 
 on:
   release:
     types: [published]
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,7 @@ permissions:
 jobs:
   sonarcloud-analysis:
     name: 🔍 SonarCloud analysis
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,6 +34,7 @@ jobs:
 
   scorecard-analysis:
     name: 🔍 Scorecard analysis
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -84,7 +84,7 @@ impl Playlist {
     /// A slice of entries within the specified range
     pub fn get_entries_in_range(&self, start: usize, end: usize) -> &[PlaylistEntry] {
         let end = end.min(self.entries.len().saturating_sub(1));
-        if start >= self.entries.len() {
+        if start >= self.entries.len() || start > end {
             &[]
         } else {
             &self.entries[start..=end]

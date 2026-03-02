@@ -5,6 +5,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::download::types::ProgressCallback;
+
 /// Context for segment download operations
 ///
 /// Provides shared state for parallel segment downloads including file handle,
@@ -15,7 +17,7 @@ pub struct SegmentContext {
     /// Atomic counter for total downloaded bytes across all segments
     pub downloaded_bytes: Arc<AtomicU64>,
     /// Optional callback for progress notifications
-    pub progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    pub progress_callback: Option<ProgressCallback>,
     /// Total size of the file in bytes
     pub total_bytes: u64,
     /// Byte offset subtracted from URL-absolute segment positions to obtain file-write positions.
@@ -66,7 +68,7 @@ impl SegmentContext {
     pub fn new(
         file: Arc<std::fs::File>,
         total_bytes: u64,
-        progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+        progress_callback: Option<ProgressCallback>,
     ) -> Self {
         tracing::debug!(
             total_bytes = total_bytes,

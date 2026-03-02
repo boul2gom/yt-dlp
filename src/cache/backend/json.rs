@@ -2,8 +2,6 @@
 //!
 //! This module provides a simple file-system based cache where metadata is stored as JSON files.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
@@ -15,11 +13,21 @@ use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
 
-/// Compute a hex hash of a URL to use as an index filename.
+/// Compute a stable hex hash of a URL to use as an index filename.
+/// Uses FNV-1a (via manual implementation) for cross-version stability,
+/// unlike `DefaultHasher` which can change between Rust releases.
 fn url_hash(url: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    /// FNV-1a 64-bit offset basis.
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    /// FNV-1a 64-bit prime.
+    const FNV_PRIME: u64 = 0x00000100000001B3;
+
+    let mut hash = FNV_OFFSET;
+    for byte in url.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{:016x}", hash)
 }
 
 /// JSON-backed video cache implementation.
@@ -193,6 +201,9 @@ impl VideoBackend for JsonVideoCache {
                     && is_expired(cached.cached_at, self.ttl)
                 {
                     let _ = tokio::fs::remove_file(entry.path()).await;
+                    // Also remove the orphaned .url index file
+                    let url_index = self.cache_dir.join(format!("{}.url", url_hash(&cached.url)));
+                    let _ = tokio::fs::remove_file(&url_index).await;
                 }
             }
         }
@@ -358,6 +369,9 @@ impl PlaylistBackend for JsonPlaylistCache {
                     && is_expired(cached.cached_at, self.ttl)
                 {
                     let _ = tokio::fs::remove_file(entry.path()).await;
+                    // Also remove the orphaned .url index file
+                    let url_index = self.cache_dir.join(format!("{}.url", url_hash(&cached.url)));
+                    let _ = tokio::fs::remove_file(&url_index).await;
                 }
             }
         }
@@ -475,7 +489,7 @@ impl JsonFileCache {
 }
 
 impl FileBackend for JsonFileCache {
-    async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             hash = hash,
             cache_dir = ?self.cache_dir,
@@ -484,8 +498,8 @@ impl FileBackend for JsonFileCache {
         );
         let meta_path = self.cache_dir.join("files_meta").join(format!("{}.json", hash));
         if meta_path.exists() {
-            let content = tokio::fs::read_to_string(meta_path).await.ok()?;
-            let cached: CachedFile = serde_json::from_str(&content).ok()?;
+            let content = tokio::fs::read_to_string(&meta_path).await?;
+            let cached: CachedFile = serde_json::from_str(&content)?;
 
             if is_expired(cached.cached_at, self.ttl) {
                 tracing::debug!(
@@ -494,7 +508,7 @@ impl FileBackend for JsonFileCache {
                     ttl = self.ttl,
                     "⚙️ Cache expired for file"
                 );
-                return None;
+                return Ok(None);
             }
 
             let file_path = self.cache_dir.join(&cached.relative_path);
@@ -505,17 +519,21 @@ impl FileBackend for JsonFileCache {
                     file_path = ?file_path,
                     "✅ Cache hit for file"
                 );
-                return Some((cached, file_path));
+                return Ok(Some((cached, file_path)));
             }
         }
-        None
+        Ok(None)
     }
 
-    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(video_id = video_id, format_id = format_id, cache_dir = ?self.cache_dir, "🔍 Looking for file by video and format in JSON cache");
 
         let meta_dir = self.cache_dir.join("files_meta");
-        let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
+        let mut entries = match tokio::fs::read_dir(&meta_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -531,12 +549,12 @@ impl FileBackend for JsonFileCache {
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
                     if file_path.exists() {
-                        return Some((cached, file_path));
+                        return Ok(Some((cached, file_path)));
                     }
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     #[cfg(cache)]
@@ -544,10 +562,14 @@ impl FileBackend for JsonFileCache {
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> Option<(CachedFile, PathBuf)> {
+    ) -> Result<Option<(CachedFile, PathBuf)>> {
         // Scan and filter
         let meta_dir = self.cache_dir.join("files_meta");
-        let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
+        let mut entries = match tokio::fs::read_dir(&meta_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -563,12 +585,12 @@ impl FileBackend for JsonFileCache {
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
                     if file_path.exists() {
-                        return Some((cached, file_path));
+                        return Ok(Some((cached, file_path)));
                     }
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
@@ -630,11 +652,15 @@ impl FileBackend for JsonFileCache {
         Ok(())
     }
 
-    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
         tracing::debug!(video_id = video_id, cache_dir = ?self.cache_dir, "🔍 Looking for thumbnail by video ID in JSON cache");
 
         let meta_dir = self.cache_dir.join("thumbnails_meta");
-        let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
+        let mut entries = match tokio::fs::read_dir(&meta_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -649,12 +675,12 @@ impl FileBackend for JsonFileCache {
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
                     if file_path.exists() {
-                        return Some((cached, file_path));
+                        return Ok(Some((cached, file_path)));
                     }
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
@@ -676,11 +702,15 @@ impl FileBackend for JsonFileCache {
         Ok(file_path)
     }
 
-    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(video_id = video_id, language = language, cache_dir = ?self.cache_dir, "🔍 Looking for subtitle by language in JSON cache");
 
         let meta_dir = self.cache_dir.join("files_meta");
-        let mut entries = tokio::fs::read_dir(&meta_dir).await.ok()?;
+        let mut entries = match tokio::fs::read_dir(&meta_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -697,11 +727,11 @@ impl FileBackend for JsonFileCache {
                     }
                     let file_path = self.cache_dir.join(&cached.relative_path);
                     if file_path.exists() {
-                        return Some((cached, file_path));
+                        return Ok(Some((cached, file_path)));
                     }
                 }
             }
         }
-        None
+        Ok(None)
     }
 }

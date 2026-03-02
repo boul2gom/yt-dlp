@@ -6,23 +6,21 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-pub mod caption;
-pub mod chapter;
 pub mod format;
-pub mod heatmap;
-pub mod playlist;
 pub mod selector;
-pub mod thumbnail;
+pub mod types;
 pub mod utils;
 pub mod video;
 
 // Re-export main types
 // Re-export chapter types
-pub use chapter::{ChapterList, ChapterValidation};
 // Re-export selector types
 pub use selector::{
     AudioCodecPreference, AudioQuality, FormatPreferences, StoryboardQuality, VideoCodecPreference, VideoQuality,
 };
+pub use types::chapter::{ChapterList, ChapterValidation};
+// Re-export types for convenience
+pub use types::{caption, chapter, heatmap, playlist, thumbnail};
 // Re-export utility traits
 pub use utils::{AllTraits, CommonTraits};
 pub use video::{FORMAT_URL_LIFETIME, Video};

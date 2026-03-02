@@ -333,7 +333,13 @@ fn parse_cues(
     } else if let Some(last) = segments.last_mut() {
         let total = total_size.unwrap_or(last.byte_offset);
         last.byte_size = total.saturating_sub(last.byte_offset);
-        last.end_secs = last.start_secs;
+        // Estimate duration from byte_size and a rough byte rate to avoid zero-duration
+        let estimated_secs = if last.byte_size > 0 && total > 0 {
+            last.start_secs + (last.byte_size as f64 / total as f64) * last.start_secs.max(1.0)
+        } else {
+            last.start_secs + 1.0
+        };
+        last.end_secs = estimated_secs;
     }
 
     segments

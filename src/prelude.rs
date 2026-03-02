@@ -15,7 +15,7 @@
 pub use crate::cache::{CacheConfig, CacheLayer, DownloadCache, VideoCache};
 // Client types (new architecture)
 pub use crate::client::{DownloadBuilder, Libraries, LibraryInstaller};
-pub use crate::download::partial::PartialRange;
+pub use crate::download::engine::partial::PartialRange;
 // Download types (new architecture)
 pub use crate::download::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
 pub use crate::download::{Fetcher, ProgressTracker};

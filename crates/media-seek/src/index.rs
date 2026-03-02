@@ -71,6 +71,10 @@ impl ContainerIndex {
                 let align = (*block_align).max(1);
                 let start_byte = ((start_secs * byte_rate / align as f64).floor() as u64) * align;
                 let end_byte = ((end_secs * byte_rate / align as f64).ceil() as u64) * align;
+
+                // Guard: when start == end (point seek), ensure at least one aligned block
+                let end_byte = end_byte.max(start_byte + align);
+
                 Some(ByteRange {
                     start: start_byte,
                     end: end_byte.saturating_sub(1),
@@ -85,9 +89,9 @@ impl ContainerIndex {
                 let i = segments.partition_point(|s| s.start_secs <= start_secs);
                 let first = if i > 0 { &segments[i - 1] } else { segments.first()? };
 
-                // Binary search: first segment whose start_secs >= desired end (O(log n))
+                // Binary search: last segment whose start_secs < desired end (O(log n))
                 let j = segments.partition_point(|s| s.start_secs < end_secs);
-                let last = segments.get(j).or_else(|| segments.last())?;
+                let last = if j > 0 { &segments[j - 1] } else { segments.first()? };
 
                 Some(ByteRange {
                     start: first.byte_offset,

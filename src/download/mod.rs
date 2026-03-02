@@ -3,20 +3,18 @@
 //! This module handles all download operations including HTTP fetching,
 //! parallel segment downloads, and progress tracking.
 
-pub mod fetcher;
+mod api;
+pub mod config;
+pub mod engine;
 pub mod manager;
-pub mod partial;
-pub mod postprocess;
-pub mod progress;
-pub mod range_fetcher;
-pub mod segment;
-pub mod speed_profile;
+pub(crate) mod types;
+mod worker;
 
-pub use fetcher::Fetcher;
-pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};
-pub use partial::PartialRange;
-pub use postprocess::{
+pub use config::postprocess::{
     AudioCodec, EncodingPreset, FfmpegFilter, PostProcessConfig, Resolution, VideoCodec, WatermarkPosition,
 };
-pub use progress::ProgressTracker;
-pub use speed_profile::SpeedProfile;
+pub use config::progress::ProgressTracker;
+pub use config::speed_profile::SpeedProfile;
+pub use engine::fetcher::Fetcher;
+pub use engine::partial::PartialRange;
+pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};

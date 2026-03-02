@@ -10,8 +10,8 @@ use std::time::Duration;
 use crate::cache::{CacheConfig, CacheLayer};
 use crate::client::proxy::ProxyConfig;
 use crate::client::{Downloader, Libraries};
+use crate::download::config::speed_profile::SpeedProfile;
 use crate::download::manager::{DownloadManager, ManagerConfig};
-use crate::download::speed_profile::SpeedProfile;
 use crate::error::Result;
 use crate::extractor::ExtractorConfig;
 #[cfg(cache)]
@@ -42,6 +42,7 @@ pub struct DownloaderBuilder {
     libraries: Libraries,
     output_dir: PathBuf,
     args: Vec<String>,
+    user_agent: Option<String>,
     timeout: Duration,
     proxy: Option<ProxyConfig>,
     cookies: Option<PathBuf>,
@@ -72,6 +73,7 @@ impl DownloaderBuilder {
             libraries,
             output_dir,
             args: Vec::new(),
+            user_agent: None,
             timeout: crate::client::DEFAULT_TIMEOUT,
             proxy: None,
             cookies: None,
@@ -281,6 +283,22 @@ impl DownloaderBuilder {
         self
     }
 
+    /// Set a custom User-Agent header for HTTP requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_agent` - The User-Agent string to use
+    ///
+    /// # Returns
+    ///
+    /// The builder with the user agent configured.
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        let ua = user_agent.into();
+        tracing::debug!(user_agent = ua, "🔧 Setting user agent");
+        self.user_agent = Some(ua);
+        self
+    }
+
     /// Build the Downloader instance.
     ///
     /// This method is async because it may need to create cache directories
@@ -393,7 +411,7 @@ impl DownloaderBuilder {
             libraries: self.libraries,
             output_dir: self.output_dir,
             args,
-            user_agent: None,
+            user_agent: self.user_agent,
             timeout: self.timeout,
             proxy: self.proxy,
             #[cfg(cache)]

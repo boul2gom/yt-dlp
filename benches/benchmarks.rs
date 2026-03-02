@@ -15,9 +15,8 @@ use std::path::PathBuf;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use yt_dlp::VideoSelection;
-use yt_dlp::download::SpeedProfile;
 use yt_dlp::download::manager::ManagerConfig;
-use yt_dlp::download::postprocess::{AudioCodec, PostProcessConfig, VideoCodec};
+use yt_dlp::download::{AudioCodec, PostProcessConfig, SpeedProfile, VideoCodec};
 use yt_dlp::events::{DownloadEvent, EventFilter};
 use yt_dlp::model::chapter::Chapter;
 use yt_dlp::model::heatmap::{Heatmap, HeatmapPoint};

@@ -1,4 +1,4 @@
-name: "Issue and PR Labeler"
+name: "🏷️ Issue and PR Labeler"
 
 on:
   issues:
@@ -259,9 +259,9 @@ jobs:
             // 💬 Post a contextual comment (only on newly opened items)
             // ═══════════════════════════════════════════════════════════
             if (context.payload.action === 'opened') {
-              const comment_body = is_pr
-                ? `Thanks for the contribution! 🎉\n\n🏷 I have applied some labels to categorize this pull request.\n\nYour pull request will be reviewed by a maintainer as soon as possible.`
-                : `Thanks for opening this issue! 🎉\n\n🏷 I have applied some labels to categorize this issue.\n\nYour issue will be reviewed by a maintainer as soon as possible.`;
+              const pr_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this pull request.\nYour pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!`;
+              const issue_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this issue.\nYour issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!`;
+              const comment_body = is_pr ? pr_comment : issue_comment;
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,

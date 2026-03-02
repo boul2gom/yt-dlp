@@ -117,7 +117,8 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
         }
 
         if trimmed.contains(" --> ") {
-            let converted_timestamp = trimmed.replace('.', ",");
+            // Only replace dots in the timestamp portions, not in position/alignment metadata
+            let converted_timestamp = convert_vtt_timestamp_line(trimmed);
             current_subtitle.push(converted_timestamp);
             in_subtitle = true;
         } else if trimmed.is_empty() {
@@ -227,4 +228,13 @@ fn remove_vtt_tags(text: &str) -> String {
     let text = RE_TIMESTAMP.replace_all(&text, "");
 
     text.to_string()
+}
+
+/// Converts a VTT timestamp line to SRT format.
+///
+/// Only replaces dots with commas in the timestamp portions (HH:MM:SS.mmm),
+/// preserving any VTT position/alignment metadata that follows.
+fn convert_vtt_timestamp_line(line: &str) -> String {
+    static RE_TS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\d{2}:\d{2}:\d{2})\.(\d{3})").unwrap());
+    RE_TS.replace_all(line, "$1,$2").to_string()
 }

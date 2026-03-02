@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
+use crate::metadata::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::model::Video;
 use crate::model::format::Format;
 
@@ -27,7 +27,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if FFmpeg command fails
-    pub(super) async fn add_metadata_to_webm(
+    pub(crate) async fn add_metadata_to_webm(
         &self,
         file_path: impl Into<PathBuf>,
         video: &Video,
@@ -54,7 +54,7 @@ impl MetadataManager {
                     "album" => "album",
                     "genre" => "genre",
                     "date" => "date",
-                    "year" => "date",
+                    "year" => "DATE_RECORDED",
                     "framerate" => "FRAMERATE",
                     "resolution" => "RESOLUTION",
                     "video_codec" => "ENCODER",
@@ -88,7 +88,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if FFmpeg command fails
-    pub(super) async fn add_ffmpeg_metadata(
+    pub(crate) async fn add_ffmpeg_metadata(
         &self,
         file_path: impl Into<PathBuf>,
         video: &Video,
@@ -137,7 +137,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if FFmpeg command fails
-    pub(super) async fn add_thumbnail_to_webm(
+    pub(crate) async fn add_thumbnail_to_webm(
         &self,
         file_path: impl Into<PathBuf>,
         thumbnail_path: impl Into<PathBuf>,

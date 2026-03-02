@@ -15,8 +15,8 @@ use lofty::tag::items::Timestamp;
 use lofty::tag::{ItemKey, ItemValue, Tag, TagItem, TagType};
 use tokio::task;
 
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
+use crate::metadata::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::model::Video;
 use crate::model::format::Format;
 
@@ -61,7 +61,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if lofty cannot read or write the file tags.
-    pub(super) async fn add_metadata_with_lofty(
+    pub(crate) async fn add_metadata_with_lofty(
         file_path: impl Into<PathBuf>,
         video: &Video,
         audio_format: Option<&Format>,
@@ -117,7 +117,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the tags cannot be written.
-    pub(super) async fn add_thumbnail_with_lofty(
+    pub(crate) async fn add_thumbnail_with_lofty(
         file_path: impl Into<PathBuf>,
         thumbnail_path: &Path,
         extension: &str,

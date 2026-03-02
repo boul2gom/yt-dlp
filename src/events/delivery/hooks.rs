@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use dyn_clone::DynClone;
 use tokio::sync::RwLock;
 
-use super::{DownloadEvent, EventFilter};
+use crate::events::{DownloadEvent, EventFilter};
 
 /// Result type for hook execution
 pub type HookResult = Result<(), HookError>;
@@ -176,10 +176,10 @@ impl HookRegistry {
                     match tokio::time::timeout(timeout, hook.on_event(&event)).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            tracing::warn!(hook = hook.name(), error = %e, "🔔 Hook execution failed");
+                            tracing::warn!(hook = hook.name(), error = %e, "Hook execution failed");
                         }
                         Err(_) => {
-                            tracing::warn!(hook = hook.name(), "🔔 Hook execution timed out");
+                            tracing::warn!(hook = hook.name(), "Hook execution timed out");
                         }
                     }
                 }
@@ -199,10 +199,10 @@ impl HookRegistry {
             match tokio::time::timeout(timeout, hook.on_event(event)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
-                    tracing::warn!(hook = hook.name(), error = %e, "🔔 Hook execution failed");
+                    tracing::warn!(hook = hook.name(), error = %e, "Hook execution failed");
                 }
                 Err(_) => {
-                    tracing::warn!(hook = hook.name(), "🔔 Hook execution timed out");
+                    tracing::warn!(hook = hook.name(), "Hook execution timed out");
                 }
             }
         }

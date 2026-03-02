@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
+use super::RecordingConfig;
 use crate::error::Result;
 use crate::events::DownloadEvent;
 use crate::events::types::RecordingMethod;
@@ -43,34 +44,18 @@ impl FfmpegLiveRecorder {
     ///
     /// # Arguments
     ///
-    /// * `stream_url` - The HLS stream URL to record.
-    /// * `output_path` - Where to write the recorded stream.
+    /// * `config` - Common recording configuration (URL, output, duration, events).
     /// * `ffmpeg_path` - Path to the FFmpeg binary.
-    /// * `video_id` - The video ID (for events).
-    /// * `quality` - Quality label (e.g. "1080p").
-    /// * `max_duration` - Optional maximum recording duration.
-    /// * `cancellation_token` - Token to cancel recording.
-    /// * `event_bus` - Event bus for broadcasting progress.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        stream_url: impl Into<String>,
-        output_path: impl Into<PathBuf>,
-        ffmpeg_path: impl Into<PathBuf>,
-        video_id: impl Into<String>,
-        quality: impl Into<String>,
-        max_duration: Option<Duration>,
-        cancellation_token: CancellationToken,
-        event_bus: crate::events::EventBus,
-    ) -> Self {
+    pub fn new(config: RecordingConfig, ffmpeg_path: impl Into<PathBuf>) -> Self {
         Self {
-            stream_url: stream_url.into(),
-            output_path: output_path.into(),
+            stream_url: config.stream_url,
+            output_path: config.output_path,
             ffmpeg_path: ffmpeg_path.into(),
-            video_id: video_id.into(),
-            quality: quality.into(),
-            max_duration,
-            cancellation_token,
-            event_bus,
+            video_id: config.video_id,
+            quality: config.quality,
+            max_duration: config.max_duration,
+            cancellation_token: config.cancellation_token,
+            event_bus: config.event_bus,
         }
     }
 

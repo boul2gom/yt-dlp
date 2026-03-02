@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+use super::RecordingConfig;
 use super::hls;
 use crate::error::{Error, Result};
 use crate::events::DownloadEvent;
@@ -57,34 +58,18 @@ impl LiveRecorder {
     ///
     /// # Arguments
     ///
-    /// * `playlist_url` - The HLS media playlist URL to poll.
-    /// * `output_path` - Where to write the recorded stream.
-    /// * `video_id` - The video ID (for events).
-    /// * `quality` - Quality label (e.g. "1080p").
-    /// * `max_duration` - Optional maximum recording duration.
-    /// * `cancellation_token` - Token to cancel recording.
+    /// * `config` - Common recording configuration (URL, output, duration, events).
     /// * `client` - Shared HTTP client.
-    /// * `event_bus` - Event bus for broadcasting progress.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        playlist_url: impl Into<String>,
-        output_path: impl Into<PathBuf>,
-        video_id: impl Into<String>,
-        quality: impl Into<String>,
-        max_duration: Option<Duration>,
-        cancellation_token: CancellationToken,
-        client: Arc<reqwest::Client>,
-        event_bus: crate::events::EventBus,
-    ) -> Self {
+    pub fn new(config: RecordingConfig, client: Arc<reqwest::Client>) -> Self {
         Self {
-            playlist_url: playlist_url.into(),
-            output_path: output_path.into(),
-            video_id: video_id.into(),
-            quality: quality.into(),
-            max_duration,
-            cancellation_token,
+            playlist_url: config.stream_url,
+            output_path: config.output_path,
+            video_id: config.video_id,
+            quality: config.quality,
+            max_duration: config.max_duration,
+            cancellation_token: config.cancellation_token,
             client,
-            event_bus,
+            event_bus: config.event_bus,
         }
     }
 

@@ -4,7 +4,7 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-      time: "09:00"
+      time: "00:00"
       timezone: "Europe/Paris"
     reviewers:
       - "boul2gom"
@@ -19,7 +19,7 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-      time: "09:00"
+      time: "00:00"
       timezone: "Europe/Paris"
     reviewers:
       - "boul2gom"

@@ -317,6 +317,9 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
 
         DownloadEvent::DownloadCanceled { download_id, .. } => {
             state.canceled += 1;
+            if state.queued > 0 {
+                state.queued -= 1;
+            }
 
             let record = state.in_progress.remove(download_id);
             let (url, priority, queue_wait) = match record {

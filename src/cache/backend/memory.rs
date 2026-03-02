@@ -193,16 +193,16 @@ impl MokaFileCache {
 }
 
 impl FileBackend for MokaFileCache {
-    async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(hash = hash, "🔍 Looking for file in memory cache by hash");
 
-        self.files.get(hash).await.map(|cached| {
+        Ok(self.files.get(hash).await.map(|cached| {
             let path = PathBuf::from(&cached.relative_path);
             (cached, path)
-        })
+        }))
     }
 
-    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
@@ -211,18 +211,18 @@ impl FileBackend for MokaFileCache {
 
         for (_, cached) in &self.files {
             if cached.video_id.as_deref() == Some(video_id) && cached.format_id.as_deref() == Some(format_id) {
-                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+                return Ok(Some((cached.clone(), PathBuf::from(&cached.relative_path))));
             }
         }
 
-        None
+        Ok(None)
     }
 
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> Option<(CachedFile, PathBuf)> {
+    ) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             video_quality = ?preferences.video_quality,
@@ -232,11 +232,11 @@ impl FileBackend for MokaFileCache {
 
         for (_, cached) in &self.files {
             if cached.video_id.as_deref() == Some(video_id) && cached.matches_preferences(preferences) {
-                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+                return Ok(Some((cached.clone(), PathBuf::from(&cached.relative_path))));
             }
         }
 
-        None
+        Ok(None)
     }
 
     async fn put(&self, file: CachedFile, _source_path: &Path) -> Result<PathBuf> {
@@ -264,7 +264,7 @@ impl FileBackend for MokaFileCache {
         Ok(())
     }
 
-    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             "🔍 Looking for thumbnail by video ID in memory cache"
@@ -272,11 +272,11 @@ impl FileBackend for MokaFileCache {
 
         for (_, cached) in &self.thumbnails {
             if cached.video_id == video_id {
-                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+                return Ok(Some((cached.clone(), PathBuf::from(&cached.relative_path))));
             }
         }
 
-        None
+        Ok(None)
     }
 
     async fn put_thumbnail(&self, thumbnail: CachedThumbnail, _source_path: &Path) -> Result<PathBuf> {
@@ -291,7 +291,7 @@ impl FileBackend for MokaFileCache {
         Ok(path)
     }
 
-    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             language = language,
@@ -300,10 +300,10 @@ impl FileBackend for MokaFileCache {
 
         for (_, cached) in &self.files {
             if cached.video_id.as_deref() == Some(video_id) && cached.language_code.as_deref() == Some(language) {
-                return Some((cached.clone(), PathBuf::from(&cached.relative_path)));
+                return Ok(Some((cached.clone(), PathBuf::from(&cached.relative_path))));
             }
         }
 
-        None
+        Ok(None)
     }
 }

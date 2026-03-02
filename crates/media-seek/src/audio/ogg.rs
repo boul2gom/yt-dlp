@@ -120,8 +120,18 @@ where
     }
 
     tracing::debug!(points = segments.len(), "✅ OGG index built");
+
+    // The init segment must cover all header pages (identification + comment + setup).
+    // Find the byte offset of the first audio data page (the second seek point),
+    // or fall back to the first point's offset.
+    let init_end = if points.len() >= 2 {
+        points[1].1.saturating_sub(1)
+    } else {
+        points.first().map(|&(_, o)| o.saturating_sub(1)).unwrap_or(0)
+    };
+
     Ok(ContainerIndex {
-        init_end_byte: points.first().map(|&(_, o)| o.saturating_sub(1)).unwrap_or(0),
+        init_end_byte: init_end,
         inner: Inner::Segments(segments),
     })
 }

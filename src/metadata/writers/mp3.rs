@@ -5,10 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
+use id3::frame::{Content as ID3Content, ExtendedText as ID3ExtendedText};
 use id3::{Frame as ID3Frame, Tag as ID3Tag, TagLike, Version as ID3Version};
 
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
+use crate::metadata::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::model::Video;
 use crate::model::format::Format;
 
@@ -27,7 +28,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if ID3 tags cannot be read or written
-    pub(super) async fn add_metadata_to_mp3(
+    pub(crate) async fn add_metadata_to_mp3(
         file_path: impl Into<PathBuf>,
         video: &Video,
         audio_format: Option<&Format>,
@@ -93,7 +94,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the ID3 tags cannot be written
-    pub(super) async fn add_thumbnail_to_mp3(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
+    pub(crate) async fn add_thumbnail_to_mp3(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
         let file_path = file_path.into();
 
         tracing::debug!(
@@ -186,7 +187,13 @@ fn apply_id3_metadata(
             tag.set_total_tracks(*total as u32);
         }
 
-        let frame = ID3Frame::text("TXXX", format!("Playlist ID: {}", id));
+        let frame = ID3Frame::with_content(
+            "TXXX",
+            ID3Content::ExtendedText(ID3ExtendedText {
+                description: "Playlist ID".to_string(),
+                value: id.to_string(),
+            }),
+        );
         tag.add_frame(frame);
     }
 }
@@ -200,12 +207,24 @@ fn apply_id3_technical_metadata(
     };
 
     if let Some(rate) = audio_rate {
-        let frame = ID3Frame::text("TXXX", format!("Audio Bitrate: {}", rate));
+        let frame = ID3Frame::with_content(
+            "TXXX",
+            ID3Content::ExtendedText(ID3ExtendedText {
+                description: "Audio Bitrate".to_string(),
+                value: rate.to_string(),
+            }),
+        );
         tag.add_frame(frame);
     }
 
     if let Some(codec) = audio_codec {
-        let frame = ID3Frame::text("TXXX", format!("Audio Codec: {}", codec));
+        let frame = ID3Frame::with_content(
+            "TXXX",
+            ID3Content::ExtendedText(ID3ExtendedText {
+                description: "Audio Codec".to_string(),
+                value: codec.to_string(),
+            }),
+        );
         tag.add_frame(frame);
     }
 }

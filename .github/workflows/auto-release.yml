@@ -1,4 +1,4 @@
-name: Github CI - Automatic weekly release
+name: "📦 Github CI - Automatic weekly release"
 
 on:
   schedule:

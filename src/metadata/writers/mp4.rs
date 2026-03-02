@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use mp4ameta::Tag as MP4Tag;
 
-use super::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::error::{Error, Result};
+use crate::metadata::{BaseMetadata, MetadataManager, PlaylistMetadata};
 use crate::model::Video;
 use crate::model::format::Format;
 
@@ -29,7 +29,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if MP4 tags cannot be read or written
-    pub(super) async fn add_metadata_to_m4a(
+    pub(crate) async fn add_metadata_to_m4a(
         file_path: impl Into<PathBuf>,
         video: &Video,
         audio_format: Option<&Format>,
@@ -124,7 +124,7 @@ impl MetadataManager {
     /// # Errors
     ///
     /// Returns an error if the thumbnail cannot be read or the MP4 tags cannot be written
-    pub(super) async fn add_thumbnail_to_m4a(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
+    pub(crate) async fn add_thumbnail_to_m4a(file_path: impl Into<PathBuf>, thumbnail_path: &Path) -> Result<()> {
         let file_path = file_path.into();
 
         tracing::debug!(

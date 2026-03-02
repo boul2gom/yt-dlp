@@ -46,25 +46,91 @@ src/
 ├── client/             # Builder, download builder, proxy, dependency installation, stream orchestration
 │   ├── builder.rs      # DownloaderBuilder (fluent builder for Downloader)
 │   ├── download_builder.rs  # DownloadBuilder<'a> (fluent API for downloads)
+│   ├── pipeline.rs     # Fluent pipeline API (fetch, download_and_continue, pipeline, postprocess, events)
 │   ├── proxy.rs        # ProxyConfig, ProxyType
 │   ├── deps/           # Dependency auto-installation (yt-dlp, ffmpeg via GitHub releases)
-│   └── streams/        # Format selection (VideoSelection trait), orchestration, processing
+│   └── streams/        # Format selection, quality API, stream orchestration
+│       ├── processing.rs    # Stream processing utilities
+│       ├── selection.rs     # VideoSelection trait, format selection
+│       ├── quality.rs       # Quality-based download API
+│       ├── pipeline/        # Download pipeline steps
+│       │   ├── fetch.rs     # Video info fetching, cache lookup, extractor selection
+│       │   ├── download.rs  # Single-video/format download orchestration
+│       │   ├── combine.rs   # Audio+video combining with FFmpeg
+│       │   ├── partial.rs   # Partial/clip downloads
+│       │   └── playlist.rs  # Playlist iteration and download
+│       └── assets/          # Media asset downloads
+│           ├── storyboard.rs
+│           └── subtitle.rs
 ├── download/           # DownloadManager, Fetcher, segment-based parallel downloads
+│   ├── api.rs          # Downloader download-manager API (priority, progress, status)
+│   ├── manager.rs      # DownloadManager core
+│   ├── engine/         # Download engine internals
+│   │   ├── fetcher.rs  # HTTP fetcher with range support
+│   │   ├── segment.rs  # Segment-based parallel download
+│   │   ├── range_fetcher.rs  # Range request support
+│   │   └── partial.rs  # Partial download support
+│   └── config/         # Download configuration and post-processing
+│       ├── progress.rs # Progress tracking
+│       ├── speed_profile.rs  # Speed profiles
+│       └── postprocess.rs    # Post-processing config
 ├── events/             # EventBus, DownloadEvent, EventFilter, hooks, webhooks
+│   ├── bus.rs          # Event bus (broadcast)
+│   ├── types.rs        # DownloadEvent enum
+│   ├── filters.rs      # EventFilter predicates
+│   ├── retry.rs        # Retry event logic
+│   └── delivery/       # Event delivery mechanisms
+│       ├── hooks.rs    # Rust hooks (feature: hooks)
+│       └── webhooks.rs # HTTP webhooks (feature: webhooks)
 ├── executor/           # Executor (process runner), FfmpegArgs builder, temp-file+rename pattern
 ├── extractor/          # VideoExtractor trait, Youtube extractor, Generic extractor, URL detection
-├── metadata/           # MetadataManager, MP3/MP4/FFmpeg/Lofty metadata writing, chapter injection
+├── metadata/           # MetadataManager, metadata writing, chapter injection
+│   ├── api.rs          # Public metadata API
+│   ├── base.rs         # Base metadata operations
+│   ├── chapters.rs     # Chapter injection
+│   ├── postprocess.rs  # Metadata post-processing
+│   └── writers/        # Format-specific metadata writers
+│       ├── ffmpeg.rs   # FFmpeg-based metadata writing
+│       ├── lofty.rs    # Lofty-based metadata writing
+│       ├── mp3.rs      # MP3-specific metadata
+│       └── mp4.rs      # MP4-specific metadata
 ├── model/              # Data types: Video, Format, Chapter, Playlist, Caption, Thumbnail, Heatmap
+│   ├── video.rs        # Video struct
+│   ├── format.rs       # Format struct and related types
+│   ├── selector.rs     # VideoQuality, AudioQuality, codec preference enums
 │   ├── utils/          # serde helpers (json_none)
-│   └── selector.rs     # VideoQuality, AudioQuality, StoryboardQuality, ThumbnailQuality enums
+│   └── types/          # Auxiliary model types
+│       ├── caption.rs  # Caption/subtitle metadata
+│       ├── chapter.rs  # Chapter metadata
+│       ├── heatmap.rs  # Heatmap data
+│       ├── playlist.rs # Playlist metadata
+│       └── thumbnail.rs # Thumbnail metadata
 ├── cache/              # VideoCache, DownloadCache, PlaylistCache (feature-gated)
-│   └── backend/        # Backend trait abstractions + implementations (memory/moka, json, redb, redis)
+│   ├── config.rs       # Cache configuration
+│   ├── layer.rs        # CacheLayer (tiered L1+L2)
+│   ├── stores/         # Individual cache stores
+│   │   ├── files.rs    # Download file cache
+│   │   ├── video.rs    # Video metadata cache
+│   │   └── playlist.rs # Playlist cache
+│   └── backend/        # Backend trait abstractions + implementations
+│       ├── memory.rs   # Moka in-memory (L1)
+│       ├── json.rs     # JSON file (L2)
+│       ├── redb.rs     # Embedded redb (L2)
+│       └── redis.rs    # Distributed Redis (L2)
 ├── live/               # Live stream recording (feature: live-recording)
 │   ├── hls.rs          # HLS manifest parsing via m3u8-rs
 │   ├── recording.rs    # LiveRecorder — reqwest-based HLS segment recorder (primary)
 │   └── ffmpeg_recording.rs  # FfmpegLiveRecorder — FFmpeg-based recorder (fallback)
 ├── stats/              # StatisticsTracker, GlobalSnapshot (feature: statistics)
-└── utils/              # fs, http, platform, retry, validation, url_expiry, subtitle
+└── utils/              # fs, http, platform, validation, subtitle
+    ├── fs.rs           # Filesystem utilities
+    ├── http.rs         # HTTP utilities
+    ├── platform.rs     # Platform detection
+    ├── validation.rs   # Input validation
+    ├── network/        # Network-related utilities
+    │   ├── retry.rs    # Retry logic
+    │   └── url_expiry.rs  # URL expiration handling
+    └── subtitle/       # Subtitle conversion and validation
 ```
 
 Module Conventions:
@@ -73,6 +139,11 @@ Module Conventions:
 - `prelude.rs` re-exports everything users need for basic usage, feature-gated with `#[cfg(feature = "...")]`.
 - Module-level `//!` doc comments describe the module's purpose and architecture.
 - Feature-gated modules declared with `#[cfg(feature = "...")] pub mod cache;` in `lib.rs`.
+
+File & Module Size Constraints:
+- **No file may exceed 1000 lines.** When a file approaches the limit, split it into focused submodules.
+- **No module directory may contain more than 5 source files** (excluding `mod.rs`). Create submodule directories to group related files.
+- **`src/` root may only contain**: `error.rs`, `lib.rs`, `macros.rs`, `prelude.rs`. All other code must live in submodules (`client/`, `download/`, `events/`, etc.).
 
 Visibility Conventions:
 - `pub` — For types and methods exposed to library users.

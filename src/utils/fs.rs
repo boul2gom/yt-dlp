@@ -1,6 +1,6 @@
 //! Tools for working with the file system.
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -204,7 +204,7 @@ pub async fn create_file(destination: impl Into<PathBuf>) -> Result<File> {
     open_options.create(true);
     open_options.truncate(true);
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     {
         open_options.mode(0o644);
     }
@@ -415,7 +415,7 @@ pub async fn extract_tar_xz(tar_path: impl Into<PathBuf>, destination: impl Into
 /// # Arguments
 ///
 /// * `executable` - The path to the executable file.
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 pub async fn set_executable(executable: impl Into<PathBuf>) -> Result<()> {
     let executable: PathBuf = executable.into();
 
@@ -434,7 +434,7 @@ pub async fn set_executable(executable: impl Into<PathBuf>) -> Result<()> {
 /// # Arguments
 ///
 /// * `executable` - The path to the executable file.
-#[cfg(target_os = "windows")]
+#[cfg(not(unix))]
 pub async fn set_executable(_executable: impl Into<PathBuf>) -> Result<()> {
     // Windows doesn't use executable bits, so this is a no-op
     Ok(())

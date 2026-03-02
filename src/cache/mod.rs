@@ -12,10 +12,11 @@
 
 pub mod backend;
 pub mod config;
-pub mod files;
 pub mod layer;
-pub mod playlist;
-pub mod video;
+pub mod stores;
+
+// Re-export store modules for backward compatibility
+pub use stores::{files, playlist, video};
 
 // Safety net: at most one persistent backend allowed.
 #[cfg(multiple_persistent_backends)]

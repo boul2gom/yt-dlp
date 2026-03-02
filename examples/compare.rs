@@ -294,35 +294,36 @@ impl RowResult {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn raw_download(
-    yt_dlp_bin: &Path,
-    info_json_path: &Path,
-    format_selector: &str,
-    extra_args: &[&str],
-    output_dir: &Path,
-    file_prefix: &str,
-    ext: &str,
+struct RawDownloadArgs<'a> {
+    yt_dlp_bin: &'a Path,
+    info_json_path: &'a Path,
+    format_selector: &'a str,
+    extra_args: &'a [&'a str],
+    output_dir: &'a Path,
+    file_prefix: &'a str,
+    ext: &'a str,
     runs: usize,
-    pb: &ProgressBar,
-) -> Vec<Duration> {
-    let mut samples = Vec::with_capacity(runs);
-    for i in 0..runs {
-        pb.set_message(format!("🔧 {} (run {}/{})", style("yt-dlp raw").dim(), i + 1, runs));
-        pb.set_position((i + 1) as u64);
+    pb: &'a ProgressBar,
+}
 
-        let out = output_dir
-            .join(format!("{}-{}.{}", file_prefix, i, ext))
+async fn raw_download(args: RawDownloadArgs<'_>) -> Vec<Duration> {
+    let mut samples = Vec::with_capacity(args.runs);
+    for i in 0..args.runs {
+        args.pb.set_message(format!("🔧 {} (run {}/{})", style("yt-dlp raw").dim(), i + 1, args.runs));
+        args.pb.set_position((i + 1) as u64);
+
+        let out = args.output_dir
+            .join(format!("{}-{}.{}", args.file_prefix, i, args.ext))
             .to_string_lossy()
             .into_owned();
 
         let mut cmd_args: Vec<String> = vec![
             "--load-info-json".to_string(),
-            info_json_path.to_string_lossy().into_owned(),
+            args.info_json_path.to_string_lossy().into_owned(),
             "-f".to_string(),
-            format_selector.to_string(),
+            args.format_selector.to_string(),
         ];
-        cmd_args.extend(extra_args.iter().map(|s| s.to_string()));
+        cmd_args.extend(args.extra_args.iter().map(|s| s.to_string()));
         cmd_args.extend([
             "-o".to_string(),
             out.clone(),
@@ -331,7 +332,7 @@ async fn raw_download(
         ]);
 
         let start = Instant::now();
-        Executor::new(yt_dlp_bin, cmd_args, Duration::from_secs(300))
+        Executor::new(args.yt_dlp_bin, cmd_args, Duration::from_secs(300))
             .execute()
             .await
             .expect("raw yt-dlp download failed");
@@ -343,55 +344,56 @@ async fn raw_download(
     samples
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn lib_download(
-    downloader: &Downloader,
-    scenario: &Scenario,
-    video: &Video,
-    output_dir: &Path,
-    prefix: &str,
+struct LibDownloadArgs<'a> {
+    downloader: &'a Downloader,
+    scenario: &'a Scenario,
+    video: &'a Video,
+    output_dir: &'a Path,
+    prefix: &'a str,
     runs: usize,
-    profile_name: &str,
-    pb: &ProgressBar,
-) -> Vec<Duration> {
-    let mut samples = Vec::with_capacity(runs);
+    profile_name: &'a str,
+    pb: &'a ProgressBar,
+}
 
-    for i in 0..runs {
-        pb.set_message(format!("📦 {} (run {}/{})", style(profile_name).dim(), i + 1, runs));
-        pb.inc(1);
+async fn lib_download(args: LibDownloadArgs<'_>) -> Vec<Duration> {
+    let mut samples = Vec::with_capacity(args.runs);
 
-        let out_name = format!("{}-{}.{}", prefix, i, scenario.output_ext);
-        let out_path = output_dir.join(&out_name);
+    for i in 0..args.runs {
+        args.pb.set_message(format!("📦 {} (run {}/{})", style(args.profile_name).dim(), i + 1, args.runs));
+        args.pb.inc(1);
+
+        let out_name = format!("{}-{}.{}", args.prefix, i, args.scenario.output_ext);
+        let out_path = args.output_dir.join(&out_name);
 
         let start = Instant::now();
 
         // Use pre-fetched video metadata + download_format to avoid internal re-fetch
-        let result = match &scenario.kind {
-            ScenarioKind::Audio(quality) => match video.select_audio_format(*quality, AudioCodecPreference::Any) {
-                Some(f) => downloader.download_format(f, &out_name).await,
+        let result = match &args.scenario.kind {
+            ScenarioKind::Audio(quality) => match args.video.select_audio_format(*quality, AudioCodecPreference::Any) {
+                Some(f) => args.downloader.download_format(f, &out_name).await,
                 None => {
-                    pb.println(format!(
+                    args.pb.println(format!(
                         "  {} Skipped {} — no matching audio format",
                         style("⚠").yellow(),
-                        scenario.label
+                        args.scenario.label
                     ));
                     continue;
                 }
             },
-            ScenarioKind::Video(quality) => match video.select_video_format(*quality, VideoCodecPreference::Any) {
-                Some(f) => downloader.download_format(f, &out_name).await,
+            ScenarioKind::Video(quality) => match args.video.select_video_format(*quality, VideoCodecPreference::Any) {
+                Some(f) => args.downloader.download_format(f, &out_name).await,
                 None => {
-                    pb.println(format!(
+                    args.pb.println(format!(
                         "  {} Skipped {} — no matching video format",
                         style("⚠").yellow(),
-                        scenario.label
+                        args.scenario.label
                     ));
                     continue;
                 }
             },
             ScenarioKind::NativeMuxed(max_height) => {
                 // Find a pre-muxed AudioVideo format with height <= max_height
-                let format = video
+                let format = args.video
                     .formats
                     .iter()
                     .filter(|f| f.format_type() == FormatType::AudioVideo)
@@ -399,12 +401,12 @@ async fn lib_download(
                     .max_by_key(|f| f.video_resolution.height.unwrap_or(0));
 
                 match format {
-                    Some(f) => downloader.download_format(f, &out_name).await,
+                    Some(f) => args.downloader.download_format(f, &out_name).await,
                     None => {
-                        pb.println(format!(
+                        args.pb.println(format!(
                             "  {} Skipped {} — no native muxed format ≤{}p",
                             style("⚠").yellow(),
-                            scenario.label,
+                            args.scenario.label,
                             max_height
                         ));
                         continue;
@@ -412,9 +414,9 @@ async fn lib_download(
                 }
             }
             ScenarioKind::Muxed(quality) => {
-                downloader
+                args.downloader
                     .download_video_with_quality(
-                        video,
+                        args.video,
                         &out_name,
                         *quality,
                         VideoCodecPreference::Any,
@@ -428,10 +430,10 @@ async fn lib_download(
         match result {
             Ok(_) => samples.push(start.elapsed()),
             Err(e) => {
-                pb.println(format!(
+                args.pb.println(format!(
                     "  {} {} failed on run {}: {}",
                     style("⚠").yellow(),
-                    scenario.label,
+                    args.scenario.label,
                     i + 1,
                     e
                 ));
@@ -762,62 +764,62 @@ async fn main() {
             scenario_pb.set_message(format!("⏳ [{}/{}] {}", global_idx, total_scenarios, scenario.label));
 
             // 1) Raw yt-dlp
-            let raw_samples = raw_download(
-                &yt_dlp_bin,
-                &info_json_path,
-                scenario.yt_dlp_format,
-                &scenario.extra_args,
-                &output_dir,
-                &format!("raw-{}", slug),
-                scenario.output_ext,
-                args.runs,
-                &scenario_pb,
-            )
+            let raw_samples = raw_download(RawDownloadArgs {
+                yt_dlp_bin: &yt_dlp_bin,
+                info_json_path: &info_json_path,
+                format_selector: scenario.yt_dlp_format,
+                extra_args: &scenario.extra_args,
+                output_dir: &output_dir,
+                file_prefix: &format!("raw-{}", slug),
+                ext: scenario.output_ext,
+                runs: args.runs,
+                pb: &scenario_pb,
+            })
             .await;
             let raw_avg = avg_duration(&raw_samples);
             overall_pb.inc(1);
 
             // 2) Conservative
-            let conservative_samples = lib_download(
-                &dl_conservative,
+            let conservative_samples = lib_download(LibDownloadArgs {
+                downloader: &dl_conservative,
                 scenario,
-                &video,
-                &output_dir,
-                &format!("conservative-{}", slug),
-                args.runs,
-                "Conservative",
-                &scenario_pb,
-            )
+                video: &video,
+                output_dir: &output_dir,
+                prefix: &format!("conservative-{}", slug),
+                runs: args.runs,
+                profile_name: "Conservative",
+                pb: &scenario_pb,
+            })
             .await;
             let conservative_avg = avg_duration(&conservative_samples);
             overall_pb.inc(1);
 
             // 3) Balanced
-            let balanced_samples = lib_download(
-                &dl_balanced,
+            let balanced_samples = lib_download(LibDownloadArgs {
+                downloader: &dl_balanced,
                 scenario,
-                &video,
-                &output_dir,
-                &format!("balanced-{}", slug),
-                args.runs,
-                "Balanced",
-                &scenario_pb,
-            )
+                video: &video,
+                output_dir: &output_dir,
+                prefix: &format!("balanced-{}", slug),
+                runs: args.runs,
+                profile_name: "Balanced",
+                pb: &scenario_pb,
+            })
             .await;
             let balanced_avg = avg_duration(&balanced_samples);
             overall_pb.inc(1);
 
             // 4) Aggressive
-            let aggressive_samples = lib_download(
-                &dl_aggressive,
+            let aggressive_samples = lib_download(LibDownloadArgs {
+                downloader: &dl_aggressive,
                 scenario,
-                &video,
-                &output_dir,
-                &format!("aggressive-{}", slug),
-                args.runs,
-                "Aggressive",
-                &scenario_pb,
-            )
+                video: &video,
+                output_dir: &output_dir,
+                prefix: &format!("aggressive-{}", slug),
+                runs: args.runs,
+                profile_name: "Aggressive",
+                pb: &scenario_pb,
+            })
             .await;
             let aggressive_avg = avg_duration(&aggressive_samples);
             overall_pb.inc(1);

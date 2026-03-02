@@ -45,28 +45,22 @@
 //! ```
 
 pub mod bus;
+pub mod delivery;
 pub mod filters;
 pub mod types;
 
 pub use bus::EventBus;
+#[cfg(feature = "hooks")]
+pub use delivery::hooks::{EventHook, HookError, HookRegistry, HookResult};
 pub use filters::EventFilter;
 #[cfg(feature = "live-recording")]
 pub use types::RecordingMethod;
 pub use types::{DownloadEvent, MetadataType, PostProcessOperation};
 
-#[cfg(feature = "hooks")]
-mod hooks;
-
-#[cfg(feature = "hooks")]
-pub use hooks::{EventHook, HookError, HookRegistry, HookResult};
-
-#[cfg(feature = "webhooks")]
-mod webhooks;
-
 #[cfg(feature = "webhooks")]
 mod retry;
 
 #[cfg(feature = "webhooks")]
-pub use retry::RetryStrategy;
+pub use delivery::webhooks::{WebhookConfig, WebhookDelivery, WebhookMethod};
 #[cfg(feature = "webhooks")]
-pub use webhooks::{WebhookConfig, WebhookDelivery, WebhookMethod};
+pub use retry::RetryStrategy;

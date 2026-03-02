@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
-pub mod audio;
+pub(crate) mod audio;
 mod detect;
-pub mod video;
+pub(crate) mod video;
 
 pub mod error;
 pub mod index;
@@ -109,6 +109,8 @@ pub async fn parse<F: RangeFetcher>(probe: &[u8], total_size: Option<u64>, fetch
         detect::Format::Ts => video::ts::parse(probe, total_size, fetcher).await,
     };
 
-    tracing::debug!("✅ Container index parsed");
+    if result.is_ok() {
+        tracing::debug!("✅ Container index parsed");
+    }
     result
 }

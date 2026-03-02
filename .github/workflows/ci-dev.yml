@@ -1,4 +1,4 @@
-name: Github CI - Development
+name: "🔌 Github CI - Development"
 
 on:
   push:

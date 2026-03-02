@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use redis::AsyncCommands;
+use sha2::{Digest, Sha256};
 
 use super::{FileBackend, PlaylistBackend, VideoBackend};
 use crate::cache::playlist::CachedPlaylist;
@@ -28,7 +29,6 @@ const PREFIX_FILE: &str = "yt-dlp:file:";
 const PREFIX_THUMBNAIL: &str = "yt-dlp:thumbnail:";
 
 fn url_key(prefix: &str, url: &str) -> String {
-    use sha2::{Digest, Sha256};
     let hash = Sha256::digest(url.as_bytes());
     format!("{}{:x}", prefix, hash)
 }
@@ -107,13 +107,14 @@ impl VideoBackend for RedisVideoCache {
         let url_k = url_key(PREFIX_VIDEO, &url);
         let id_k = id_key(PREFIX_VIDEO_ID, &cached.id);
 
-        // Store by URL and by ID, both with TTL
-        conn.set_ex::<_, _, ()>(&url_k, &bytes, self.ttl)
+        // Store by URL and by ID atomically with TTL via pipeline
+        redis::pipe()
+            .atomic()
+            .set_ex(&url_k, &bytes, self.ttl)
+            .set_ex(&id_k, &bytes, self.ttl)
+            .query_async::<()>(&mut conn)
             .await
-            .map_err(|e| crate::error::Error::redis("set video by url", e))?;
-        conn.set_ex::<_, _, ()>(&id_k, &bytes, self.ttl)
-            .await
-            .map_err(|e| crate::error::Error::redis("set video by id", e))?;
+            .map_err(|e| crate::error::Error::redis("pipeline set video", e))?;
 
         Ok(())
     }
@@ -251,12 +252,14 @@ impl PlaylistBackend for RedisPlaylistCache {
         let url_k = url_key(PREFIX_PLAYLIST, &url);
         let id_k = id_key(PREFIX_PLAYLIST_ID, &cached.id);
 
-        conn.set_ex::<_, _, ()>(&url_k, &bytes, self.ttl)
+        // Store by URL and by ID atomically with TTL via pipeline
+        redis::pipe()
+            .atomic()
+            .set_ex(&url_k, &bytes, self.ttl)
+            .set_ex(&id_k, &bytes, self.ttl)
+            .query_async::<()>(&mut conn)
             .await
-            .map_err(|e| crate::error::Error::redis("set playlist by url", e))?;
-        conn.set_ex::<_, _, ()>(&id_k, &bytes, self.ttl)
-            .await
-            .map_err(|e| crate::error::Error::redis("set playlist by id", e))?;
+            .map_err(|e| crate::error::Error::redis("pipeline set playlist", e))?;
 
         Ok(())
     }
@@ -387,56 +390,60 @@ impl RedisFileCache {
 }
 
 impl FileBackend for RedisFileCache {
-    async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(hash = hash, "🔍 Looking for file in Redis cache by hash");
 
-        let mut conn = self.conn().await.ok()?;
+        let mut conn = self.conn().await?;
         let key = id_key(PREFIX_FILE, hash);
 
-        let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
+        let data: Option<Vec<u8>> = conn
+            .get(&key)
+            .await
+            .map_err(|e| crate::error::Error::redis("get file by hash", e))?;
 
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedFile>(&bytes)
         {
             let path = self.cache_dir.join(&cached.relative_path);
-            return Some((cached, path));
+            return Ok(Some((cached, path)));
         }
 
-        None
+        Ok(None)
     }
 
-    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             format_id = format_id,
             "🔍 Looking for file by video and format in Redis cache"
         );
 
-        // Use a composite key for video+format lookups
-        let mut conn = self.conn().await.ok()?;
+        let mut conn = self.conn().await?;
         let key = format!("{}vf:{}:{}", PREFIX_FILE, video_id, format_id);
 
-        let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
+        let data: Option<Vec<u8>> = conn
+            .get(&key)
+            .await
+            .map_err(|e| crate::error::Error::redis("get file by video+format", e))?;
 
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedFile>(&bytes)
         {
             let path = self.cache_dir.join(&cached.relative_path);
-            return Some((cached, path));
+            return Ok(Some((cached, path)));
         }
 
-        None
+        Ok(None)
     }
 
     async fn get_by_video_and_preferences(
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> Option<(CachedFile, PathBuf)> {
+    ) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(video_id = video_id, "🔍 Looking for file by preferences in Redis cache");
 
-        // Scan all file keys for this video and check preferences
-        let mut conn = self.conn().await.ok()?;
+        let mut conn = self.conn().await?;
         let pattern = format!("{}vf:{}:*", PREFIX_FILE, video_id);
         let mut keys: Vec<String> = Vec::new();
         let mut cursor: u64 = 0;
@@ -449,7 +456,7 @@ impl FileBackend for RedisFileCache {
                 .arg(100)
                 .query_async(&mut conn)
                 .await
-                .ok()?;
+                .map_err(|e| crate::error::Error::redis("scan files by preferences", e))?;
             keys.extend(batch);
             cursor = next_cursor;
             if cursor == 0 {
@@ -458,17 +465,20 @@ impl FileBackend for RedisFileCache {
         }
 
         for key in keys {
-            let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
+            let data: Option<Vec<u8>> = conn
+                .get(&key)
+                .await
+                .map_err(|e| crate::error::Error::redis("get file by preferences", e))?;
             if let Some(bytes) = data
                 && let Ok(cached) = serde_json::from_slice::<CachedFile>(&bytes)
                 && cached.matches_preferences(preferences)
             {
                 let path = self.cache_dir.join(&cached.relative_path);
-                return Some((cached, path));
+                return Ok(Some((cached, path)));
             }
         }
 
-        None
+        Ok(None)
     }
 
     async fn put(&self, file: CachedFile, source_path: &Path) -> Result<PathBuf> {
@@ -558,22 +568,25 @@ impl FileBackend for RedisFileCache {
         Ok(())
     }
 
-    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
         tracing::debug!(video_id = video_id, "🔍 Looking for thumbnail in Redis cache");
 
-        let mut conn = self.conn().await.ok()?;
+        let mut conn = self.conn().await?;
         let key = id_key(PREFIX_THUMBNAIL, video_id);
 
-        let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
+        let data: Option<Vec<u8>> = conn
+            .get(&key)
+            .await
+            .map_err(|e| crate::error::Error::redis("get thumbnail by video", e))?;
 
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedThumbnail>(&bytes)
         {
             let path = self.cache_dir.join(&cached.relative_path);
-            return Some((cached, path));
+            return Ok(Some((cached, path)));
         }
 
-        None
+        Ok(None)
     }
 
     async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
@@ -607,25 +620,28 @@ impl FileBackend for RedisFileCache {
         Ok(dest_path)
     }
 
-    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         tracing::debug!(
             video_id = video_id,
             language = language,
             "🔍 Looking for subtitle in Redis cache"
         );
 
-        let mut conn = self.conn().await.ok()?;
+        let mut conn = self.conn().await?;
         let key = format!("{}sub:{}:{}", PREFIX_FILE, video_id, language);
 
-        let data: Option<Vec<u8>> = conn.get(&key).await.ok()?;
+        let data: Option<Vec<u8>> = conn
+            .get(&key)
+            .await
+            .map_err(|e| crate::error::Error::redis("get subtitle by language", e))?;
 
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedFile>(&bytes)
         {
             let path = self.cache_dir.join(&cached.relative_path);
-            return Some((cached, path));
+            return Ok(Some((cached, path)));
         }
 
-        None
+        Ok(None)
     }
 }

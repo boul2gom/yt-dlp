@@ -93,14 +93,14 @@ impl YoutubeFetcher {
         release.assets.iter().find(|asset| {
             let name = &asset.name;
             match (platform, architecture) {
-                (Platform::Windows, Architecture::X64) => name.contains(&format!("{}.exe", base_name)),
-                (Platform::Windows, Architecture::X86) => name.contains(&format!("{}_x86.exe", base_name)),
+                (Platform::Windows, Architecture::X64) => name == &format!("{}.exe", base_name),
+                (Platform::Windows, Architecture::X86) => name == &format!("{}_x86.exe", base_name),
 
-                (Platform::Linux, Architecture::X64) => name.contains(&format!("{}_linux", base_name)),
-                (Platform::Linux, Architecture::Armv7l) => name.contains(&format!("{}_linux_armv7l", base_name)),
-                (Platform::Linux, Architecture::Aarch64) => name.contains(&format!("{}_linux_aarch64", base_name)),
+                (Platform::Linux, Architecture::X64) => name == &format!("{}_linux", base_name),
+                (Platform::Linux, Architecture::Armv7l) => name == &format!("{}_linux_armv7l", base_name),
+                (Platform::Linux, Architecture::Aarch64) => name == &format!("{}_linux_aarch64", base_name),
 
-                (Platform::Mac, _) => name.contains(&format!("{}_macos", base_name)),
+                (Platform::Mac, _) => name == &format!("{}_macos", base_name),
 
                 _ => false,
             }

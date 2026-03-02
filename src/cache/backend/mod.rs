@@ -174,7 +174,11 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached file entry and its path, or `None` if not found.
-    fn get_by_hash(&self, hash: &str) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O or deserialization fails.
+    fn get_by_hash(&self, hash: &str) -> impl Future<Output = Result<Option<(CachedFile, PathBuf)>>> + Send;
 
     /// Retrieves a file from the cache by video ID and format ID.
     ///
@@ -186,11 +190,15 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached file entry and its path, or `None` if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O or deserialization fails.
     fn get_by_video_and_format(
         &self,
         video_id: &str,
         format_id: &str,
-    ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
+    ) -> impl Future<Output = Result<Option<(CachedFile, PathBuf)>>> + Send;
 
     /// Retrieves a file from the cache based on video ID and quality preferences.
     ///
@@ -202,11 +210,15 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached file entry and its path, or `None` if no match.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O or deserialization fails.
     fn get_by_video_and_preferences(
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
+    ) -> impl Future<Output = Result<Option<(CachedFile, PathBuf)>>> + Send;
 
     /// Store a file in the cache.
     ///
@@ -251,10 +263,14 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached thumbnail entry and its path, or `None` if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O or deserialization fails.
     fn get_thumbnail_by_video_id(
         &self,
         video_id: &str,
-    ) -> impl Future<Output = Option<(CachedThumbnail, PathBuf)>> + Send;
+    ) -> impl Future<Output = Result<Option<(CachedThumbnail, PathBuf)>>> + Send;
 
     /// Store a thumbnail in the cache.
     ///
@@ -286,11 +302,15 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
     /// # Returns
     ///
     /// The cached subtitle file entry and its path, or `None` if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O or deserialization fails.
     fn get_subtitle_by_language(
         &self,
         video_id: &str,
         language: &str,
-    ) -> impl Future<Output = Option<(CachedFile, PathBuf)>> + Send;
+    ) -> impl Future<Output = Result<Option<(CachedFile, PathBuf)>>> + Send;
 }
 
 // ── Persistent backend dispatch enums ──
@@ -573,7 +593,7 @@ impl PersistentFileBackend {
 
 #[cfg(persistent_cache)]
 impl FileBackend for PersistentFileBackend {
-    async fn get_by_hash(&self, hash: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_hash(hash).await,
@@ -584,7 +604,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_video_and_format(video_id, format_id).await,
@@ -599,7 +619,7 @@ impl FileBackend for PersistentFileBackend {
         &self,
         video_id: &str,
         preferences: &FormatPreferences,
-    ) -> Option<(CachedFile, PathBuf)> {
+    ) -> Result<Option<(CachedFile, PathBuf)>> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_by_video_and_preferences(video_id, preferences).await,
@@ -643,7 +663,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Option<(CachedThumbnail, PathBuf)> {
+    async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_thumbnail_by_video_id(video_id).await,
@@ -665,7 +685,7 @@ impl FileBackend for PersistentFileBackend {
         }
     }
 
-    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Option<(CachedFile, PathBuf)> {
+    async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
         match self {
             #[cfg(feature = "cache-json")]
             Self::Json(b) => b.get_subtitle_by_language(video_id, language).await,

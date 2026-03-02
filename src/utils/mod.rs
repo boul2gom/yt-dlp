@@ -11,14 +11,15 @@ use crate::error::Result;
 
 pub mod fs;
 pub mod http;
+pub mod network;
 pub mod platform;
-pub mod retry;
 pub mod subtitle;
-pub mod url_expiry;
 pub mod validation;
 
+// Re-export for backward compatibility
 // Re-export commonly used functions from fs
 pub use fs::*;
+pub use network::{retry, url_expiry};
 pub use platform::Platform;
 pub use subtitle::subtitle_converter::convert_subtitle;
 pub use subtitle::subtitle_validator::{ValidationResult, is_format_compatible, validate_subtitle};

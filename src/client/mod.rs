@@ -5,7 +5,9 @@
 pub mod builder;
 pub mod deps;
 pub mod download_builder;
+mod pipeline;
 pub mod proxy;
+mod stream_downloads;
 pub mod streams;
 
 pub use builder::DownloaderBuilder;
