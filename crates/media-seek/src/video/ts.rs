@@ -16,6 +16,20 @@ const PKT_SIZE: u64 = 188;
 const SEEK_POINTS: u64 = 64;
 /// Bytes to fetch per binary search probe (must be >= PKT_SIZE, ideally several packets).
 const PROBE_WINDOW: u64 = 4096;
+/// TS sync byte.
+const TS_SYNC: u8 = 0x47;
+/// PAT PID in MPEG-TS.
+const PAT_PID: u16 = 0x0000;
+/// PCR flag bit in the adaptation field flags byte.
+const PCR_FLAG: u8 = 0x10;
+/// Minimum adaptation field length to contain a PCR (6 bytes of PCR data + flags byte).
+const PCR_AF_MIN_LEN: usize = 7;
+/// PCR base-to-27 MHz multiplier.
+const PCR_BASE_MULTIPLIER: u64 = 300;
+/// MPEG-TS system clock frequency in Hz (27 MHz).
+const SYSTEM_CLOCK_HZ: f64 = 27_000_000.0;
+/// Deduplication granularity: two PCR values within ~100 ms are considered equal.
+const PCR_DEDUP_SCALE: f64 = 10.0;
 
 /// Parses an MPEG-TS stream and returns a `ContainerIndex`.
 ///
@@ -81,8 +95,10 @@ where
         return Err(Error::parse("no PCR timestamps found during TS binary search"));
     }
 
-    points.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-    points.dedup_by_key(|p| (p.0 * 10.0) as u64); // deduplicate by ~100 ms granularity
+    // Deduplicate by PCR time (~100 ms granularity), then sort by byte offset.
+    points.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    points.dedup_by_key(|p| (p.0 * PCR_DEDUP_SCALE) as u64);
+    points.sort_unstable_by_key(|p| p.1);
 
     let mut segments = Vec::with_capacity(points.len());
     for i in 0..points.len() {
@@ -118,11 +134,11 @@ fn read_pat(data: &[u8]) -> Option<u16> {
     let n_pkts = data.len() / PKT_SIZE as usize;
     for i in 0..n_pkts {
         let pkt = &data[i * PKT_SIZE as usize..(i + 1) * PKT_SIZE as usize];
-        if pkt[0] != 0x47 {
+        if pkt[0] != TS_SYNC {
             continue;
         }
         let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
-        if pid != 0x0000 {
+        if pid != PAT_PID {
             continue;
         }
         // PAT packet — skip adaptation field and point to payload
@@ -179,7 +195,7 @@ fn read_pmt_pcr_pid(data: &[u8], pmt_pid: u16) -> Option<u16> {
     let n_pkts = data.len() / PKT_SIZE as usize;
     for i in 0..n_pkts {
         let pkt = &data[i * PKT_SIZE as usize..(i + 1) * PKT_SIZE as usize];
-        if pkt[0] != 0x47 {
+        if pkt[0] != TS_SYNC {
             continue;
         }
         let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
@@ -209,7 +225,7 @@ fn find_pcr_in_window(window: &[u8], pcr_pid: u16) -> Option<f64> {
     let n_pkts = window.len() / PKT_SIZE as usize;
     for i in 0..n_pkts {
         let pkt = &window[i * PKT_SIZE as usize..(i + 1) * PKT_SIZE as usize];
-        if pkt[0] != 0x47 {
+        if pkt[0] != TS_SYNC {
             continue;
         }
         let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
@@ -225,17 +241,15 @@ fn find_pcr_in_window(window: &[u8], pcr_pid: u16) -> Option<f64> {
             continue;
         }
         let af_len = pkt[4] as usize;
-        if af_len < 7 {
+        if af_len < PCR_AF_MIN_LEN {
             continue;
         }
         let af = &pkt[5..5 + af_len];
-        // af[0]: flags; bit 4 = PCR_flag
-        if af[0] & 0x10 == 0 {
+        if af[0] & PCR_FLAG == 0 {
             continue;
         }
         // PCR base (33 bits) + reserved (6 bits) + PCR extension (9 bits)
-        // Bytes 1-6 of adaptation field carry the PCR
-        if af.len() < 7 {
+        if af.len() < PCR_AF_MIN_LEN {
             continue;
         }
         let base = ((af[1] as u64) << 25)
@@ -244,17 +258,16 @@ fn find_pcr_in_window(window: &[u8], pcr_pid: u16) -> Option<f64> {
             | ((af[4] as u64) << 1)
             | ((af[5] >> 7) as u64);
         let ext = (((af[5] & 0x01) as u64) << 8) | af[6] as u64;
-        let pcr_value = base * 300 + ext; // in 27 MHz ticks
-        return Some(pcr_value as f64 / 27_000_000.0);
+        let pcr_value = base * PCR_BASE_MULTIPLIER + ext;
+        return Some(pcr_value as f64 / SYSTEM_CLOCK_HZ);
     }
     None
 }
 
 /// Returns `byte_pos` aligned to the first sync byte (0x47) found in `window`.
 fn align_to_sync(window: &[u8], byte_pos: u64) -> u64 {
-    // Find offset of sync byte within window
     for (i, &b) in window.iter().enumerate() {
-        if b == 0x47 {
+        if b == TS_SYNC {
             return byte_pos + i as u64;
         }
     }

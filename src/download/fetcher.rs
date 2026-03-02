@@ -868,6 +868,10 @@ impl Fetcher {
         self.retry_policy
             .execute_with_condition(
                 || async {
+                    // Snapshot progress before this attempt to rollback on failure
+                    let attempt_start = context.downloaded_bytes.load(Ordering::Relaxed);
+
+                    let result: std::result::Result<(), Error> = async {
                     let mut req = client.get(&url_clone).header(RANGE, &range_clone);
                     if let Some(ref headers) = self.extra_headers {
                         for (key, value) in headers.iter() {
@@ -956,6 +960,18 @@ impl Fetcher {
                     }
 
                     Ok(())
+                    }.await;
+
+                    // Rollback progress on failure to prevent double-counting on retry
+                    if result.is_err() {
+                        let current = context.downloaded_bytes.load(Ordering::Relaxed);
+                        let added = current.saturating_sub(attempt_start);
+                        if added > 0 {
+                            context.downloaded_bytes.fetch_sub(added, Ordering::Relaxed);
+                        }
+                    }
+
+                    result
                 },
                 |err: &Error| {
                     if let Error::Http { source, .. } = err {

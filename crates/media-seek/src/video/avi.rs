@@ -14,6 +14,12 @@ const TAIL_WINDOW: u64 = 65536;
 /// AVI index entry flags.
 const AVIIF_KEYFRAME: u32 = 0x0000_0010;
 
+/// Size of a single `idx1` entry in bytes.
+const IDX1_ENTRY_SIZE: usize = 16;
+
+/// Default fallback frame rate if `avih` is missing or invalid.
+const DEFAULT_FPS: f64 = 25.0;
+
 /// Parses an AVI stream and returns a `ContainerIndex`.
 ///
 /// Fetches the last `64 KB` of the stream to locate the `idx1` chunk, then
@@ -95,17 +101,14 @@ fn read_fps_from_avih(probe: &[u8]) -> Option<f64> {
 
 /// Locates the `idx1` chunk within `data` and returns its payload slice.
 fn find_idx1(data: &[u8]) -> Option<&[u8]> {
-    // Scan for "idx1" tag
     let tag = b"idx1";
-    let limit = data.len().saturating_sub(8);
-    for i in 0..limit {
-        if &data[i..i + 4] == tag {
-            let size = u32::from_le_bytes(data[i + 4..i + 8].try_into().ok()?) as usize;
-            let end = (i + 8 + size).min(data.len());
-            return Some(&data[i + 8..end]);
-        }
+    let pos = data.windows(4).position(|w| w == tag)?;
+    if pos + 8 > data.len() {
+        return None;
     }
-    None
+    let size = u32::from_le_bytes(data[pos + 4..pos + 8].try_into().ok()?) as usize;
+    let end = (pos + 8 + size).min(data.len());
+    Some(&data[pos + 8..end])
 }
 
 /// Parses the `idx1` payload and returns a `ContainerIndex` built from keyframe entries.
@@ -119,13 +122,13 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
     // Locate the movi list start byte in the file to convert idx1 offsets to absolute positions.
     let movi_start = find_movi_start(probe).unwrap_or(0);
 
-    let n_entries = idx1.len() / 16;
-    let mut keyframes: Vec<(u64, u64)> = Vec::new(); // (frame_index, byte_offset_in_movi)
+    let n_entries = idx1.len() / IDX1_ENTRY_SIZE;
+    let mut keyframes: Vec<(u64, u64)> = Vec::new(); // (frame_index, byte_offset)
     let mut frame_index = 0u64;
 
     for i in 0..n_entries {
-        let off = i * 16;
-        if off + 16 > idx1.len() {
+        let off = i * IDX1_ENTRY_SIZE;
+        if off + IDX1_ENTRY_SIZE > idx1.len() {
             break;
         }
         let chunk_id = &idx1[off..off + 4];
@@ -146,7 +149,7 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
         return Err(Error::parse("idx1 contains no video keyframes"));
     }
 
-    let fps_val = fps.unwrap_or(25.0);
+    let fps_val = fps.unwrap_or(DEFAULT_FPS);
     let mut segments = Vec::with_capacity(keyframes.len());
     for i in 0..keyframes.len() {
         let (fidx, byte_offset) = keyframes[i];

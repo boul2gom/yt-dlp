@@ -318,6 +318,10 @@ impl WebhookDelivery {
             while let Some((config, event)) = rx.recv().await {
                 let client = client_clone.clone();
                 let permit = delivery_semaphore.clone().acquire_owned().await;
+                let Ok(permit) = permit else {
+                    tracing::warn!("Webhook semaphore closed, stopping delivery worker");
+                    break;
+                };
                 tokio::spawn(async move {
                     let _permit = permit;
                     Self::deliver_webhook(client, config, event).await;

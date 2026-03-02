@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
@@ -136,7 +137,6 @@ async fn fetch_range_to_file(
         .map_err(|e| Error::http(url, "reading byte range body", e))?;
 
     // Append using OpenOptions instead of read-all + rewrite
-    use tokio::io::AsyncWriteExt;
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -175,7 +175,7 @@ async fn fetch_partial_stream(
         .await
         .map_err(crate::error::Error::from)?;
 
-    let (content_start, content_end) = index
+    let range = index
         .find_byte_range(start_secs, end_secs)
         .ok_or_else(|| Error::invalid_partial_range("container index is empty"))?;
 
@@ -185,7 +185,7 @@ async fn fetch_partial_stream(
     }
 
     // Append the content window
-    fetch_range_to_file(client, url, content_start, content_end, header_map, dest).await?;
+    fetch_range_to_file(client, url, range.start, range.end, header_map, dest).await?;
 
     Ok(())
 }

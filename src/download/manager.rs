@@ -692,10 +692,8 @@ impl DownloadManager {
             return true;
         }
 
-        // Not found, but might be in the brief window between pop and execution
-        self.mark_cancelled_and_emit(id, "Cancelled during initialization")
-            .await;
-        true
+        // Not found — the ID was never enqueued or already completed
+        false
     }
 
     /// Wait for a download to complete using event-driven notifications (no polling).
@@ -1299,5 +1297,11 @@ impl std::fmt::Debug for DownloadManager {
 impl Default for DownloadManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for DownloadManager {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
     }
 }

@@ -17,6 +17,15 @@ const AMF_ECMA_ARRAY: u8 = 0x08;
 const AMF_OBJECT_END: u8 = 0x09;
 const AMF_STRICT_ARRAY: u8 = 0x0A;
 
+/// FLV file header size: "FLV" (3) + version (1) + flags (1) + header_size (4).
+const FLV_HEADER_SIZE: usize = 9;
+/// FLV tag header size in bytes.
+const TAG_HEADER_SIZE: usize = 11;
+/// Size of the "previous tag size" field between tags.
+const PREV_TAG_SIZE_LEN: usize = 4;
+/// FLV Script (metadata) tag type.
+const TAG_TYPE_SCRIPT: u8 = 18;
+
 /// Parses an FLV stream and returns a `ContainerIndex`.
 ///
 /// Locates the first Script tag, decodes its AMF0 `onMetaData` payload, and
@@ -33,23 +42,22 @@ const AMF_STRICT_ARRAY: u8 = 0x0A;
 pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLV stream");
     // FLV header: "FLV" (3) + version (1) + flags (1) + header_size (4) = 9 bytes
-    if probe.len() < 9 || &probe[0..3] != b"FLV" {
+    if probe.len() < FLV_HEADER_SIZE || &probe[0..3] != b"FLV" {
         return Err(Error::parse("not an FLV stream"));
     }
     let header_size = u32::from_be_bytes(probe[5..9].try_into().unwrap()) as usize;
-    let mut pos = header_size + 4; // skip header + previous tag size (4 bytes)
+    let mut pos = header_size + PREV_TAG_SIZE_LEN;
 
-    while pos + 11 <= probe.len() {
+    while pos + TAG_HEADER_SIZE <= probe.len() {
         let tag_type = probe[pos];
         let data_size = u24_be(&probe[pos + 1..pos + 4]) as usize;
-        pos += 11; // skip tag header (11 bytes)
+        pos += TAG_HEADER_SIZE;
         let tag_end = pos + data_size;
         if tag_end > probe.len() {
             break;
         }
 
-        // Script tag type = 18 (0x12)
-        if tag_type == 18
+        if tag_type == TAG_TYPE_SCRIPT
             && let Ok(index) = parse_script_tag(&probe[pos..tag_end])
         {
             if let Inner::Segments(ref segs) = index.inner {
@@ -58,7 +66,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
             return Ok(index);
         }
 
-        pos = tag_end + 4; // previous tag size (4 bytes)
+        pos = tag_end + PREV_TAG_SIZE_LEN;
     }
 
     Err(Error::parse(

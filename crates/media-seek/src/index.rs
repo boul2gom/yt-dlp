@@ -1,5 +1,14 @@
 //! Container seek index types returned by all format parsers.
 
+/// A byte range within a media stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteRange {
+    /// Start byte offset (inclusive).
+    pub start: u64,
+    /// End byte offset (inclusive).
+    pub end: u64,
+}
+
 /// A single entry in a container's seek index.
 #[derive(Debug, Clone)]
 pub struct SegmentEntry {
@@ -56,13 +65,16 @@ impl ContainerIndex {
     ///
     /// `Some((content_start_byte, content_end_byte))` (both inclusive) on success,
     /// or `None` if the index is empty.
-    pub fn find_byte_range(&self, start_secs: f64, end_secs: f64) -> Option<(u64, u64)> {
+    pub fn find_byte_range(&self, start_secs: f64, end_secs: f64) -> Option<ByteRange> {
         match &self.inner {
             Inner::Linear { byte_rate, block_align } => {
                 let align = (*block_align).max(1);
                 let start_byte = ((start_secs * byte_rate / align as f64).floor() as u64) * align;
                 let end_byte = ((end_secs * byte_rate / align as f64).ceil() as u64) * align;
-                Some((start_byte, end_byte.saturating_sub(1)))
+                Some(ByteRange {
+                    start: start_byte,
+                    end: end_byte.saturating_sub(1),
+                })
             }
             Inner::Segments(segments) => {
                 if segments.is_empty() {
@@ -77,9 +89,10 @@ impl ContainerIndex {
                 let j = segments.partition_point(|s| s.start_secs < end_secs);
                 let last = segments.get(j).or_else(|| segments.last())?;
 
-                let content_start = first.byte_offset;
-                let content_end = last.byte_offset + last.byte_size.saturating_sub(1);
-                Some((content_start, content_end))
+                Some(ByteRange {
+                    start: first.byte_offset,
+                    end: last.byte_offset + last.byte_size.saturating_sub(1),
+                })
             }
         }
     }

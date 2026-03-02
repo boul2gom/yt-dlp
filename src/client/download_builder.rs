@@ -1007,7 +1007,7 @@ async fn clip_stream(
 
     let index = media_seek::parse(&probe, total_size, &rf).await?;
 
-    let (content_start, content_end) =
+    let range =
         index
             .find_byte_range(start_secs, end_secs)
             .ok_or_else(|| media_seek::Error::ParseFailed {
@@ -1018,8 +1018,8 @@ async fn clip_stream(
         start_secs,
         end_secs,
         init_end = index.init_end_byte,
-        content_start,
-        content_end,
+        content_start = range.start,
+        content_end = range.end,
         "⚙️ media-seek byte range resolved"
     );
 
@@ -1037,8 +1037,8 @@ async fn clip_stream(
         .enqueue_range(
             url,
             &clip_tmp,
-            content_start,
-            content_end,
+            range.start,
+            range.end,
             None,
             Some(http_headers.clone()),
         )
@@ -1081,7 +1081,7 @@ async fn clip_stream(
 
     tracing::debug!(
         init_bytes = init_bytes.len(),
-        clip_bytes = content_end - content_start + 1,
+        clip_bytes = range.end - range.start + 1,
         "✅ media-seek clip stream written via DownloadManager"
     );
 

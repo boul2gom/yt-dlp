@@ -321,12 +321,41 @@ Process Execution
 - **Temp file + rename pattern**: FFmpeg operations write to a temp file then rename atomically via `run_ffmpeg_with_tempfile()`.
 - **CPU-intensive JSON parsing** via `tokio::task::spawn_blocking` to avoid blocking the async runtime.
 
-Constants & Configuration
+Constants & Magic Numbers
 
+- **No magic numbers or magic byte patterns in logic.** Every literal number (sizes, offsets, masks, multipliers, thresholds, flags) must be extracted to a named `const` at the top of the file with a brief doc comment.
 - Module-private constants at file top: `const DEFAULT_RETRY_ATTEMPTS: usize = 3;`, `const BALANCED_SEGMENT_SIZE: usize = 8 * 1024 * 1024;`.
 - Naming: `SCREAMING_SNAKE_CASE`, often prefixed with context: `DEFAULT_`, `CONSERVATIVE_`, `BALANCED_`, `AGGRESSIVE_`.
 - Public constants: `pub const FORMAT_URL_LIFETIME: i64 = 6 * 3600;`.
 - Configuration structs via `TypedBuilder` with `#[builder(default = ...)]`.
+- Lookup tables (e.g., bitrate tables, sample rate tables) are `const` arrays at file top, never inline in match arms.
+- Magic byte sequences for format detection use named constants: `const EBML_MAGIC: &[u8] = &[0x1A, 0x45, 0xDF, 0xA5];` — never raw `&[0x1A, ...]` in conditionals.
+
+Return Types
+
+- **Never return tuples from functions.** Use a named struct instead.
+- Even for two-field returns, create a small struct with descriptive field names.
+- The struct can be module-private if only used internally.
+- Example:
+```rust
+// ❌ BAD — Opaque meaning at call site
+fn find_range(&self, time: f64) -> Option<(u64, u64)> { ... }
+
+// ✅ GOOD — Clear field semantics
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+fn find_range(&self, time: f64) -> Option<ByteRange> { ... }
+```
+
+Function Call & Type Qualification
+
+- **Function calls**: qualify with at most one `::` — use `Self::method()`, `module::function()`, or `Type::method()`. Never `module::submodule::function()` — import the submodule or function instead.
+- **Type paths**: frequently-used types must be imported directly. Avoid double-qualified paths like `reqwest::header::HeaderMap` — instead import `use reqwest::header::{self, HeaderMap, HeaderValue};` and use `HeaderMap` or `header::CONTENT_TYPE`.
+- **Self qualification**: prefer `Self::` for calling associated functions and methods within an `impl` block.
+- **Crate paths**: use `crate::module::Type` in imports, then use the short name in code.
 
 Tracing & Logging Guidelines
 - Tracing is an unconditional dependency (no feature flag). Every important function must have tracing.
@@ -435,6 +464,9 @@ media-seek Conventions
 - Parser modules live under `src/audio/` (mp3, ogg, flac, pcm, adts) and `src/video/` (mp4, webm, flv, avi, ts). Each is `pub(crate)`.
 - `RangeFetcher` trait uses RPITIT (not `#[async_trait]`) because dispatch is via concrete type, never `dyn`.
 - No feature flags in `media-seek`. All formats are always compiled in.
+- `ByteRange { start, end }` returned by `ContainerIndex::find_byte_range()` — never tuples.
+- All magic numbers (sync bytes, header sizes, sample rates, bitrate tables) are documented `const` at file top.
+- `dedup_by_key` must be applied after sorting by the **same key** used for dedup. If downstream needs a different sort order, sort again after dedup.
 
 Verification
 

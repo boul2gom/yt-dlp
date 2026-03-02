@@ -14,6 +14,9 @@ pub use process::{ProcessOutput, execute_command};
 
 use crate::error::Result;
 
+#[cfg(feature = "live-recording")]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 /// Represents a command executor.
 ///
 /// # Example
@@ -267,7 +270,6 @@ impl StreamingProcess {
         tracing::info!("📥 Stopping streaming process gracefully (stdin q)");
 
         if let Some(stdin) = self.child.stdin.as_mut() {
-            use tokio::io::AsyncWriteExt;
             // Ignore write errors (process may have already exited)
             let _ = stdin.write_all(b"q").await;
             let _ = stdin.flush().await;
@@ -296,7 +298,6 @@ impl StreamingProcess {
         // Read stderr before waiting (stdout may be large for recordings)
         let mut stderr_buf = String::new();
         if let Some(stderr) = self.child.stderr.take() {
-            use tokio::io::AsyncReadExt;
             let mut reader = tokio::io::BufReader::new(stderr);
             let _ = reader.read_to_string(&mut stderr_buf).await;
         }

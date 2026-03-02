@@ -7,6 +7,13 @@ use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
+/// Default EBML TimestampScale: 1 ms in nanoseconds.
+const DEFAULT_TIMESTAMP_SCALE_NS: u64 = 1_000_000;
+/// Nanoseconds per second.
+const NS_PER_SEC: f64 = 1_000_000_000.0;
+/// Initial fetch size for Cues element when beyond the probe (256 KB).
+const INITIAL_CUES_FETCH: u64 = 262_144;
+
 // EBML element IDs of interest
 const ID_EBML: u32 = 0x1A45_DFA3;
 const ID_SEGMENT: u32 = 0x1853_8067;
@@ -125,7 +132,7 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
     let segment_data_start = pos as u64;
 
     let mut cues_offset: Option<u64> = None;
-    let mut timestamp_scale_ns: u64 = 1_000_000; // default 1 ms
+    let mut timestamp_scale_ns: u64 = DEFAULT_TIMESTAMP_SCALE_NS;
     let mut duration_scaled: Option<f64> = None;
 
     // Walk top-level elements inside Segment until we've found SeekHead and Info
@@ -241,7 +248,7 @@ fn parse_cues(
     timestamp_scale_ns: u64,
     total_size: Option<u64>,
 ) -> Vec<SegmentEntry> {
-    let scale_secs = timestamp_scale_ns as f64 / 1_000_000_000.0;
+    let scale_secs = timestamp_scale_ns as f64 / NS_PER_SEC;
     let mut segments: Vec<SegmentEntry> = Vec::new();
 
     let mut pos = 0usize;
@@ -395,7 +402,7 @@ where
         // Cues is beyond the probe — fetch a window starting at the Cues offset.
         // We don't know the Cues size yet, so fetch 256 KB — enough for most long-form
         // videos' Cues table, eliminating a second RTT in the common case.
-        const INITIAL_FETCH: u64 = 262_144;
+        const INITIAL_FETCH: u64 = INITIAL_CUES_FETCH;
         let header_data = fetcher
             .fetch(cues_abs, cues_abs + INITIAL_FETCH - 1)
             .await

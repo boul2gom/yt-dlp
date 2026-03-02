@@ -10,7 +10,7 @@ pub mod index;
 use std::future::Future;
 
 pub use error::{Error, Result};
-pub use index::ContainerIndex;
+pub use index::{ByteRange, ContainerIndex};
 
 /// A source capable of fetching an arbitrary byte range from a remote stream.
 ///

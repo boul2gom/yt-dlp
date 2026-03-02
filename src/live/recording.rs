@@ -222,8 +222,8 @@ impl LiveRecorder {
                 last_progress_nanos = now_nanos;
                 let total_bytes = bytes_written.load(Ordering::Relaxed);
                 let elapsed = start.elapsed();
-                let bitrate_bps = if elapsed.as_secs() > 0 {
-                    ((total_bytes * 8) / elapsed.as_secs()) as f64
+                let bitrate_bps = if elapsed.as_secs_f64() > 0.0 {
+                    (total_bytes as f64 * 8.0) / elapsed.as_secs_f64()
                 } else {
                     0.0
                 };

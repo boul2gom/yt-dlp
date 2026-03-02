@@ -1,16 +1,77 @@
 //! MP3 container index parsing via Xing/VBRI VBR headers or CBR calculation.
 //!
-//! For VBR streams: the Xing/Info or VBRI header contains a TOC (Table of Contents)
+//! For VBR streams the Xing/Info or VBRI header contains a TOC (Table of Contents)
 //! with 100 equidistant percentage entries mapping time to byte position.
-//! For CBR streams: byte offset is derived directly from the constant bitrate.
+//! For CBR streams byte offset is derived directly from the constant bitrate.
 
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
+// ==================== Constants ====================
+
 /// Size of each MP3 frame sync lookup window.
 const SYNC_SEARCH_LIMIT: usize = 8192;
 
-/// Parses an MP3 stream and returns a `ContainerIndex`.
+/// VBRI header always appears at this offset after the frame header start.
+const VBRI_OFFSET: usize = 36;
+
+/// ID3v2 header total size in bytes (before the tag body).
+const ID3V2_HEADER_SIZE: usize = 10;
+
+/// ID3v2 footer flag bitmask in the flags byte (byte 5).
+const ID3V2_FOOTER_FLAG: u8 = 0x10;
+
+/// Side information size: MPEG-1 mono.
+const SIDE_INFO_MPEG1_MONO: usize = 17;
+/// Side information size: MPEG-1 stereo.
+const SIDE_INFO_MPEG1_STEREO: usize = 32;
+/// Side information size: MPEG-2/2.5 mono.
+const SIDE_INFO_MPEG2_MONO: usize = 9;
+/// Side information size: MPEG-2/2.5 stereo.
+const SIDE_INFO_MPEG2_STEREO: usize = 17;
+
+/// Xing TOC divides the byte range into 256 units — each entry is `value / 256.0`.
+const XING_TOC_SCALE: f64 = 256.0;
+
+/// Xing header flag: total frames field is present.
+const XING_FLAG_FRAMES: u32 = 0x01;
+/// Xing header flag: total bytes field is present.
+const XING_FLAG_BYTES: u32 = 0x02;
+/// Xing header flag: TOC (100-entry seek table) is present.
+const XING_FLAG_TOC: u32 = 0x04;
+
+/// Fallback byte rate when no frame count or duration is available (128 kbps / 8).
+pub(crate) const FALLBACK_BYTE_RATE: f64 = 128_000.0 / 8.0;
+
+/// Number of entries in a Xing TOC.
+const XING_TOC_ENTRIES: usize = 100;
+
+/// MPEG-1 Layer III bitrate table (kbps, indexed by 4-bit field).
+const BITRATES_MPEG1: [u32; 16] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+/// MPEG-2/2.5 Layer III bitrate table (kbps, indexed by 4-bit field).
+const BITRATES_MPEG2: [u32; 16] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+
+/// MPEG-1 sample rate table (Hz, indexed by 2-bit field).
+const SAMPLE_RATES_MPEG1: [u32; 4] = [44100, 48000, 32000, 0];
+/// MPEG-2 sample rate table (Hz, indexed by 2-bit field).
+const SAMPLE_RATES_MPEG2: [u32; 4] = [22050, 24000, 16000, 0];
+/// MPEG-2.5 sample rate table (Hz, indexed by 2-bit field).
+const SAMPLE_RATES_MPEG25: [u32; 4] = [11025, 12000, 8000, 0];
+
+// ==================== Parsed frame header ====================
+
+/// Decoded fields from an MPEG audio frame header.
+struct FrameHeader {
+    sample_rate: u32,
+    channels: u8,
+    bitrate_bps: u32,
+    /// 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5.
+    mpeg_version: u8,
+}
+
+// ==================== Public entry point ====================
+
+/// Parses an MP3 stream and returns a [`ContainerIndex`].
 ///
 /// Skips any ID3v2 header, locates the first MPEG sync frame, then checks for
 /// a Xing/Info or VBRI VBR header. Falls back to CBR calculation if none is found.
@@ -21,7 +82,7 @@ const SYNC_SEARCH_LIMIT: usize = 8192;
 ///
 /// # Errors
 ///
-/// Returns `Error::ParseFailed` when no sync frame is found within the probe.
+/// Returns [`Error::ParseFailed`] when no sync frame is found within the probe.
 pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     tracing::debug!(probe_len = probe.len(), "⚙️ Parsing MP3 stream");
     let audio_start = skip_id3(probe);
@@ -33,19 +94,18 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         return Err(Error::parse("MP3 frame header truncated"));
     }
 
-    let (sample_rate, channels, bitrate_bps, _frame_size, mpeg_version) =
-        parse_frame_header(frame).ok_or_else(|| Error::parse("invalid MP3 frame header"))?;
+    let header = parse_frame_header(frame).ok_or_else(|| Error::parse("invalid MP3 frame header"))?;
 
     // Check for Xing/Info header at the standard offset after the frame header
-    let xing_offset = xing_header_offset(mpeg_version, channels);
+    let xing_offset = xing_header_offset(header.mpeg_version, header.channels);
     if frame.len() >= xing_offset + 4 {
         let tag = &frame[xing_offset..xing_offset + 4];
         if tag == b"Xing" || tag == b"Info" {
             let result = parse_xing(
                 frame,
                 xing_offset,
-                sample_rate,
-                mpeg_version,
+                header.sample_rate,
+                header.mpeg_version,
                 frame_start as u64,
                 probe.len() as u64,
             );
@@ -54,26 +114,24 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         }
     }
 
-    // Check for VBRI header (always at offset 36 after frame header start)
-    const VBRI_OFFSET: usize = 36;
+    // Check for VBRI header
     if frame.len() >= VBRI_OFFSET + 4 && &frame[VBRI_OFFSET..VBRI_OFFSET + 4] == b"VBRI" {
         let result = parse_vbri(
             frame,
             VBRI_OFFSET,
-            sample_rate,
-            mpeg_version,
+            header.sample_rate,
+            header.mpeg_version,
             frame_start as u64,
-            probe.len() as u64,
         );
         tracing::debug!("✅ MP3 index parsed (mode=vbri)");
         return result;
     }
 
     // CBR: use constant bitrate for a Linear index
-    if bitrate_bps == 0 {
+    if header.bitrate_bps == 0 {
         return Err(Error::parse("MP3 CBR bitrate is zero"));
     }
-    let byte_rate = bitrate_bps as f64 / 8.0;
+    let byte_rate = header.bitrate_bps as f64 / 8.0;
     tracing::debug!("✅ MP3 index parsed (mode=cbr)");
     Ok(ContainerIndex {
         init_end_byte: frame_start as u64,
@@ -84,16 +142,18 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     })
 }
 
+// ==================== Internal helpers ====================
+
 /// Returns the byte offset of the first ID3v2-free audio data.
 fn skip_id3(data: &[u8]) -> usize {
-    if data.len() < 10 || &data[0..3] != b"ID3" {
+    if data.len() < ID3V2_HEADER_SIZE || &data[0..3] != b"ID3" {
         return 0;
     }
     // ID3v2 size is encoded as four 7-bit bytes (syncsafe integer)
-    let size = ((data[6] as u32) << 21) | ((data[7] as u32) << 14) | ((data[8] as u32) << 7) | (data[9] as u32);
-    // 10-byte ID3 header + optional 10-byte footer
-    let footer_flag = data[5] & 0x10 != 0;
-    let total = 10 + size as usize + if footer_flag { 10 } else { 0 };
+    let size =
+        ((data[6] as u32) << 21) | ((data[7] as u32) << 14) | ((data[8] as u32) << 7) | (data[9] as u32);
+    let footer = data[5] & ID3V2_FOOTER_FLAG != 0;
+    let total = ID3V2_HEADER_SIZE + size as usize + if footer { ID3V2_HEADER_SIZE } else { 0 };
     total.min(data.len())
 }
 
@@ -103,10 +163,9 @@ fn find_sync_frame(data: &[u8], start: usize) -> Option<usize> {
     for i in start..limit {
         if data[i] == 0xFF {
             let b1 = data[i + 1];
-            // Sync word: 0xFF + 0xE* (MPEG-1/2) with layer bits indicating MP3
-            // Layer: bits 2-1 of byte 1: 01 = Layer III
+            // Sync: 0xFFE* with layer bits 01 = Layer III
             if (b1 & 0xE0) == 0xE0 && ((b1 >> 1) & 0x03) == 0x01 {
-                // Verify this has a plausible bitrate (bits 7-4 of byte 2 not 0b1111 or 0b0000)
+                // Verify bitrate index is not reserved (0b0000 or 0b1111)
                 if i + 3 < data.len() {
                     let bi = (data[i + 2] >> 4) & 0x0F;
                     if bi != 0 && bi != 15 {
@@ -119,9 +178,8 @@ fn find_sync_frame(data: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// Parses an MPEG frame header and returns (sample_rate, channels, bitrate_bps, frame_size, mpeg_version).
-/// mpeg_version: 3=MPEG1, 2=MPEG2, 0=MPEG2.5
-fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize, u8)> {
+/// Parses an MPEG frame header and returns a [`FrameHeader`].
+fn parse_frame_header(frame: &[u8]) -> Option<FrameHeader> {
     if frame.len() < 4 {
         return None;
     }
@@ -129,36 +187,21 @@ fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize, u8)> {
     let b2 = frame[2];
     let b3 = frame[3];
 
-    // MPEG version: bits 4-3 of byte 1
-    let mpeg_version = (b1 >> 3) & 0x03; // 11=MPEG1, 10=MPEG2, 00=MPEG2.5
-    // Layer: bits 2-1 of byte 1 (01 = Layer III)
+    let mpeg_version = (b1 >> 3) & 0x03;
     let layer = (b1 >> 1) & 0x03;
     if layer != 1 {
-        return None; // Only handle Layer III
+        return None; // Only Layer III
     }
 
     let bitrate_idx = (b2 >> 4) as usize;
     let sr_idx = ((b2 >> 2) & 0x03) as usize;
-    let padding = (b2 >> 1) & 0x01;
-    let channel_mode = (b3 >> 6) & 0x03; // 3 = mono
+    let channel_mode = (b3 >> 6) & 0x03;
     let channels = if channel_mode == 3 { 1u8 } else { 2u8 };
-
-    const BITRATES_MPEG1: [u32; 16] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
-    const BITRATES_MPEG2: [u32; 16] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
-    const SAMPLE_RATES_MPEG1: [u32; 4] = [44100, 48000, 32000, 0];
-    const SAMPLE_RATES_MPEG2: [u32; 4] = [22050, 24000, 16000, 0];
-    const SAMPLE_RATES_MPEG25: [u32; 4] = [11025, 12000, 8000, 0];
 
     let (bitrate_kbps, sample_rate) = match mpeg_version {
         3 => (BITRATES_MPEG1[bitrate_idx], SAMPLE_RATES_MPEG1[sr_idx]),
-        2 | 0 => (
-            BITRATES_MPEG2[bitrate_idx],
-            if mpeg_version == 2 {
-                SAMPLE_RATES_MPEG2[sr_idx]
-            } else {
-                SAMPLE_RATES_MPEG25[sr_idx]
-            },
-        ),
+        2 => (BITRATES_MPEG2[bitrate_idx], SAMPLE_RATES_MPEG2[sr_idx]),
+        0 => (BITRATES_MPEG2[bitrate_idx], SAMPLE_RATES_MPEG25[sr_idx]),
         _ => return None,
     };
 
@@ -167,20 +210,22 @@ fn parse_frame_header(frame: &[u8]) -> Option<(u32, u8, u32, usize, u8)> {
     }
 
     let bitrate_bps = bitrate_kbps * 1000;
-    let frame_size = (144 * bitrate_bps / sample_rate + padding as u32) as usize;
 
-    Some((sample_rate, channels, bitrate_bps, frame_size, mpeg_version))
+    Some(FrameHeader {
+        sample_rate,
+        channels,
+        bitrate_bps,
+        mpeg_version,
+    })
 }
 
 /// Returns the offset of the Xing header within a frame (after the side information).
-/// Side info size depends on MPEG version and channel count.
 fn xing_header_offset(mpeg_version: u8, channels: u8) -> usize {
-    // MPEG1: stereo=32, mono=17; MPEG2/2.5: stereo=17, mono=9
     let side_info = match (mpeg_version, channels) {
-        (3, 1) => 17, // MPEG1 mono
-        (3, _) => 32, // MPEG1 stereo
-        (_, 1) => 9,  // MPEG2/2.5 mono
-        _ => 17,      // MPEG2/2.5 stereo
+        (3, 1) => SIDE_INFO_MPEG1_MONO,
+        (3, _) => SIDE_INFO_MPEG1_STEREO,
+        (_, 1) => SIDE_INFO_MPEG2_MONO,
+        _ => SIDE_INFO_MPEG2_STEREO,
     };
     4 + side_info
 }
@@ -190,7 +235,7 @@ fn samples_per_frame(mpeg_version: u8) -> u64 {
     if mpeg_version == 3 { 1152 } else { 576 }
 }
 
-/// Parses a Xing/Info VBR header and constructs a segmented `ContainerIndex`.
+/// Parses a Xing/Info VBR header and constructs a segmented [`ContainerIndex`].
 fn parse_xing(
     frame: &[u8],
     xing_off: usize,
@@ -207,7 +252,7 @@ fn parse_xing(
 
     let mut off = x + 8;
 
-    let total_frames = if flags & 0x01 != 0 {
+    let total_frames = if flags & XING_FLAG_FRAMES != 0 {
         if frame.len() < off + 4 {
             return Err(Error::parse("Xing total_frames truncated"));
         }
@@ -218,7 +263,7 @@ fn parse_xing(
         0
     };
 
-    let total_bytes = if flags & 0x02 != 0 {
+    let total_bytes = if flags & XING_FLAG_BYTES != 0 {
         if frame.len() < off + 4 {
             return Err(Error::parse("Xing total_bytes truncated"));
         }
@@ -226,34 +271,28 @@ fn parse_xing(
         off += 4;
         b
     } else {
-        // Use the actual file size as a fallback
         total_size.saturating_sub(frame_start_byte)
     };
 
-    let toc: Option<[u8; 100]> = if flags & 0x04 != 0 {
-        if frame.len() < off + 100 {
+    let toc: Option<[u8; XING_TOC_ENTRIES]> = if flags & XING_FLAG_TOC != 0 {
+        if frame.len() < off + XING_TOC_ENTRIES {
             return Err(Error::parse("Xing TOC truncated"));
         }
-        let mut t = [0u8; 100];
-        t.copy_from_slice(&frame[off..off + 100]);
+        let mut t = [0u8; XING_TOC_ENTRIES];
+        t.copy_from_slice(&frame[off..off + XING_TOC_ENTRIES]);
         Some(t)
     } else {
         None
     };
 
+    // BUG FIX: when total_frames == 0 we cannot compute duration from frames.
+    // Fall back to a linear approximation using the fallback byte rate,
+    // instead of multiplying 0 frames × spf which always yields 0 duration.
     if total_frames == 0 {
-        // No frame count — fall back to a linear approximation using total_bytes
-        let spf = samples_per_frame(mpeg_version);
-        let duration_secs = total_frames as f64 * spf as f64 / sample_rate as f64;
-        let byte_rate = if duration_secs > 0.0 {
-            total_bytes as f64 / duration_secs
-        } else {
-            128_000.0 / 8.0
-        };
         return Ok(ContainerIndex {
             init_end_byte: frame_start_byte,
             inner: Inner::Linear {
-                byte_rate,
+                byte_rate: FALLBACK_BYTE_RATE,
                 block_align: 1,
             },
         });
@@ -263,14 +302,17 @@ fn parse_xing(
     let total_duration = total_frames as f64 * spf as f64 / sample_rate as f64;
 
     if let Some(toc) = toc {
-        // Convert the 100-entry TOC into SegmentEntry slices
-        let mut segments = Vec::with_capacity(100);
-        for i in 0..100usize {
-            let pct = toc[i] as f64 / 256.0;
+        let mut segments = Vec::with_capacity(XING_TOC_ENTRIES);
+        for i in 0..XING_TOC_ENTRIES {
+            let pct = toc[i] as f64 / XING_TOC_SCALE;
             let byte_offset = frame_start_byte + (pct * total_bytes as f64) as u64;
-            let start_secs = i as f64 * total_duration / 100.0;
-            let end_secs = (i + 1) as f64 * total_duration / 100.0;
-            let next_pct = if i + 1 < 100 { toc[i + 1] as f64 / 256.0 } else { 1.0 };
+            let start_secs = i as f64 * total_duration / XING_TOC_ENTRIES as f64;
+            let end_secs = (i + 1) as f64 * total_duration / XING_TOC_ENTRIES as f64;
+            let next_pct = if i + 1 < XING_TOC_ENTRIES {
+                toc[i + 1] as f64 / XING_TOC_SCALE
+            } else {
+                1.0
+            };
             let next_byte = frame_start_byte + (next_pct * total_bytes as f64) as u64;
             segments.push(SegmentEntry {
                 start_secs,
@@ -285,7 +327,7 @@ fn parse_xing(
         });
     }
 
-    // No TOC — linear using average bitrate derived from total bytes/duration
+    // No TOC — linear using average bitrate derived from total bytes / duration
     let byte_rate = total_bytes as f64 / total_duration;
     Ok(ContainerIndex {
         init_end_byte: frame_start_byte,
@@ -296,14 +338,13 @@ fn parse_xing(
     })
 }
 
-/// Parses a VBRI VBR header and constructs a segmented `ContainerIndex`.
+/// Parses a VBRI VBR header and constructs a segmented [`ContainerIndex`].
 fn parse_vbri(
     frame: &[u8],
     vbri_off: usize,
     sample_rate: u32,
     mpeg_version: u8,
     frame_start_byte: u64,
-    _total_size: u64,
 ) -> Result<ContainerIndex> {
     // VBRI layout: 4 tag + 2 version + 2 delay + 2 quality + 4 bytes_total + 4 frames_total +
     //              2 table_size + 2 table_scale + 2 entry_bytes + 2 frames_per_entry + table
@@ -311,7 +352,6 @@ fn parse_vbri(
     if frame.len() < v + 26 {
         return Err(Error::parse("VBRI header truncated"));
     }
-    let total_bytes = u32::from_be_bytes(frame[v + 10..v + 14].try_into().unwrap()) as u64;
     let total_frames = u32::from_be_bytes(frame[v + 14..v + 18].try_into().unwrap());
     let table_size = u16::from_be_bytes(frame[v + 18..v + 20].try_into().unwrap()) as usize;
     let table_scale = u16::from_be_bytes(frame[v + 20..v + 22].try_into().unwrap()) as u64;
@@ -325,7 +365,6 @@ fn parse_vbri(
 
     let spf = samples_per_frame(mpeg_version);
     let total_duration = total_frames as f64 * spf as f64 / sample_rate as f64;
-    let _ = total_bytes; // might be 0; use offsets directly
 
     let mut segments = Vec::with_capacity(table_size);
     let mut byte_cursor = frame_start_byte;

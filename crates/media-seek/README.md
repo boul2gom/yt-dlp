@@ -180,10 +180,10 @@ let index = parse(&probe, total_size, &fetcher).await?;
 ```rust,no_run
 # use media_seek::{ContainerIndex, RangeFetcher};
 # async fn example(index: ContainerIndex, fetcher: impl RangeFetcher<Error = std::io::Error>) -> Result<(), Box<dyn std::error::Error>> {
-if let Some((content_start, content_end)) = index.find_byte_range(60.0, 120.0) {
+if let Some(range) = index.find_byte_range(60.0, 120.0) {
     // Always prefetch the init segment so decoders have codec parameters
     let init = fetcher.fetch(0, index.init_end_byte).await?;
-    let clip = fetcher.fetch(content_start, content_end).await?;
+    let clip = fetcher.fetch(range.start, range.end).await?;
 
     // Write init + clip to a file, then trim with FFmpeg stream copy:
     // ffmpeg -i combined.mp4 -ss 60 -t 60 -c copy -avoid_negative_ts 1 -y out.mp4
@@ -221,9 +221,9 @@ pub struct ContainerIndex {
 }
 
 impl ContainerIndex {
-    /// Returns `Some((content_start, content_end))` covering `[start_secs, end_secs]`,
+    /// Returns `Some(ByteRange { start, end })` covering `[start_secs, end_secs]`,
     /// expanded to the nearest decodable boundary, or `None` if the range is not covered.
-    pub fn find_byte_range(&self, start_secs: f64, end_secs: f64) -> Option<(u64, u64)>;
+    pub fn find_byte_range(&self, start_secs: f64, end_secs: f64) -> Option<ByteRange>;
 }
 ```
 

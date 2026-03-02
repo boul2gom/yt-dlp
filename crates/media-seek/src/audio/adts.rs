@@ -9,6 +9,12 @@ use crate::index::{ContainerIndex, Inner};
 
 /// Number of ADTS frames to scan for average size computation.
 const SCAN_FRAMES: usize = 128;
+/// Number of PCM samples per AAC-LC ADTS frame.
+const AAC_LC_SAMPLES_PER_FRAME: f64 = 1024.0;
+/// ADTS header size without CRC (protection_absent = 1).
+const ADTS_HEADER_NO_CRC: usize = 7;
+/// ADTS header size with CRC (protection_absent = 0).
+const ADTS_HEADER_WITH_CRC: usize = 9;
 
 /// Parses an AAC ADTS stream and returns a `ContainerIndex`.
 ///
@@ -31,9 +37,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         return Err(Error::parse("ADTS scan yielded zero sample_rate or frame_size"));
     }
 
-    // ADTS frames contain 1024 PCM samples each (for AAC-LC)
-    let samples_per_frame = 1024.0f64;
-    let byte_rate = avg_frame_size as f64 * (sample_rate as f64 / samples_per_frame);
+    let byte_rate = avg_frame_size as f64 * (sample_rate as f64 / AAC_LC_SAMPLES_PER_FRAME);
 
     tracing::debug!("✅ ADTS index parsed");
     Ok(ContainerIndex {
@@ -67,7 +71,7 @@ fn scan_frames(data: &[u8]) -> Option<(u32, usize)> {
         // ID bit (bit 3 of byte 1): 0 = MPEG-4, 1 = MPEG-2
         // protection_absent (bit 0 of byte 1): 1 = no CRC (7-byte header), 0 = CRC (9-byte)
         let protection_absent = data[pos + 1] & 0x01 != 0;
-        let header_size = if protection_absent { 7 } else { 9 };
+        let header_size = if protection_absent { ADTS_HEADER_NO_CRC } else { ADTS_HEADER_WITH_CRC };
         if pos + header_size > data.len() {
             break;
         }

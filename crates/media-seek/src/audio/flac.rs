@@ -11,6 +11,12 @@ const FLAC_MARKER: &[u8; 4] = b"fLaC";
 const BLOCK_TYPE_STREAMINFO: u8 = 0;
 const BLOCK_TYPE_SEEKTABLE: u8 = 3;
 const SEEKTABLE_PLACEHOLDER: u64 = u64::MAX;
+/// Minimum STREAMINFO block size in bytes.
+const STREAMINFO_MIN_SIZE: usize = 18;
+/// Size of a single SEEKTABLE entry in bytes.
+const SEEK_POINT_SIZE: usize = 18;
+/// Fallback byte rate when total samples are unknown (128 kbps / 8).
+const FALLBACK_BYTE_RATE: f64 = 128_000.0 / 8.0;
 
 /// Parses a FLAC stream and returns a `ContainerIndex`.
 ///
@@ -55,7 +61,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
 
         match block_type {
             BLOCK_TYPE_STREAMINFO => {
-                if block_len >= 18 {
+                if block_len >= STREAMINFO_MIN_SIZE {
                     let sr_word = u32::from_be_bytes(probe[pos + 10..pos + 14].try_into().unwrap());
                     sample_rate = sr_word >> 12;
                     // bits [35:0] of bytes 13-17 encode total_samples (36 bits)
@@ -66,11 +72,11 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
                 }
             }
             BLOCK_TYPE_SEEKTABLE => {
-                let n = block_len / 18; // each seek point is exactly 18 bytes
+                let n = block_len / SEEK_POINT_SIZE;
                 let mut points = Vec::with_capacity(n);
                 for i in 0..n {
-                    let off = pos + i * 18;
-                    if off + 18 > probe.len() {
+                    let off = pos + i * SEEK_POINT_SIZE;
+                    if off + SEEK_POINT_SIZE > probe.len() {
                         break;
                     }
                     let sample_num = u64::from_be_bytes(probe[off..off + 8].try_into().unwrap());
@@ -134,7 +140,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     let byte_rate = if total_secs > 0.0 {
         probe_audio_bytes / total_secs
     } else {
-        128_000.0 / 8.0
+        FALLBACK_BYTE_RATE
     };
 
     tracing::debug!("✅ FLAC index parsed (mode=linear)");

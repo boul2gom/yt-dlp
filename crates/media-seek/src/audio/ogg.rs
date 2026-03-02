@@ -15,6 +15,14 @@ use crate::index::{ContainerIndex, Inner, SegmentEntry};
 const OGG_CAPTURE: &[u8; 4] = b"OggS";
 /// Minimum OGG page header size (bytes).
 const PAGE_HEADER_MIN: usize = 27;
+/// Opus granule positions are always in 48 kHz units regardless of input sample rate.
+const OPUS_GRANULE_RATE: u32 = 48000;
+/// Fallback sample rate for FLAC-in-OGG when extraction fails.
+const FLAC_FALLBACK_RATE: u32 = 44100;
+/// Number of evenly-spaced seek point probes across the stream.
+const SEEK_POINTS: u64 = 64;
+/// Bytes fetched per seek-point probe window.
+const PROBE_WINDOW: u64 = 8192;
 
 /// Parses an OGG stream and returns a `ContainerIndex`.
 ///
@@ -42,10 +50,8 @@ where
 
     let total = total_size.ok_or_else(|| Error::parse("OGG binary search requires total_size"))?;
 
-    // Build a coarse index: sample up to 64 equally spaced byte positions and
+    // Build a coarse index: sample up to SEEK_POINTS equally spaced byte positions and
     // scan forward to find the next OGG page, reading its granule position.
-    const SEEK_POINTS: u64 = 64;
-    const WINDOW: u64 = 8192; // bytes to fetch per probe
 
     let mut points: Vec<(u64, u64)> = Vec::new(); // (granule, byte_offset)
     let mut fetch_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
@@ -61,7 +67,7 @@ where
 
     for i in 1..SEEK_POINTS {
         let byte_pos = i * total / SEEK_POINTS;
-        let window_end = (byte_pos + WINDOW).min(total).saturating_sub(1);
+        let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
 
         fetch_positions.push((byte_pos, window_end));
     }
@@ -87,9 +93,11 @@ where
         return Err(Error::parse("no OGG seek points found"));
     }
 
-    // Deduplicate and sort by byte offset
-    points.sort_unstable_by_key(|&(_, off)| off);
+    // Deduplicate by granule (same time position seen from different probes),
+    // then sort by byte offset for the final index.
+    points.sort_unstable_by_key(|&(granule, _)| granule);
     points.dedup_by_key(|&mut (granule, _)| granule);
+    points.sort_unstable_by_key(|&(_, off)| off);
 
     let mut segments = Vec::with_capacity(points.len());
     for i in 0..points.len() {
@@ -131,8 +139,7 @@ fn read_sample_rate(data: &[u8]) -> Option<u32> {
         return Some(sr);
     }
     if pkt.len() >= 16 && pkt.starts_with(b"OpusHead") {
-        // Opus granule positions are always in 48 kHz units regardless of input_sample_rate
-        return Some(48000);
+        return Some(OPUS_GRANULE_RATE);
     }
     // FLAC-in-OGG: `\x7fFLAC` header followed by STREAMINFO
     // OGG FLAC mapping: \x7fFLAC + version(2) + num_headers(2) + fLaC(4) + block_header(4) + STREAMINFO
@@ -151,7 +158,7 @@ fn read_sample_rate(data: &[u8]) -> Option<u32> {
                 return Some(sr);
             }
         }
-        return Some(44100);
+        return Some(FLAC_FALLBACK_RATE);
     }
     None
 }

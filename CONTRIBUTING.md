@@ -202,6 +202,87 @@ There are **no `#[cfg(test)]` modules** in `src/`. All testing is done via:
 - 📊 **Benchmarks** — `benches/benchmarks.rs` with [criterion](https://crates.io/crates/criterion)
 - 🧪 **Integration examples** — `examples/` directory
 
+### 🔢 Magic Numbers & Constants
+
+**Never use raw numeric or byte literals in logic.** Every literal must be extracted to a named `const` at the top of the file.
+
+```rust
+// ✅ GOOD — Named constants with clear intent
+/// ID3v2 header fixed size in bytes.
+const ID3V2_HEADER_SIZE: usize = 10;
+/// Maximum bytes to scan for the first sync word.
+const SYNC_SEARCH_LIMIT: usize = 8192;
+
+fn skip_id3(data: &[u8]) -> usize {
+    if data.len() < ID3V2_HEADER_SIZE { return 0; }
+    // ...
+}
+
+// ❌ BAD — What does 10 mean? What about 8192?
+fn skip_id3(data: &[u8]) -> usize {
+    if data.len() < 10 { return 0; }
+    // ...
+}
+```
+
+| Rule | Detail |
+|------|--------|
+| Location | File top, before any `fn` or `impl` |
+| Naming | `SCREAMING_SNAKE_CASE` with context prefix (`DEFAULT_`, `BALANCED_`, etc.) |
+| Lookup tables | Bitrate tables, sample rate tables → `const` arrays at file top |
+| Magic bytes | `const EBML_MAGIC: &[u8] = &[0x1A, 0x45, 0xDF, 0xA5];` — never raw in conditionals |
+
+### 📦 Return Types (No Tuples)
+
+**Never return tuples from functions.** Use a named struct instead — even for two fields.
+
+```rust
+// ✅ GOOD — Clear field semantics at call site
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+
+fn find_range(&self, time: f64) -> Option<ByteRange> {
+    // ...
+}
+
+// ❌ BAD — Opaque meaning, easy to swap fields
+fn find_range(&self, time: f64) -> Option<(u64, u64)> {
+    // ...
+}
+```
+
+| Rule | Detail |
+|------|--------|
+| Scope | Module-private structs are fine if only used internally |
+| Derives | At minimum `Debug, Clone` — add `Copy, PartialEq, Eq` when applicable |
+| Fields | Descriptive names that convey semantics |
+
+### 🔗 Function Call & Type Qualification
+
+Qualify function calls with **at most one `::`** — import deeper paths at the top of the file.
+
+```rust
+// ✅ GOOD — Import then use short paths
+use reqwest::header::{self, HeaderMap, HeaderValue};
+
+let mut headers = HeaderMap::new();
+headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+
+// ❌ BAD — Double-qualified paths
+let mut headers = reqwest::header::HeaderMap::new();
+headers.insert(reqwest::header::CONTENT_TYPE, reqwest::header::HeaderValue::from_static("text/plain"));
+```
+
+| Rule | Example |
+|------|---------|
+| `Self::` for associated fns in `impl` | `Self::new()`, `Self::parse_header(data)` |
+| `module::function()` | `detect::probe(data)` |
+| `Type::method()` | `String::from("hello")` |
+| Import heavily-used types directly | `use std::collections::HashMap;` then `HashMap::new()` |
+
 ---
 
 ## 🚨 Error Handling
@@ -724,6 +805,9 @@ All macros must use `$crate::` fully-qualified paths for robustness. The `use` i
 | **No `reqwest`** | The crate is transport-agnostic. Callers implement `RangeFetcher`. |
 | **No `serde`** | No serialization — pure parsing only |
 | **No `async_trait`** | `RangeFetcher` uses RPITIT (`impl Future + Send`), not `#[async_trait]` |
+| **No tuples** | `ByteRange { start, end }` instead of `(u64, u64)` |
+| **Named constants** | All magic numbers (sync bytes, header sizes, bitrate tables) as `const` at file top |
+| **dedup safety** | `dedup_by_key` only after sorting by the **same key**; re-sort after dedup if needed |
 
 ### Where to make changes
 
@@ -777,6 +861,9 @@ Before submitting your PR, make sure:
 - [ ] 🎨 All tracing uses structured fields + emoji prefix
 - [ ] 🚨 Errors use the existing `Error` enum with structured fields
 - [ ] 📥 All `use` imports are at the top of the file
+- [ ] 🔢 No magic numbers — all literals extracted to named `const` at file top
+- [ ] 📦 No tuple return types — use named structs instead
+- [ ] 🔗 No double-qualified paths — import types and use short names
 - [ ] 🌍 All text (comments, docs, logs) is in English
 
 ---
