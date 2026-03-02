@@ -309,10 +309,16 @@ struct RawDownloadArgs<'a> {
 async fn raw_download(args: RawDownloadArgs<'_>) -> Vec<Duration> {
     let mut samples = Vec::with_capacity(args.runs);
     for i in 0..args.runs {
-        args.pb.set_message(format!("🔧 {} (run {}/{})", style("yt-dlp raw").dim(), i + 1, args.runs));
+        args.pb.set_message(format!(
+            "🔧 {} (run {}/{})",
+            style("yt-dlp raw").dim(),
+            i + 1,
+            args.runs
+        ));
         args.pb.set_position((i + 1) as u64);
 
-        let out = args.output_dir
+        let out = args
+            .output_dir
             .join(format!("{}-{}.{}", args.file_prefix, i, args.ext))
             .to_string_lossy()
             .into_owned();
@@ -359,7 +365,12 @@ async fn lib_download(args: LibDownloadArgs<'_>) -> Vec<Duration> {
     let mut samples = Vec::with_capacity(args.runs);
 
     for i in 0..args.runs {
-        args.pb.set_message(format!("📦 {} (run {}/{})", style(args.profile_name).dim(), i + 1, args.runs));
+        args.pb.set_message(format!(
+            "📦 {} (run {}/{})",
+            style(args.profile_name).dim(),
+            i + 1,
+            args.runs
+        ));
         args.pb.inc(1);
 
         let out_name = format!("{}-{}.{}", args.prefix, i, args.scenario.output_ext);
@@ -393,7 +404,8 @@ async fn lib_download(args: LibDownloadArgs<'_>) -> Vec<Duration> {
             },
             ScenarioKind::NativeMuxed(max_height) => {
                 // Find a pre-muxed AudioVideo format with height <= max_height
-                let format = args.video
+                let format = args
+                    .video
                     .formats
                     .iter()
                     .filter(|f| f.format_type() == FormatType::AudioVideo)

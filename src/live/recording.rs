@@ -14,8 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
-use super::RecordingConfig;
-use super::hls;
+use super::{RecordingConfig, hls};
 use crate::error::{Error, Result};
 use crate::events::DownloadEvent;
 use crate::events::types::RecordingMethod;

@@ -65,11 +65,7 @@ impl SegmentContext {
     /// # Returns
     ///
     /// A new SegmentContext instance
-    pub fn new(
-        file: Arc<std::fs::File>,
-        total_bytes: u64,
-        progress_callback: Option<ProgressCallback>,
-    ) -> Self {
+    pub fn new(file: Arc<std::fs::File>, total_bytes: u64, progress_callback: Option<ProgressCallback>) -> Self {
         tracing::debug!(
             total_bytes = total_bytes,
             has_callback = progress_callback.is_some(),

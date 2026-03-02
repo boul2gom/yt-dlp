@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use crate::download::config::speed_profile::SpeedProfile;
 // Re-export types for backward compatibility with `use crate::download::manager::*`
 pub use crate::download::types::{DownloadPriority, DownloadStatus, ManagerConfig, ProgressUpdate};
-use crate::download::types::{DownloadTask, ProgressCounters, ProgressCallback};
+use crate::download::types::{DownloadTask, ProgressCallback, ProgressCounters};
 use crate::download::worker::{
     WorkerContext, build_progress_callback, emit_bus_event, prepare_task_fetcher, run_download_task,
 };

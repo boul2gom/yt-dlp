@@ -173,7 +173,15 @@ pub(super) async fn run_download_task(
         ctx.progress_counters.lock().unwrap().remove(&task_id);
     }
 
-    emit_download_result(&ctx.event_bus, &final_status, task_id, &task_url, &destination, duration).await;
+    emit_download_result(
+        &ctx.event_bus,
+        &final_status,
+        task_id,
+        &task_url,
+        &destination,
+        duration,
+    )
+    .await;
 
     let _ = ctx.completion_tx.send((task_id, final_status));
     {
