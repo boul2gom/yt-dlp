@@ -278,18 +278,19 @@ impl Youtube {
     ///
     /// Returns error if playlist is not found or inaccessible
     pub async fn fetch_playlist_paginated(&self, playlist_id: &str, start: usize, count: usize) -> Result<Playlist> {
+        let end = start.saturating_add(count).saturating_sub(1);
         tracing::debug!(
             playlist_id = playlist_id,
             start = start,
             count = count,
-            end = start + count - 1,
+            end = end,
             "📡 Fetching paginated YouTube playlist"
         );
 
         let mut args = self.build_base_args();
         args.push("--flat-playlist".to_string());
         args.push(format!("--playlist-start={}", start));
-        args.push(format!("--playlist-end={}", start + count - 1));
+        args.push(format!("--playlist-end={}", end));
 
         let url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
         args.push(url);
@@ -397,16 +398,17 @@ impl ExtractorBase for Youtube {
     fn build_base_args(&self) -> Vec<String> {
         let mut args = vec!["--no-progress".to_string(), "--dump-json".to_string()];
 
-        // Player client
+        // Build extractor args (must be merged into a single --extractor-args flag)
+        let mut extractor_parts = Vec::new();
         if let Some(client) = self.player_client {
-            args.push("--extractor-args".to_string());
-            args.push(format!("youtube:player_client={}", client.as_arg()));
+            extractor_parts.push(format!("player_client={}", client.as_arg()));
         }
-
-        // Skip DASH
         if self.skip_dash {
+            extractor_parts.push("skip=dash".to_string());
+        }
+        if !extractor_parts.is_empty() {
             args.push("--extractor-args".to_string());
-            args.push("youtube:skip=dash".to_string());
+            args.push(format!("youtube:{}", extractor_parts.join(";")));
         }
 
         // Format preset

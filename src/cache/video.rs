@@ -33,6 +33,31 @@ pub struct CachedVideo {
 }
 
 impl CachedVideo {
+    /// Creates a new `CachedVideo` by serializing the given video.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The original URL of the video.
+    /// * `video` - The video metadata to cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JSON serialization fails.
+    ///
+    /// # Returns
+    ///
+    /// A fully initialized `CachedVideo`.
+    pub fn new(url: String, video: &Video) -> Result<Self> {
+        let video_json = serde_json::to_string(video)?;
+        Ok(Self {
+            id: video.id.clone(),
+            title: video.title.clone(),
+            url,
+            video_json,
+            cached_at: current_timestamp(),
+        })
+    }
+
     /// Deserializes the cached video JSON into a Video struct.
     ///
     /// # Returns
@@ -44,26 +69,6 @@ impl CachedVideo {
     /// Returns an error if JSON deserialization fails.
     pub fn video(&self) -> Result<Video> {
         Ok(serde_json::from_str(&self.video_json)?)
-    }
-}
-
-impl From<(String, Video)> for CachedVideo {
-    fn from((url, video): (String, Video)) -> Self {
-        let video_json = match serde_json::to_string(&video) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::warn!(video_id = video.id, error = %e, "Failed to serialize video for cache");
-                String::new()
-            }
-        };
-
-        Self {
-            id: video.id.clone(),
-            title: video.title.clone(),
-            url,
-            video_json,
-            cached_at: current_timestamp(),
-        }
     }
 }
 

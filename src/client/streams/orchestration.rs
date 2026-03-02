@@ -2116,9 +2116,23 @@ impl Downloader {
             self.download_format(audio_format, &audio_filename)
         );
 
-        // Check results
-        let video_temp_path = video_result?;
-        let audio_temp_path = audio_result?;
+        // Check results — clean up temp files on partial failure
+        let video_temp_path = match video_result {
+            Ok(path) => path,
+            Err(e) => {
+                if let Ok(audio_path) = audio_result {
+                    utils::remove_temp_file(&audio_path).await;
+                }
+                return Err(e);
+            }
+        };
+        let audio_temp_path = match audio_result {
+            Ok(path) => path,
+            Err(e) => {
+                utils::remove_temp_file(&video_temp_path).await;
+                return Err(e);
+            }
+        };
 
         // Combine audio and video
         let output_filename = output_path.file_name().and_then(|f| f.to_str()).unwrap_or("output.mp4");

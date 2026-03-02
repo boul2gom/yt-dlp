@@ -147,7 +147,7 @@ fn read_ieee754_extended(data: &[u8]) -> u32 {
         return 0;
     }
     let shift = 63 - (exponent - 16383);
-    if !(0..=32).contains(&shift) {
+    if !(0..=63).contains(&shift) {
         return 0;
     }
     (mantissa >> shift) as u32

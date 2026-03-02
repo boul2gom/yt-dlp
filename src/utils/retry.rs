@@ -96,8 +96,9 @@ impl RetryPolicy {
         P: Fn(&E) -> bool,
     {
         let mut last_error = None;
+        let max_attempts = self.max_attempts.max(1);
 
-        for attempt in 0..self.max_attempts {
+        for attempt in 0..max_attempts {
             if attempt > 0 {
                 tracing::debug!(attempt = attempt + 1, max = self.max_attempts, "🔄 Retry attempt");
             }
@@ -126,7 +127,7 @@ impl RetryPolicy {
                     last_error = Some(e);
 
                     // Don't sleep after the last attempt
-                    if attempt + 1 < self.max_attempts {
+                    if attempt + 1 < max_attempts {
                         let delay = self.calculate_delay(attempt);
 
                         tracing::debug!(delay = ?delay, "🔄 Waiting before retry");
@@ -198,7 +199,7 @@ impl RetryPolicy {
         // Cap at max_delay
         let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);
 
-        // Add jitter if enabled (random value between 0% and 20% of delay)
+        // Add jitter if enabled (random factor between 0.5x and 1.5x, i.e. ±50%)
         let final_delay_ms = if self.jitter {
             use rand::prelude::*;
             let mut rng = rand::rng();

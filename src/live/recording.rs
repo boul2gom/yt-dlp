@@ -6,12 +6,12 @@
 //! and optionally bounded by a maximum duration.
 
 use std::collections::HashSet;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use super::hls;
@@ -125,16 +125,14 @@ impl LiveRecorder {
             method: RecordingMethod::Native,
         });
 
-        // Create output file with buffered writer (offload blocking create to thread pool)
+        // Create output file with async buffered writer
         if let Some(parent) = self.output_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let output_path = self.output_path.clone();
-        let file = tokio::task::spawn_blocking(move || std::fs::File::create(&output_path))
+        let file = tokio::fs::File::create(&self.output_path)
             .await
-            .map_err(|e| Error::io("joining file creation task", e))?
             .map_err(|e| Error::io_with_path("creating recording output", &self.output_path, e))?;
-        let mut writer = std::io::BufWriter::with_capacity(64 * 1024, file);
+        let mut writer = tokio::io::BufWriter::with_capacity(64 * 1024, file);
 
         // Initial playlist fetch to determine poll interval
         let initial = hls::parse_media(&self.client, &self.playlist_url).await?;
@@ -153,12 +151,14 @@ impl LiveRecorder {
             let data = self.fetch_segment(&seg.url).await?;
             writer
                 .write_all(&data)
+                .await
                 .map_err(|e| Error::io_with_path("writing segment", &self.output_path, e))?;
             bytes_written.fetch_add(data.len() as u64, Ordering::Relaxed);
             segments_downloaded += 1;
         }
         writer
             .flush()
+            .await
             .map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
 
         // Poll loop
@@ -207,6 +207,7 @@ impl LiveRecorder {
                 let data = self.fetch_segment(&seg.url).await?;
                 writer
                     .write_all(&data)
+                    .await
                     .map_err(|e| Error::io_with_path("writing segment", &self.output_path, e))?;
                 bytes_written.fetch_add(data.len() as u64, Ordering::Relaxed);
                 segments_downloaded += 1;
@@ -214,6 +215,7 @@ impl LiveRecorder {
             }
             writer
                 .flush()
+                .await
                 .map_err(|e| Error::io_with_path("flushing output", &self.output_path, e))?;
 
             // Emit progress (throttled)

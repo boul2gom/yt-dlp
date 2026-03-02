@@ -101,8 +101,18 @@ fn parse_script_tag(data: &[u8]) -> Result<ContainerIndex> {
     let mut segments = Vec::with_capacity(times.len());
     for i in 0..times.len() {
         let start_secs = times[i];
-        let end_secs = if i + 1 < times.len() { times[i + 1] } else { times[i] };
         let byte_offset = positions[i] as u64;
+
+        // For the last keyframe, estimate end_secs from the average interval
+        // and set byte_size to 0 (unknown extent — callers treat 0 as "until EOF")
+        let end_secs = if i + 1 < times.len() {
+            times[i + 1]
+        } else if i > 0 {
+            let avg_interval = (times[i] - times[0]) / i as f64;
+            times[i] + avg_interval
+        } else {
+            times[i]
+        };
         let byte_size = if i + 1 < positions.len() {
             (positions[i + 1] as u64).saturating_sub(byte_offset)
         } else {

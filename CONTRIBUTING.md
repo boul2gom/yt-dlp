@@ -29,6 +29,7 @@ Thank you for your interest in contributing! This guide will help you understand
 ### Prerequisites
 
 - **Rust** (edition 2024) — install via [rustup](https://rustup.rs/)
+- **Rust nightly** (for rustfmt) — `rustup toolchain install nightly --component rustfmt`
 - **cargo-hack** — `cargo install cargo-hack`
 - **cargo-deny** — `cargo install cargo-deny`
 
@@ -36,10 +37,7 @@ Thank you for your interest in contributing! This guide will help you understand
 
 Every PR must pass these commands:
 ```bash
-# media-seek standalone lint
-cargo clippy -p media-seek -- -D warnings
-
-# Lint each feature in isolation (workspace-wide, covers both crates)
+# Lint each feature in isolation (workspace-wide, covers both yt-dlp and media-seek)
 cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
 
 # Lint tiered cache combinations (L1 Moka + L2 persistent)
@@ -47,11 +45,17 @@ cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
 cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
 cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
 
+# Check formatting (requires nightly)
+cargo +nightly fmt --all -- --check
+
 # Run all doc-tests (workspace-wide)
 cargo test --doc --workspace
 
 # Check dependencies (licenses, advisories, bans)
 cargo deny check
+
+# Check for unused dependencies
+cargo machete
 ```
 
 ### Branch workflow
@@ -850,13 +854,14 @@ cargo test --doc --workspace
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo clippy -p media-seek -- -D warnings` — zero warnings
 - [ ] 🔍 `cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings` — zero warnings
 - [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json -- -D warnings` — zero warnings
 - [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings` — zero warnings
 - [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings` — zero warnings
+- [ ] 💄 `cargo +nightly fmt --all -- --check` — properly formatted
 - [ ] 🧪 `cargo test --doc --workspace` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
+- [ ] 🧹 `cargo machete` — no unused dependencies
 - [ ] 📝 All new public items have rustdoc following the template
 - [ ] 🎨 All tracing uses structured fields + emoji prefix
 - [ ] 🚨 Errors use the existing `Error` enum with structured fields

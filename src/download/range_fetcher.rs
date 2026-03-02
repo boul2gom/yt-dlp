@@ -6,8 +6,14 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use reqwest::header::HeaderMap;
+
+/// Maximum response size for a range fetch (16 MB).
+const MAX_RANGE_RESPONSE: usize = 16 * 1024 * 1024;
+/// Timeout for a single range fetch request.
+const RANGE_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// HTTP `RangeFetcher` backed by a shared `reqwest::Client`.
 ///
@@ -38,16 +44,22 @@ impl media_seek::RangeFetcher for HttpRangeFetcher {
         let url = self.url.clone();
         let headers = self.headers.clone();
         async move {
-            client
+            let response = client
                 .get(&url)
                 .headers(headers)
                 .header("Range", format!("bytes={}-{}", start, end))
+                .timeout(RANGE_FETCH_TIMEOUT)
                 .send()
                 .await?
-                .error_for_status()?
-                .bytes()
-                .await
-                .map(|b| b.to_vec())
+                .error_for_status()?;
+
+            // Limit response body to prevent OOM on malicious servers
+            let content_length = response.content_length().unwrap_or(0);
+            if content_length > MAX_RANGE_RESPONSE as u64 {
+                return Ok(Vec::new());
+            }
+
+            response.bytes().await.map(|b| b.to_vec())
         }
     }
 }

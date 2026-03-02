@@ -225,7 +225,7 @@ impl DownloaderBuilder {
     ///
     /// * `max_concurrent` - Maximum number of concurrent downloads
     pub fn with_max_concurrent_downloads(mut self, max_concurrent: usize) -> Self {
-        let mut config = self.download_manager_config.unwrap_or_default();
+        let mut config = self.download_manager_config.take().unwrap_or_default();
         config.max_concurrent_downloads = max_concurrent;
         self.download_manager_config = Some(config);
         self

@@ -353,15 +353,16 @@ impl fmt::Display for DownloaderOptions {
 #[serde(rename_all = "PascalCase")]
 pub struct HttpHeaders {
     /// The user agent used by the downloader.
-    #[serde(rename = "User-Agent")]
+    #[serde(rename = "User-Agent", default)]
     pub user_agent: String,
     /// The accept header used by the downloader.
+    #[serde(default)]
     pub accept: String,
     /// The accept language used by the downloader.
-    #[serde(rename = "Accept-Language")]
+    #[serde(rename = "Accept-Language", default)]
     pub accept_language: String,
     /// The accept encoding used by the downloader.
-    #[serde(rename = "Sec-Fetch-Mode")]
+    #[serde(rename = "Sec-Fetch-Mode", default)]
     pub sec_fetch_mode: String,
 }
 

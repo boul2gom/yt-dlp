@@ -101,7 +101,7 @@ impl VideoBackend for RedisVideoCache {
         tracing::debug!(url = url, video_id = video.id, "⚙️ Caching video to Redis backend");
 
         let mut conn = self.conn().await?;
-        let cached = CachedVideo::from((url.clone(), video));
+        let cached = CachedVideo::new(url.clone(), &video)?;
         let bytes = serde_json::to_vec(&cached)?;
 
         let url_k = url_key(PREFIX_VIDEO, &url);
@@ -504,7 +504,7 @@ impl FileBackend for RedisFileCache {
         }
 
         // Store subtitle files by video+language for lookup via get_subtitle_by_language
-        if file.file_type == "subtitle"
+        if file.file_type.eq_ignore_ascii_case("subtitle")
             && let Some(ref vid) = file.video_id
             && let Some(ref lang) = file.language_code
         {

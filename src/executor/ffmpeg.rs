@@ -190,13 +190,22 @@ pub async fn run_ffmpeg_with_tempfile(
     let final_args = args.overwrite().output(temp_output_str).build();
 
     let executor = Executor::new(ffmpeg_path.to_path_buf(), final_args, timeout);
-    let output = executor.execute().await?;
+    let output = match executor.execute().await {
+        Ok(output) => output,
+        Err(e) => {
+            // Clean up temp file on execution failure (timeout, process error, etc.)
+            if temp_output_path.exists() {
+                remove_temp_file(&temp_output_path).await;
+            }
+            return Err(e);
+        }
+    };
 
     if !output.code.eq(&0) {
         tracing::warn!(
             exit_code = output.code,
             base_path = ?base_path,
-            "✂️ ffmpeg command failed"
+            "ffmpeg command failed"
         );
         if temp_output_path.exists() {
             remove_temp_file(&temp_output_path).await;

@@ -415,13 +415,21 @@ where
 
         if total_needed <= INITIAL_FETCH {
             cues_data = header_data;
-            cues_slice = &cues_data[body_start..body_start + cues_body_size as usize];
+            let end = (body_start + cues_body_size as usize).min(cues_data.len());
+            if body_start > cues_data.len() {
+                return Err(Error::parse("fetched Cues data too short for body_start"));
+            }
+            cues_slice = &cues_data[body_start..end];
         } else {
             cues_data = fetcher
                 .fetch(cues_abs, cues_abs + total_needed - 1)
                 .await
                 .map_err(Error::fetch)?;
-            cues_slice = &cues_data[body_start..body_start + cues_body_size as usize];
+            let end = (body_start + cues_body_size as usize).min(cues_data.len());
+            if body_start > cues_data.len() {
+                return Err(Error::parse("fetched Cues data too short for body_start"));
+            }
+            cues_slice = &cues_data[body_start..end];
         }
     }
 

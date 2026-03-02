@@ -60,7 +60,7 @@ impl VideoBackend for MokaVideoCache {
     async fn put(&self, url: String, video: Video) -> Result<()> {
         tracing::debug!(url = url, video_id = video.id, "⚙️ Caching video to memory backend");
 
-        let cached = CachedVideo::from((url.clone(), video));
+        let cached = CachedVideo::new(url.clone(), &video)?;
         self.data.insert(url, cached).await;
         Ok(())
     }

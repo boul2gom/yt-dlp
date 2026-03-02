@@ -723,7 +723,13 @@ impl DownloadManager {
     /// ```
     pub async fn wait_for_completion(&self, id: u64) -> Option<DownloadStatus> {
         tracing::debug!(download_id = id, "📥 Waiting for download completion");
-        // First check if the download already completed
+
+        // Subscribe BEFORE checking status to avoid TOCTOU race:
+        // if the download completes between the check and the subscribe,
+        // the broadcast would be missed and the caller would block forever.
+        let mut rx = self.completion_tx.subscribe();
+
+        // Now check if the download already completed
         if let Some(status) = self.get_status(id).await {
             match status {
                 DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
@@ -732,9 +738,6 @@ impl DownloadManager {
                 _ => {}
             }
         }
-
-        // Subscribe to completion events
-        let mut rx = self.completion_tx.subscribe();
 
         // Wait for the completion event for this specific download
         loop {
@@ -1303,5 +1306,12 @@ impl Default for DownloadManager {
 impl Drop for DownloadManager {
     fn drop(&mut self) {
         self.shutdown_token.cancel();
+
+        // Abort all in-flight download tasks to prevent resource leaks
+        if let Ok(tasks) = self.tasks.try_lock() {
+            for (_, handle) in tasks.iter() {
+                handle.abort();
+            }
+        }
     }
 }

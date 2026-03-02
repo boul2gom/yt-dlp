@@ -141,7 +141,7 @@ impl VideoBackend for JsonVideoCache {
             "⚙️ Caching video to JSON backend"
         );
         let id = video.id.clone();
-        let cached = CachedVideo::from((url.clone(), video));
+        let cached = CachedVideo::new(url.clone(), &video)?;
         let file_path = self.cache_dir.join(format!("{}.json", cached.id));
         let content = serde_json::to_string(&cached)?;
         tokio::fs::write(file_path, content).await?;
@@ -519,7 +519,9 @@ impl FileBackend for JsonFileCache {
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
+                let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                    continue;
+                };
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
                     && cached.video_id.as_deref() == Some(video_id)
                     && cached.format_id.as_deref() == Some(format_id)
@@ -549,7 +551,9 @@ impl FileBackend for JsonFileCache {
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
+                let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                    continue;
+                };
                 if let Ok(cached) = serde_json::from_str::<CachedFile>(&content)
                     && cached.video_id.as_deref() == Some(video_id)
                     && cached.matches_preferences(preferences)
@@ -634,7 +638,9 @@ impl FileBackend for JsonFileCache {
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
+                let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                    continue;
+                };
                 if let Ok(cached) = serde_json::from_str::<CachedThumbnail>(&content)
                     && cached.video_id == video_id
                 {
@@ -678,7 +684,9 @@ impl FileBackend for JsonFileCache {
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await.ok()?;
+                let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                    continue;
+                };
                 let Ok(cached) = serde_json::from_str::<CachedFile>(&content) else {
                     continue;
                 };

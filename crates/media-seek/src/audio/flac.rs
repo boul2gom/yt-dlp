@@ -111,7 +111,9 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
             let (next_sample, next_off) = if i + 1 < points.len() {
                 (points[i + 1].0, audio_start + points[i + 1].1)
             } else {
-                (total_samples, u64::MAX) // last segment
+                // Last segment: use audio_start + stream_off as end so byte_size = 0
+                // (unknown extent — callers should treat 0 as "until EOF")
+                (total_samples, byte_offset)
             };
             let end_secs = next_sample as f64 / sample_rate as f64;
             let byte_size = next_off.saturating_sub(byte_offset);

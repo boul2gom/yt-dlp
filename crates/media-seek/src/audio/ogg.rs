@@ -56,8 +56,10 @@ where
     let mut points: Vec<(u64, u64)> = Vec::new(); // (granule, byte_offset)
     let mut fetch_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
 
-    // Always include the first page granule
-    if let Some((granule, page_end)) = read_page_granule(probe, 0) {
+    // Always include the first page granule (filter u64::MAX which is the OGG convention for -1)
+    if let Some((granule, page_end)) = read_page_granule(probe, 0)
+        && granule != u64::MAX
+    {
         points.push((granule, 0));
         // Second page (comment header then first audio page)
         if let Some((g2, _)) = read_page_granule(probe, page_end) {

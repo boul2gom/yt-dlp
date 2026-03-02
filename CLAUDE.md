@@ -472,13 +472,23 @@ Verification
 
 All edits must pass these checks:
 ```bash
-# Default-feature check: covers both yt-dlp and media-seek (cold cache)
-cargo clippy --workspace -- -D warnings
+# Lint each feature in isolation (workspace-wide, covers both yt-dlp and media-seek)
+cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
 
-# yt-dlp feature-combination lint (media-seek has no features, already covered above)
+# Lint tiered cache combinations (L1 Moka + L2 persistent)
 cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
 cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
 cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
+
+# Check formatting (requires nightly)
+cargo +nightly fmt --all -- --check
+
+# Run all doc-tests (workspace-wide)
 cargo test --doc --workspace
+
+# Check dependencies (licenses, advisories, bans)
 cargo deny check
+
+# Check for unused dependencies
+cargo machete
 ```

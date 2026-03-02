@@ -868,8 +868,9 @@ impl Fetcher {
         self.retry_policy
             .execute_with_condition(
                 || async {
-                    // Snapshot progress before this attempt to rollback on failure
-                    let attempt_start = context.downloaded_bytes.load(Ordering::Relaxed);
+                    // Track bytes downloaded in this attempt locally to avoid
+                    // corrupting the global counter when other segments run concurrently
+                    let mut attempt_bytes: u64 = 0;
 
                     let result: std::result::Result<(), Error> = async {
                         let mut req = client.get(&url_clone).header(RANGE, &range_clone);
@@ -924,6 +925,7 @@ impl Fetcher {
                                 buf_offset = current_offset;
                             }
 
+                            attempt_bytes += chunk_len;
                             let new_total =
                                 context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
 
@@ -964,13 +966,9 @@ impl Fetcher {
                     }
                     .await;
 
-                    // Rollback progress on failure to prevent double-counting on retry
-                    if result.is_err() {
-                        let current = context.downloaded_bytes.load(Ordering::Relaxed);
-                        let added = current.saturating_sub(attempt_start);
-                        if added > 0 {
-                            context.downloaded_bytes.fetch_sub(added, Ordering::Relaxed);
-                        }
+                    // Rollback only this attempt's bytes on failure to prevent double-counting on retry
+                    if result.is_err() && attempt_bytes > 0 {
+                        context.downloaded_bytes.fetch_sub(attempt_bytes, Ordering::Relaxed);
                     }
 
                     result

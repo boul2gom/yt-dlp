@@ -152,10 +152,19 @@ impl MetadataManager {
 
         let output = executor.execute().await;
 
-        // Clean up temporary metadata file
+        // Clean up temporary metadata file regardless of outcome
         remove_temp_file(&metadata_file).await;
 
-        let output = output?;
+        let output = match output {
+            Ok(output) => output,
+            Err(e) => {
+                // Clean up temp output on execution failure
+                if temp_output_path.exists() {
+                    remove_temp_file(&temp_output_path).await;
+                }
+                return Err(e);
+            }
+        };
 
         if !output.code.eq(&0) {
             if temp_output_path.exists() {

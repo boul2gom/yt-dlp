@@ -18,7 +18,7 @@ pub struct AutomaticCaption {
 }
 
 /// The available extensions for automatic caption files.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Extension {
     /// The JSON extension.
@@ -34,6 +34,7 @@ pub enum Extension {
     /// The Ttml extension.
     Ttml,
     /// The Vtt extension.
+    #[default]
     Vtt,
     /// The Srt extension.
     Srt,
@@ -41,6 +42,9 @@ pub enum Extension {
     Ass,
     /// The SSA (SubStation Alpha) extension.
     Ssa,
+    /// An unknown extension not yet covered by the library.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Extension {
@@ -61,6 +65,7 @@ impl Extension {
             Extension::Srt => "srt",
             Extension::Ass => "ass",
             Extension::Ssa => "ssa",
+            Extension::Unknown => "unknown",
         }
     }
 }

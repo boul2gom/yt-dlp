@@ -224,19 +224,77 @@ fn write_lofty_tags(
     Ok(())
 }
 
+/// Parses a date string into a lofty `Timestamp`.
+///
+/// Accepts formats: "YYYY", "YYYY-MM-DD", "YYYY-MM-DDTHH:MM:SS", "YYYYMMDD".
+fn parse_timestamp(value: &str) -> Option<Timestamp> {
+    let trimmed = value.trim();
+    // "YYYY" — plain year
+    if let Ok(year) = trimmed.parse::<u16>() {
+        return Some(Timestamp {
+            year,
+            month: None,
+            day: None,
+            hour: None,
+            minute: None,
+            second: None,
+        });
+    }
+
+    // "YYYYMMDD" — compact date
+    if trimmed.len() == 8 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        let year = trimmed[0..4].parse::<u16>().ok()?;
+        let month = trimmed[4..6].parse::<u8>().ok()?;
+        let day = trimmed[6..8].parse::<u8>().ok()?;
+        return Some(Timestamp {
+            year,
+            month: Some(month),
+            day: Some(day),
+            hour: None,
+            minute: None,
+            second: None,
+        });
+    }
+
+    // "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS"
+    let parts: Vec<&str> = trimmed.splitn(2, 'T').collect();
+    let date_parts: Vec<&str> = parts[0].split('-').collect();
+    if date_parts.len() == 3 {
+        let year = date_parts[0].parse::<u16>().ok()?;
+        let month = date_parts[1].parse::<u8>().ok()?;
+        let day = date_parts[2].parse::<u8>().ok()?;
+        let (hour, minute, second) = if parts.len() == 2 {
+            let time_parts: Vec<&str> = parts[1].split(':').collect();
+            if time_parts.len() >= 3 {
+                (
+                    time_parts[0].parse::<u8>().ok(),
+                    time_parts[1].parse::<u8>().ok(),
+                    time_parts[2].parse::<u8>().ok(),
+                )
+            } else {
+                (None, None, None)
+            }
+        } else {
+            (None, None, None)
+        };
+        return Some(Timestamp {
+            year,
+            month: Some(month),
+            day: Some(day),
+            hour,
+            minute,
+            second,
+        });
+    }
+
+    None
+}
+
 /// Apply a single metadata key-value pair to a tag using known ItemKeys.
 fn apply_tag_field(tag: &mut Tag, key: &str, value: &str) {
     // Handle date/year specially: parse into Timestamp
     if key == "year" || key == "date" {
-        if let Ok(year) = value.parse::<u16>() {
-            let ts = Timestamp {
-                year,
-                month: None,
-                day: None,
-                hour: None,
-                minute: None,
-                second: None,
-            };
+        if let Some(ts) = parse_timestamp(value) {
             tag.set_date(ts);
         }
         return;

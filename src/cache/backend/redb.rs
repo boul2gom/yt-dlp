@@ -112,7 +112,7 @@ impl VideoBackend for RedbVideoCache {
 
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
-            let cached = CachedVideo::from((url, video));
+            let cached = CachedVideo::new(url, &video)?;
             let bytes = serde_json::to_vec(&cached)?;
             let txn = db
                 .begin_write()

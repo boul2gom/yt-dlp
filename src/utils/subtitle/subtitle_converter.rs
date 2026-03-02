@@ -98,11 +98,21 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
 
     let mut current_subtitle: Vec<String> = Vec::new();
     let mut in_subtitle = false;
+    let mut in_note_block = false;
 
     for line in lines {
         let trimmed = line.trim();
 
+        // NOTE and STYLE blocks can span multiple lines until the next blank line
         if trimmed.starts_with("NOTE") || trimmed.starts_with("STYLE") {
+            in_note_block = true;
+            continue;
+        }
+
+        if in_note_block {
+            if trimmed.is_empty() {
+                in_note_block = false;
+            }
             continue;
         }
 

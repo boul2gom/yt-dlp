@@ -80,12 +80,17 @@ fn resolve_url(base: &str, uri: &str) -> String {
         return uri.to_string();
     }
 
-    // Strip the last path component from the base URL
-    if let Some(pos) = base.rfind('/') {
-        format!("{}/{}", &base[..pos], uri)
-    } else {
-        uri.to_string()
-    }
+    url::Url::parse(base)
+        .and_then(|base_url| base_url.join(uri))
+        .map(|resolved| resolved.to_string())
+        .unwrap_or_else(|_| {
+            // Fallback to simple path concatenation
+            if let Some(pos) = base.rfind('/') {
+                format!("{}/{}", &base[..pos], uri)
+            } else {
+                uri.to_string()
+            }
+        })
 }
 
 /// Fetches and parses an HLS master playlist.
