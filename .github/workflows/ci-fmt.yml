@@ -51,7 +51,7 @@ jobs:
           find src crates examples benches -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
 
       - name: 🔐 Import GPG Key and setup Git
-        uses: crazy-max/ghaction-import-gpg@v6.3.0
+        uses: crazy-max/ghaction-import-gpg@v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
