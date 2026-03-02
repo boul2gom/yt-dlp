@@ -3,8 +3,6 @@ name: "🔌 Github CI - Production"
 on:
   release:
     types: [published]
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +11,6 @@ permissions:
 jobs:
   sonarcloud-analysis:
     name: 🔍 SonarCloud analysis
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,38 +28,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  scorecard-analysis:
-    name: 🔍 Scorecard analysis
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      id-token: write
-
-    steps:
-      - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
-        with:
-          ref: develop
-          persist-credentials: false
-
-      - name: 🔍 Scan with Scorecard
-        uses: ossf/scorecard-action@v2.4.3
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          publish_results: true
-
-      - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@v7.0.0
-        with:
-          name: sarif-results
-          path: results.sarif
-          retention-days: 5
-
-      - name: 📦 Upload Scorecard scan results to GitHub dashboard
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: results.sarif
