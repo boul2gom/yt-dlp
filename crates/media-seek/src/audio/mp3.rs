@@ -150,8 +150,7 @@ fn skip_id3(data: &[u8]) -> usize {
         return 0;
     }
     // ID3v2 size is encoded as four 7-bit bytes (syncsafe integer)
-    let size =
-        ((data[6] as u32) << 21) | ((data[7] as u32) << 14) | ((data[8] as u32) << 7) | (data[9] as u32);
+    let size = ((data[6] as u32) << 21) | ((data[7] as u32) << 14) | ((data[8] as u32) << 7) | (data[9] as u32);
     let footer = data[5] & ID3V2_FOOTER_FLAG != 0;
     let total = ID3V2_HEADER_SIZE + size as usize + if footer { ID3V2_HEADER_SIZE } else { 0 };
     total.min(data.len())

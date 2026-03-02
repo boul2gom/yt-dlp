@@ -11,11 +11,10 @@ use std::time::Duration;
 
 pub use ffmpeg::{FfmpegArgs, run_ffmpeg_with_tempfile};
 pub use process::{ProcessOutput, execute_command};
-
-use crate::error::Result;
-
 #[cfg(feature = "live-recording")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use crate::error::Result;
 
 /// Represents a command executor.
 ///

@@ -1007,12 +1007,11 @@ async fn clip_stream(
 
     let index = media_seek::parse(&probe, total_size, &rf).await?;
 
-    let range =
-        index
-            .find_byte_range(start_secs, end_secs)
-            .ok_or_else(|| media_seek::Error::ParseFailed {
-                reason: "time range not covered by container index".into(),
-            })?;
+    let range = index
+        .find_byte_range(start_secs, end_secs)
+        .ok_or_else(|| media_seek::Error::ParseFailed {
+            reason: "time range not covered by container index".into(),
+        })?;
 
     tracing::debug!(
         start_secs,
@@ -1034,14 +1033,7 @@ async fn clip_stream(
 
     let clip_id = downloader
         .download_manager
-        .enqueue_range(
-            url,
-            &clip_tmp,
-            range.start,
-            range.end,
-            None,
-            Some(http_headers.clone()),
-        )
+        .enqueue_range(url, &clip_tmp, range.start, range.end, None, Some(http_headers.clone()))
         .await;
 
     match downloader.download_manager.wait_for_completion(clip_id).await {

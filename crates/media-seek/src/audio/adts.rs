@@ -71,7 +71,11 @@ fn scan_frames(data: &[u8]) -> Option<(u32, usize)> {
         // ID bit (bit 3 of byte 1): 0 = MPEG-4, 1 = MPEG-2
         // protection_absent (bit 0 of byte 1): 1 = no CRC (7-byte header), 0 = CRC (9-byte)
         let protection_absent = data[pos + 1] & 0x01 != 0;
-        let header_size = if protection_absent { ADTS_HEADER_NO_CRC } else { ADTS_HEADER_WITH_CRC };
+        let header_size = if protection_absent {
+            ADTS_HEADER_NO_CRC
+        } else {
+            ADTS_HEADER_WITH_CRC
+        };
         if pos + header_size > data.len() {
             break;
         }

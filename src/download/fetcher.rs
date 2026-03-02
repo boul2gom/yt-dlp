@@ -872,31 +872,69 @@ impl Fetcher {
                     let attempt_start = context.downloaded_bytes.load(Ordering::Relaxed);
 
                     let result: std::result::Result<(), Error> = async {
-                    let mut req = client.get(&url_clone).header(RANGE, &range_clone);
-                    if let Some(ref headers) = self.extra_headers {
-                        for (key, value) in headers.iter() {
-                            req = req.header(key, value);
+                        let mut req = client.get(&url_clone).header(RANGE, &range_clone);
+                        if let Some(ref headers) = self.extra_headers {
+                            for (key, value) in headers.iter() {
+                                req = req.header(key, value);
+                            }
                         }
-                    }
-                    let response = req.send().await?.error_for_status()?;
+                        let response = req.send().await?.error_for_status()?;
 
-                    // file_offset_base translates the URL-absolute offset to a file-local offset
-                    let mut current_offset = start - context.file_offset_base;
-                    let mut chunk_stream = response.bytes_stream();
+                        // file_offset_base translates the URL-absolute offset to a file-local offset
+                        let mut current_offset = start - context.file_offset_base;
+                        let mut chunk_stream = response.bytes_stream();
 
-                    // Batch chunks before writing to reduce spawn_blocking calls
-                    const WRITE_BATCH_SIZE: usize = 256 * 1024; // 256 KB
-                    let mut write_buf: Vec<u8> = Vec::with_capacity(WRITE_BATCH_SIZE);
-                    let mut buf_offset = current_offset;
+                        // Batch chunks before writing to reduce spawn_blocking calls
+                        const WRITE_BATCH_SIZE: usize = 256 * 1024; // 256 KB
+                        let mut write_buf: Vec<u8> = Vec::with_capacity(WRITE_BATCH_SIZE);
+                        let mut buf_offset = current_offset;
 
-                    while let Some(chunk_result) = chunk_stream.next().await {
-                        let chunk = chunk_result?;
-                        let chunk_len = chunk.len() as u64;
-                        write_buf.extend_from_slice(&chunk);
-                        current_offset += chunk_len;
+                        while let Some(chunk_result) = chunk_stream.next().await {
+                            let chunk = chunk_result?;
+                            let chunk_len = chunk.len() as u64;
+                            write_buf.extend_from_slice(&chunk);
+                            current_offset += chunk_len;
 
-                        if write_buf.len() >= WRITE_BATCH_SIZE {
-                            let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
+                            if write_buf.len() >= WRITE_BATCH_SIZE {
+                                let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
+                                let offset = buf_offset;
+                                let file = Arc::clone(&context.file);
+
+                                tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                                    #[cfg(unix)]
+                                    file.write_all_at(&batch, offset)?;
+                                    #[cfg(windows)]
+                                    {
+                                        let mut written = 0usize;
+                                        while written < batch.len() {
+                                            let n = file.seek_write(&batch[written..], offset + written as u64)?;
+                                            if n == 0 {
+                                                return Err(std::io::Error::new(
+                                                    std::io::ErrorKind::WriteZero,
+                                                    "seek_write returned 0",
+                                                ));
+                                            }
+                                            written += n;
+                                        }
+                                    }
+                                    Ok(())
+                                })
+                                .await??;
+
+                                buf_offset = current_offset;
+                            }
+
+                            let new_total =
+                                context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
+
+                            if let Some(callback) = &context.progress_callback {
+                                callback(new_total, context.total_bytes);
+                            }
+                        }
+
+                        // Flush remaining buffered data
+                        if !write_buf.is_empty() {
+                            let batch = write_buf;
                             let offset = buf_offset;
                             let file = Arc::clone(&context.file);
 
@@ -920,47 +958,11 @@ impl Fetcher {
                                 Ok(())
                             })
                             .await??;
-
-                            buf_offset = current_offset;
                         }
 
-                        let new_total = context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
-
-                        if let Some(callback) = &context.progress_callback {
-                            callback(new_total, context.total_bytes);
-                        }
+                        Ok(())
                     }
-
-                    // Flush remaining buffered data
-                    if !write_buf.is_empty() {
-                        let batch = write_buf;
-                        let offset = buf_offset;
-                        let file = Arc::clone(&context.file);
-
-                        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-                            #[cfg(unix)]
-                            file.write_all_at(&batch, offset)?;
-                            #[cfg(windows)]
-                            {
-                                let mut written = 0usize;
-                                while written < batch.len() {
-                                    let n = file.seek_write(&batch[written..], offset + written as u64)?;
-                                    if n == 0 {
-                                        return Err(std::io::Error::new(
-                                            std::io::ErrorKind::WriteZero,
-                                            "seek_write returned 0",
-                                        ));
-                                    }
-                                    written += n;
-                                }
-                            }
-                            Ok(())
-                        })
-                        .await??;
-                    }
-
-                    Ok(())
-                    }.await;
+                    .await;
 
                     // Rollback progress on failure to prevent double-counting on retry
                     if result.is_err() {

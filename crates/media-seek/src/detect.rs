@@ -108,9 +108,7 @@ pub(crate) fn detect(probe: &[u8]) -> Option<Format> {
         && probe[0] == 0xFF
         && (probe[1] & ADTS_SYNC_SECOND_BYTE_MASK) == ADTS_SYNC_SECOND_BYTE_PATTERN
     {
-        let frame_length = ((probe[3] as usize & 0x03) << 11)
-            | ((probe[4] as usize) << 3)
-            | ((probe[5] as usize) >> 5);
+        let frame_length = ((probe[3] as usize & 0x03) << 11) | ((probe[4] as usize) << 3) | ((probe[5] as usize) >> 5);
         if frame_length >= ADTS_MIN_HEADER {
             if probe.len() > frame_length + 1 {
                 if probe[frame_length] == 0xFF
@@ -162,10 +160,7 @@ pub(crate) fn detect(probe: &[u8]) -> Option<Format> {
         return Some(Format::Ts);
     }
     // Shorter probe — two consecutive sync bytes
-    if probe.len() > TS_PACKET_SIZE
-        && probe[0] == TS_SYNC_BYTE
-        && probe[TS_PACKET_SIZE] == TS_SYNC_BYTE
-    {
+    if probe.len() > TS_PACKET_SIZE && probe[0] == TS_SYNC_BYTE && probe[TS_PACKET_SIZE] == TS_SYNC_BYTE {
         return Some(Format::Ts);
     }
 
