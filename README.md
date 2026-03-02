@@ -2657,7 +2657,7 @@ You can also use `media-seek` directly in your own project:
 
 ```toml
 [dependencies]
-media-seek = "0.2.5"
+media-seek = "0.2.6"
 ```
 
 See the [`media-seek` README](crates/media-seek/README.md) for the full API reference and usage examples.

@@ -75,7 +75,7 @@ profiling = ["dep:dhat"]
 # The `cargo-outdated` tool is used with: `cargo outdated --root-deps-only`
 
 # Workspace crates
-media-seek = { version = "0.2.5", path = "crates/media-seek" }
+media-seek = { version = "0.2.6", path = "crates/media-seek" }
 
 # Runtime and async
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "fs", "time", "process", "io-util"], default-features = false }
