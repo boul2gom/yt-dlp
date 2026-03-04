@@ -34,6 +34,11 @@ pub mod extractor;
 // Event system
 pub mod events;
 
+// Re-export async_trait so the simple_hook! macro works from downstream crates
+#[cfg(feature = "hooks")]
+#[doc(hidden)]
+pub use async_trait;
+
 // Statistics and analytics
 #[cfg(feature = "statistics")]
 pub mod stats;

@@ -145,6 +145,35 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indicatif = "0.18.4"
 console = "0.16.2"
 
+# Test infrastructure
+wiremock = "0.6"
+pretty_assertions = "1.4"
+assert_matches = "1.5"
+test-log = { version = "0.2", features = ["trace"] }
+tokio-test = "0.4"
+
 [[bench]]
 name = "benchmarks"
 harness = false
+
+[[bench]]
+name = "compare"
+harness = false
+
+[[bench]]
+name = "profiling"
+harness = false
+
+# ==================== Test Harnesses ====================
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"

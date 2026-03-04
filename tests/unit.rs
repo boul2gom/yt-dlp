@@ -1,0 +1,32 @@
+#[path = "common/mod.rs"]
+mod common;
+
+#[path = "unit/download/config.rs"]
+mod config;
+#[path = "unit/error.rs"]
+mod error;
+#[path = "unit/events.rs"]
+mod events;
+#[path = "unit/extractor/extractor.rs"]
+mod extractor;
+#[path = "unit/executor/ffmpeg_args.rs"]
+mod ffmpeg_args;
+#[path = "unit/utils/fs_utils.rs"]
+mod fs_utils;
+#[cfg(feature = "live-recording")]
+#[path = "unit/live/hls_parsing.rs"]
+mod hls_parsing;
+#[path = "unit/media-seek/mod.rs"]
+mod media_seek;
+#[path = "unit/metadata.rs"]
+mod metadata;
+#[path = "unit/model/mod.rs"]
+mod model;
+#[path = "unit/utils/proxy.rs"]
+mod proxy;
+#[path = "unit/selection.rs"]
+mod selection;
+#[path = "unit/extractor/test_extractor.rs"]
+mod test_extractor;
+#[path = "unit/utils/validation.rs"]
+mod validation;

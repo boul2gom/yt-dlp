@@ -1,0 +1,598 @@
+{
+  "id": "gXtp6C-3JKo",
+  "title": "Le virus le plus flippant de l'Histoire",
+  "thumbnail": "{{MOCK_SERVER}}/thumbnails/maxresdefault.webp",
+  "description": "L'histoire de l'attaque Stuxnet, le virus qui a changé la cyberguerre.\n\n➤ Découvrir Trade Republic : https://trade.re/Micode\nMon interview de Matthias, leur directeur Europe : https://youtu.be/lKoFpO82asU\nTout investissement comporte des risques de perte du capital investi. Les performances passées ne présagent pas des performances futures.\n\n🎧 Nos vidéos sont aussi disponibles en podcast !\nApple Podcast : https://podcasts.apple.com/fr/podcast/underscore/id1556250107\nSpotify : https://open.spotify.com/show/1sz1NhoHqbpXbzNlpOnFoz\nDeezer : https://www.deezer.com/fr/show/2379352\n(et les autres plateformes)\n\nÉcriture : What a Fail, Michaël de Marliave\nMontage : @Selgy\nMotion design : Vincent Carbonneau, Quentin Barrère\nDirecteur de production : Arthur della Faille\n\nErratum :\nÀ 24:58, nous affichons le drapeau Indien au lieu du drapeau Iranien.",
+  "availability": "public",
+  "timestamp": 1735320320,
+  "duration": 2481,
+  "duration_string": "41:21",
+  "webpage_url": "https://www.youtube.com/watch?v=gXtp6C-3JKo",
+  "language": "fr",
+  "media_type": "video",
+  "is_live": false,
+  "was_live": false,
+  "release_timestamp": null,
+  "release_year": null,
+  "concurrent_view_count": null,
+  "view_count": 2836640,
+  "like_count": 82963,
+  "comment_count": 2200,
+  "channel": "Micode",
+  "channel_id": "UCYnvxJ-PKiGXo_tYXpWAC-w",
+  "channel_url": "https://www.youtube.com/channel/UCYnvxJ-PKiGXo_tYXpWAC-w",
+  "channel_follower_count": 1850000,
+  "uploader": "Micode",
+  "uploader_id": "@Micode",
+  "uploader_url": "https://www.youtube.com/@Micode",
+  "channel_is_verified": true,
+  "formats": [
+    {
+      "format_id": "sb0",
+      "format_note": "storyboard",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "acodec": "none",
+      "vcodec": "none",
+      "url": "{{MOCK_SERVER}}/storyboard/sb0.jpg",
+      "width": 359,
+      "height": 180,
+      "fps": 0.1007658202337767,
+      "rows": 3,
+      "columns": 3,
+      "fragments": [
+        {
+          "url": "{{MOCK_SERVER}}/storyboard/sb0_M0.jpg",
+          "duration": 89.316
+        },
+        {
+          "url": "{{MOCK_SERVER}}/storyboard/sb0_M1.jpg",
+          "duration": 89.316
+        }
+      ],
+      "audio_ext": "none",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 0,
+      "tbr": null,
+      "resolution": "359x180",
+      "aspect_ratio": 1.99,
+      "filesize_approx": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "sb0 - 359x180 (storyboard)"
+    },
+    {
+      "asr": 22050,
+      "filesize": 15132818,
+      "format_id": "139",
+      "format_note": "low",
+      "source_preference": -1,
+      "fps": null,
+      "audio_channels": 2,
+      "height": null,
+      "quality": 2.0,
+      "has_drm": false,
+      "tbr": 48.786,
+      "filesize_approx": 15132618,
+      "width": null,
+      "language": "fr",
+      "language_preference": -1,
+      "preference": null,
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.5",
+      "dynamic_range": null,
+      "container": "m4a_dash",
+      "url": "{{MOCK_SERVER}}/media/audio_139.m4a",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "audio_ext": "m4a",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 48.786,
+      "resolution": "audio only",
+      "aspect_ratio": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "139 - audio only (low)"
+    },
+    {
+      "asr": 44100,
+      "filesize": 40159831,
+      "format_id": "140",
+      "format_note": "medium",
+      "source_preference": -1,
+      "fps": null,
+      "audio_channels": 2,
+      "height": null,
+      "quality": 3.0,
+      "has_drm": false,
+      "tbr": 129.474,
+      "filesize_approx": 40159597,
+      "width": null,
+      "language": "fr",
+      "language_preference": -1,
+      "preference": null,
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "dynamic_range": null,
+      "container": "m4a_dash",
+      "url": "{{MOCK_SERVER}}/media/audio_140.m4a",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "audio_ext": "m4a",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 129.474,
+      "resolution": "audio only",
+      "aspect_ratio": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "140 - audio only (medium)"
+    },
+    {
+      "asr": 48000,
+      "filesize": 42834882,
+      "format_id": "251",
+      "format_note": "medium",
+      "source_preference": -1,
+      "fps": null,
+      "audio_channels": 2,
+      "height": null,
+      "quality": 3.0,
+      "has_drm": false,
+      "tbr": 138.1,
+      "filesize_approx": 42834839,
+      "width": null,
+      "language": "fr",
+      "language_preference": -1,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "dynamic_range": null,
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/audio_251.webm",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "audio_ext": "webm",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 138.1,
+      "resolution": "audio only",
+      "aspect_ratio": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "251 - audio only (medium)"
+    },
+    {
+      "asr": null,
+      "filesize": 12126211,
+      "format_id": "160",
+      "format_note": "144p",
+      "source_preference": -1,
+      "fps": 30,
+      "audio_channels": null,
+      "height": 128,
+      "quality": 0.0,
+      "has_drm": false,
+      "tbr": 39.095,
+      "filesize_approx": 12126022,
+      "width": 256,
+      "language": null,
+      "language_preference": -1,
+      "preference": null,
+      "ext": "mp4",
+      "vcodec": "avc1.4d400c",
+      "acodec": "none",
+      "dynamic_range": "SDR",
+      "container": "mp4_dash",
+      "url": "{{MOCK_SERVER}}/media/video_160.mp4",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "abr": 0,
+      "vbr": 39.095,
+      "resolution": "256x128",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "160 - 256x128 (144p)"
+    },
+    {
+      "asr": null,
+      "filesize": 58164903,
+      "format_id": "244",
+      "format_note": "480p",
+      "source_preference": -1,
+      "fps": 30,
+      "audio_channels": null,
+      "height": 428,
+      "quality": 7.0,
+      "has_drm": false,
+      "tbr": 187.527,
+      "filesize_approx": 58164897,
+      "width": 854,
+      "language": null,
+      "language_preference": -1,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "vp9",
+      "acodec": "none",
+      "dynamic_range": "SDR",
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/video_244.webm",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "video_ext": "webm",
+      "audio_ext": "none",
+      "abr": 0,
+      "vbr": 187.527,
+      "resolution": "854x428",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "244 - 854x428 (480p)"
+    },
+    {
+      "asr": null,
+      "filesize": 89993626,
+      "format_id": "247",
+      "format_note": "720p",
+      "source_preference": -1,
+      "fps": 30,
+      "audio_channels": null,
+      "height": 640,
+      "quality": 8.0,
+      "has_drm": false,
+      "tbr": 290.144,
+      "filesize_approx": 89993420,
+      "width": 1280,
+      "language": null,
+      "language_preference": -1,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "vp9",
+      "acodec": "none",
+      "dynamic_range": "SDR",
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/video_247.webm",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "video_ext": "webm",
+      "audio_ext": "none",
+      "abr": 0,
+      "vbr": 290.144,
+      "resolution": "1280x640",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "247 - 1280x640 (720p)"
+    },
+    {
+      "asr": null,
+      "filesize": 195399879,
+      "format_id": "248",
+      "format_note": "1080p",
+      "source_preference": -1,
+      "fps": 30,
+      "audio_channels": null,
+      "height": 960,
+      "quality": 9.0,
+      "has_drm": false,
+      "tbr": 629.98,
+      "filesize_approx": 195399715,
+      "width": 1920,
+      "language": null,
+      "language_preference": -1,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "vp9",
+      "acodec": "none",
+      "dynamic_range": "SDR",
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/video_248.webm",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "video_ext": "webm",
+      "audio_ext": "none",
+      "abr": 0,
+      "vbr": 629.98,
+      "resolution": "1920x960",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "248 - 1920x960 (1080p)"
+    },
+    {
+      "asr": 44100,
+      "filesize": null,
+      "format_id": "18",
+      "format_note": "360p",
+      "source_preference": -1,
+      "fps": 30,
+      "audio_channels": 2,
+      "height": 320,
+      "quality": 6.0,
+      "has_drm": false,
+      "tbr": 233.362,
+      "filesize_approx": 72383058,
+      "width": 640,
+      "language": "fr",
+      "language_preference": -1,
+      "preference": null,
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "dynamic_range": "SDR",
+      "url": "{{MOCK_SERVER}}/media/muxed_18.mp4",
+      "available_at": 1772608779,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "vbr": null,
+      "abr": null,
+      "resolution": "640x320",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "18 - 640x320 (360p)"
+    },
+    {
+      "format_id": "91",
+      "format_index": null,
+      "url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "manifest_url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "tbr": 165.391,
+      "ext": "mp4",
+      "fps": 30.0,
+      "protocol": "m3u8_native",
+      "preference": null,
+      "quality": 0,
+      "has_drm": false,
+      "width": 256,
+      "height": 128,
+      "vcodec": "avc1.4D400C",
+      "acodec": "mp4a.40.5",
+      "dynamic_range": "SDR",
+      "available_at": 1772608785,
+      "source_preference": -2,
+      "language": "fr",
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "vbr": null,
+      "abr": null,
+      "resolution": "256x128",
+      "aspect_ratio": 2.0,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "91 - 256x128"
+    }
+  ],
+  "thumbnails": [
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/default.jpg",
+      "preference": -37,
+      "id": "0",
+      "height": 90,
+      "width": 120
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/mqdefault.jpg",
+      "preference": -20,
+      "id": "1",
+      "height": 180,
+      "width": 320
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/hqdefault.jpg",
+      "preference": -10,
+      "id": "2",
+      "height": 360,
+      "width": 480
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/sddefault.jpg",
+      "preference": 0,
+      "id": "3",
+      "height": 480,
+      "width": 640
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/maxresdefault.webp",
+      "preference": 10,
+      "id": "4",
+      "height": 1080,
+      "width": 1920
+    }
+  ],
+  "automatic_captions": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "{{MOCK_SERVER}}/captions/en.json3",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/captions/en.vtt",
+        "name": "English"
+      }
+    ],
+    "fr": [
+      {
+        "ext": "json3",
+        "url": "{{MOCK_SERVER}}/captions/fr.json3",
+        "name": "French"
+      },
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/captions/fr.vtt",
+        "name": "French"
+      }
+    ]
+  },
+  "subtitles": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "{{MOCK_SERVER}}/subtitles/en.json3",
+        "name": "English"
+      },
+      {
+        "ext": "srt",
+        "url": "{{MOCK_SERVER}}/subtitles/en.srt",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/subtitles/en.vtt",
+        "name": "English"
+      }
+    ],
+    "es": [
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/subtitles/es.vtt",
+        "name": "Spanish"
+      }
+    ]
+  },
+  "chapters": [
+    {
+      "start_time": 0.0,
+      "title": "Introduction",
+      "end_time": 120.0
+    },
+    {
+      "start_time": 120.0,
+      "title": "How the virus works",
+      "end_time": 600.0
+    },
+    {
+      "start_time": 600.0,
+      "title": "The spread",
+      "end_time": 1200.0
+    },
+    {
+      "start_time": 1200.0,
+      "title": "Impact & aftermath",
+      "end_time": 2000.0
+    },
+    {
+      "start_time": 2000.0,
+      "title": "Conclusion",
+      "end_time": 2481.0
+    }
+  ],
+  "heatmap": [
+    {
+      "start_time": 0.0,
+      "end_time": 24.82,
+      "value": 0.4555225439080337
+    },
+    {
+      "start_time": 620.5,
+      "end_time": 645.32,
+      "value": 0.1669452587838113
+    },
+    {
+      "start_time": 1241.0,
+      "end_time": 1265.82,
+      "value": 0.21360590618491238
+    },
+    {
+      "start_time": 1861.5,
+      "end_time": 1886.32,
+      "value": 0.0232037526766548
+    },
+    {
+      "start_time": 2457.18,
+      "end_time": 2482.0,
+      "value": 0.4601123901718956
+    }
+  ],
+  "tags": [],
+  "categories": [
+    "Science & Technology"
+  ],
+  "age_limit": 0,
+  "_has_drm": null,
+  "live_status": "not_live",
+  "playable_in_embed": false,
+  "extractor": "youtube",
+  "extractor_key": "Youtube",
+  "_version": {
+    "version": "2026.02.21",
+    "current_git_head": null,
+    "release_git_head": "646bb31f39614e6c2f7ba687c53e7496394cbadb",
+    "repository": "yt-dlp/yt-dlp"
+  }
+}

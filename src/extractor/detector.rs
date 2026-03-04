@@ -82,6 +82,7 @@ fn is_youtube_url(url: &str) -> bool {
 /// # Errors
 ///
 /// Returns an error if yt-dlp fails, JSON parsing fails, or extractor field is missing
+// LCOV_EXCL_START — requires real yt-dlp binary on PATH
 async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     tracing::debug!(
         url = %url,
@@ -133,3 +134,4 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
 
     Ok(extractor.to_string())
 }
+// LCOV_EXCL_STOP

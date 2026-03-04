@@ -217,6 +217,7 @@ impl Executor {
     ///
     /// Returns an error if the process could not be spawned.
     #[cfg(feature = "live-recording")]
+    // LCOV_EXCL_START — requires real ffmpeg binary on PATH
     pub async fn execute_streaming(&self) -> Result<StreamingProcess> {
         tracing::debug!(
             executable = ?self.executable_path,
@@ -247,6 +248,7 @@ impl Executor {
 
         Ok(StreamingProcess { child })
     }
+    // LCOV_EXCL_STOP
 }
 
 /// A long-running child process controllable via stdin or kill.

@@ -1,0 +1,857 @@
+{
+  "id": "wBe97k57KxY",
+  "title": "Vidéo complète sur la chaîne ! Q&A exclusive : Emmanuel Macron sur l'IA",
+  "thumbnail": "{{MOCK_SERVER}}/thumbnails/short_maxresdefault.jpg",
+  "description": "Aujourd'hui dans Underscore_, j'ai pu interviewer Emmanuel Macron en marge du Sommet de l'IA. On a parlé des 109 milliards d'investissements annoncés, du cloud souverain, du manque de capitaux français, du futur de l’éducation etc.\n\n👀 À ne pas manquer, notre interview : https://youtu.be/2pFdfjz7wNc\n\n---\n\nS'abonner est le meilleur moyen de soutenir notre travail : https://bit.ly/3xqS2pi\n🎥 Suivez l'émission en direct: https://www.twitch.tv/Micode (c'est 1 mercredi sur 2 à 19h)\n🎙 L'émission complète est dispo en podcast : https://underscoretalk.netlify.app/\n🐦 Les annonces : https://twitter.com/UnderscoreTalk\n\n---\n\nRédacteur en chef - Michaël de Marliave\nAuteur - Matthieu Lambda\nRéalisateur - Thibault Fotré\nMontage - Léo Legendre\nAgent - Julie Jouanne\nChargé de projet - Charles-Antoine d'Adhémar\nDirectrice de production : Maud Le Bonhomme\nChef opérateur : Stanislas Cadeo\nCadreurs : Mathieu Lam, Nicolas Fradet, Mathieu Monconduit, Thibault Guieu\nChef électricien : Amaury Brege\nÉlectricien : Max Moret\nIngénieur du son : Baptiste Barboiron\nRégisseur : Mamadou Wadiou\nMaquilleuse : Kim Desnoyers\nQLP production",
+  "availability": "public",
+  "timestamp": 1740405878,
+  "duration": 77,
+  "duration_string": "1:17",
+  "webpage_url": "https://www.youtube.com/watch?v=wBe97k57KxY",
+  "language": "fr-FR",
+  "media_type": "short",
+  "is_live": false,
+  "was_live": false,
+  "release_timestamp": null,
+  "release_year": null,
+  "view_count": 2124275,
+  "like_count": 78350,
+  "comment_count": 954,
+  "channel": "Underscore_",
+  "channel_id": "UCWedHS9qKebauVIK2J7383g",
+  "channel_url": "https://www.youtube.com/channel/UCWedHS9qKebauVIK2J7383g",
+  "channel_follower_count": 922000,
+  "uploader": "Underscore_",
+  "uploader_id": "@Underscore_",
+  "uploader_url": "https://www.youtube.com/@Underscore_",
+  "channel_is_verified": true,
+  "formats": [
+    {
+      "format_id": "sb2",
+      "format_note": "storyboard",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "acodec": "none",
+      "vcodec": "none",
+      "url": "{{MOCK_SERVER}}/storyboard/sb.mhtml",
+      "width": 25,
+      "height": 45,
+      "fps": 1.0129870129870129,
+      "rows": 10,
+      "columns": 10,
+      "fragments": [
+        {
+          "url": "{{MOCK_SERVER}}/storyboard/fragment_0.jpg",
+          "duration": 77.0,
+          "path": "fragment_0.jpg"
+        }
+      ],
+      "audio_ext": "none",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 0,
+      "tbr": null,
+      "resolution": "25x45",
+      "aspect_ratio": 0.56,
+      "filesize_approx": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "sb2 - 25x45 (storyboard)"
+    },
+    {
+      "asr": 48000,
+      "filesize": 486904,
+      "format_id": "249-drc",
+      "format_note": "French (FR) original (default), low, DRC",
+      "source_preference": -1,
+      "fps": null,
+      "audio_channels": 2,
+      "height": null,
+      "quality": 1.5,
+      "has_drm": false,
+      "tbr": 50.626,
+      "filesize_approx": 486901,
+      "width": null,
+      "language": "fr-FR",
+      "language_preference": 10,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "dynamic_range": null,
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/small.m4a",
+      "available_at": 1772574279,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "audio_ext": "webm",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 50.626,
+      "resolution": "audio only",
+      "aspect_ratio": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "249-drc - audio only (French (FR) original (default), low, DRC)"
+    },
+    {
+      "asr": 48000,
+      "filesize": 659101,
+      "format_id": "250-drc",
+      "format_note": "French (FR) original (default), low, DRC",
+      "source_preference": -1,
+      "fps": null,
+      "audio_channels": 2,
+      "height": null,
+      "quality": 1.5,
+      "has_drm": false,
+      "tbr": 68.53,
+      "filesize_approx": 659095,
+      "width": null,
+      "language": "fr-FR",
+      "language_preference": 10,
+      "preference": null,
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "dynamic_range": null,
+      "container": "webm_dash",
+      "url": "{{MOCK_SERVER}}/media/small.m4a",
+      "available_at": 1772574279,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
+      "protocol": "https",
+      "audio_ext": "webm",
+      "video_ext": "none",
+      "vbr": 0,
+      "abr": 68.53,
+      "resolution": "audio only",
+      "aspect_ratio": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "250-drc - audio only (French (FR) original (default), low, DRC)"
+    },
+    {
+      "format_id": "91-0",
+      "format_index": null,
+      "url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "manifest_url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "tbr": 109.73,
+      "ext": "mp4",
+      "fps": 25.0,
+      "protocol": "m3u8_native",
+      "preference": null,
+      "quality": 0,
+      "has_drm": false,
+      "language": "en-US",
+      "width": 144,
+      "height": 256,
+      "vcodec": "avc1.4D400C",
+      "acodec": "mp4a.40.5",
+      "dynamic_range": "SDR",
+      "available_at": 1772574280,
+      "source_preference": -2,
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "vbr": null,
+      "abr": null,
+      "resolution": "144x256",
+      "aspect_ratio": 0.56,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "91-0 - 144x256"
+    },
+    {
+      "format_id": "92-0",
+      "format_index": null,
+      "url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "manifest_url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "tbr": 168.357,
+      "ext": "mp4",
+      "fps": 25.0,
+      "protocol": "m3u8_native",
+      "preference": null,
+      "quality": 5,
+      "has_drm": false,
+      "language": "en-US",
+      "width": 240,
+      "height": 426,
+      "vcodec": "avc1.4D4015",
+      "acodec": "mp4a.40.5",
+      "dynamic_range": "SDR",
+      "available_at": 1772574280,
+      "source_preference": -2,
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "vbr": null,
+      "abr": null,
+      "resolution": "240x426",
+      "aspect_ratio": 0.56,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "92-0 - 240x426"
+    },
+    {
+      "format_id": "94-0",
+      "format_index": null,
+      "url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "manifest_url": "{{MOCK_SERVER}}/hls/master.m3u8",
+      "tbr": 677.021,
+      "ext": "mp4",
+      "fps": 25.0,
+      "protocol": "m3u8_native",
+      "preference": null,
+      "quality": 7,
+      "has_drm": false,
+      "language": "en-US",
+      "width": 480,
+      "height": 854,
+      "vcodec": "avc1.4D401E",
+      "acodec": "mp4a.40.2",
+      "dynamic_range": "SDR",
+      "available_at": 1772574280,
+      "source_preference": -2,
+      "video_ext": "mp4",
+      "audio_ext": "none",
+      "vbr": null,
+      "abr": null,
+      "resolution": "480x854",
+      "aspect_ratio": 0.56,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "format": "94-0 - 480x854"
+    }
+  ],
+  "thumbnails": [
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/short_0.jpg",
+      "preference": -37,
+      "id": "0"
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/short_1.jpg",
+      "preference": -36,
+      "id": "1"
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/short_2.jpg",
+      "preference": -35,
+      "id": "2"
+    }
+  ],
+  "automatic_captions": {
+    "fr": [
+      {
+        "ext": "json3",
+        "url": "{{MOCK_SERVER}}/captions/fr.json3",
+        "name": "French",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srv1",
+        "url": "{{MOCK_SERVER}}/captions/fr.srv1",
+        "name": "French",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srv2",
+        "url": "{{MOCK_SERVER}}/captions/fr.srv2",
+        "name": "French",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srt",
+        "url": "{{MOCK_SERVER}}/captions/fr.srt",
+        "name": "French"
+      },
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/captions/fr.vtt",
+        "name": "French"
+      }
+    ],
+    "en": [
+      {
+        "ext": "json3",
+        "url": "{{MOCK_SERVER}}/captions/en.json3",
+        "name": "English",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srv1",
+        "url": "{{MOCK_SERVER}}/captions/en.srv1",
+        "name": "English",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srv2",
+        "url": "{{MOCK_SERVER}}/captions/en.srv2",
+        "name": "English",
+        "impersonate": true,
+        "__yt_dlp_client": "tv_downgraded"
+      },
+      {
+        "ext": "srt",
+        "url": "{{MOCK_SERVER}}/captions/en.srt",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "{{MOCK_SERVER}}/captions/en.vtt",
+        "name": "English"
+      }
+    ]
+  },
+  "subtitles": {},
+  "chapters": null,
+  "heatmap": [
+    {
+      "start_time": 0.0,
+      "end_time": 0.77,
+      "value": 1.0
+    },
+    {
+      "start_time": 0.77,
+      "end_time": 1.54,
+      "value": 0.6951289852548699
+    },
+    {
+      "start_time": 1.54,
+      "end_time": 2.31,
+      "value": 0.43282977773215525
+    },
+    {
+      "start_time": 2.31,
+      "end_time": 3.08,
+      "value": 0.31460170309045965
+    },
+    {
+      "start_time": 3.08,
+      "end_time": 3.85,
+      "value": 0.251438995295938
+    },
+    {
+      "start_time": 3.85,
+      "end_time": 4.62,
+      "value": 0.21558448223569074
+    },
+    {
+      "start_time": 4.62,
+      "end_time": 5.39,
+      "value": 0.19988938337729725
+    },
+    {
+      "start_time": 5.39,
+      "end_time": 6.16,
+      "value": 0.1924958843416097
+    },
+    {
+      "start_time": 6.16,
+      "end_time": 6.93,
+      "value": 0.18173891419227967
+    },
+    {
+      "start_time": 6.93,
+      "end_time": 7.7,
+      "value": 0.17619065429435107
+    },
+    {
+      "start_time": 7.7,
+      "end_time": 8.47,
+      "value": 0.17099629164946192
+    },
+    {
+      "start_time": 8.47,
+      "end_time": 9.24,
+      "value": 0.1669940252567204
+    },
+    {
+      "start_time": 9.24,
+      "end_time": 10.01,
+      "value": 0.16166894689089506
+    },
+    {
+      "start_time": 10.01,
+      "end_time": 10.78,
+      "value": 0.15592392871016675
+    },
+    {
+      "start_time": 10.78,
+      "end_time": 11.55,
+      "value": 0.1340658170305607
+    },
+    {
+      "start_time": 11.55,
+      "end_time": 12.32,
+      "value": 0.13304047669097882
+    },
+    {
+      "start_time": 12.32,
+      "end_time": 13.09,
+      "value": 0.11051647734297017
+    },
+    {
+      "start_time": 13.09,
+      "end_time": 13.86,
+      "value": 0.10617623300463179
+    },
+    {
+      "start_time": 13.86,
+      "end_time": 14.63,
+      "value": 0.10349206348218325
+    },
+    {
+      "start_time": 14.63,
+      "end_time": 15.4,
+      "value": 0.10007120194249164
+    },
+    {
+      "start_time": 15.4,
+      "end_time": 16.17,
+      "value": 0.09663677086605522
+    },
+    {
+      "start_time": 16.17,
+      "end_time": 16.94,
+      "value": 0.09353706540358762
+    },
+    {
+      "start_time": 16.94,
+      "end_time": 17.71,
+      "value": 0.09000199878342567
+    },
+    {
+      "start_time": 17.71,
+      "end_time": 18.48,
+      "value": 0.08991561747784033
+    },
+    {
+      "start_time": 18.48,
+      "end_time": 19.25,
+      "value": 0.08341409762358896
+    },
+    {
+      "start_time": 19.25,
+      "end_time": 20.02,
+      "value": 0.07421672163898156
+    },
+    {
+      "start_time": 20.02,
+      "end_time": 20.79,
+      "value": 0.06630593069908425
+    },
+    {
+      "start_time": 20.79,
+      "end_time": 21.56,
+      "value": 0.06151140254630645
+    },
+    {
+      "start_time": 21.56,
+      "end_time": 22.33,
+      "value": 0.05535799110602454
+    },
+    {
+      "start_time": 22.33,
+      "end_time": 23.1,
+      "value": 0.050463761093242174
+    },
+    {
+      "start_time": 23.1,
+      "end_time": 23.87,
+      "value": 0.04852509133780452
+    },
+    {
+      "start_time": 23.87,
+      "end_time": 24.64,
+      "value": 0.04653953509817867
+    },
+    {
+      "start_time": 24.64,
+      "end_time": 25.41,
+      "value": 0.043720666137584414
+    },
+    {
+      "start_time": 25.41,
+      "end_time": 26.18,
+      "value": 0.04090391352675769
+    },
+    {
+      "start_time": 26.18,
+      "end_time": 26.95,
+      "value": 0.038732585349448914
+    },
+    {
+      "start_time": 26.95,
+      "end_time": 27.72,
+      "value": 0.03636467006468926
+    },
+    {
+      "start_time": 27.72,
+      "end_time": 28.49,
+      "value": 0.03315676622035625
+    },
+    {
+      "start_time": 28.49,
+      "end_time": 29.26,
+      "value": 0.0286339089075909
+    },
+    {
+      "start_time": 29.26,
+      "end_time": 30.03,
+      "value": 0.02704165137402958
+    },
+    {
+      "start_time": 30.03,
+      "end_time": 30.8,
+      "value": 0.024123718570640086
+    },
+    {
+      "start_time": 30.8,
+      "end_time": 31.57,
+      "value": 0.022180800554272004
+    },
+    {
+      "start_time": 31.57,
+      "end_time": 32.34,
+      "value": 0.020236839924415502
+    },
+    {
+      "start_time": 32.34,
+      "end_time": 33.11,
+      "value": 0.017640981320575646
+    },
+    {
+      "start_time": 33.11,
+      "end_time": 33.88,
+      "value": 0.014983733012081812
+    },
+    {
+      "start_time": 33.88,
+      "end_time": 34.65,
+      "value": 0.014275938506002875
+    },
+    {
+      "start_time": 34.65,
+      "end_time": 35.42,
+      "value": 0.013024755635712995
+    },
+    {
+      "start_time": 35.42,
+      "end_time": 36.19,
+      "value": 0.014551266273922465
+    },
+    {
+      "start_time": 36.19,
+      "end_time": 36.96,
+      "value": 0.014350617642285365
+    },
+    {
+      "start_time": 36.96,
+      "end_time": 37.73,
+      "value": 0.014601373966948017
+    },
+    {
+      "start_time": 37.73,
+      "end_time": 38.5,
+      "value": 0.015012272611152887
+    },
+    {
+      "start_time": 38.5,
+      "end_time": 39.27,
+      "value": 0.015806308370259033
+    },
+    {
+      "start_time": 39.27,
+      "end_time": 40.04,
+      "value": 0.016568692251224194
+    },
+    {
+      "start_time": 40.04,
+      "end_time": 40.81,
+      "value": 0.01696275346566085
+    },
+    {
+      "start_time": 40.81,
+      "end_time": 41.58,
+      "value": 0.01758657868243362
+    },
+    {
+      "start_time": 41.58,
+      "end_time": 42.35,
+      "value": 0.019595788242990783
+    },
+    {
+      "start_time": 42.35,
+      "end_time": 43.12,
+      "value": 0.01997606206114774
+    },
+    {
+      "start_time": 43.12,
+      "end_time": 43.89,
+      "value": 0.019632046294155235
+    },
+    {
+      "start_time": 43.89,
+      "end_time": 44.66,
+      "value": 0.019936816222076176
+    },
+    {
+      "start_time": 44.66,
+      "end_time": 45.43,
+      "value": 0.019842654218816046
+    },
+    {
+      "start_time": 45.43,
+      "end_time": 46.2,
+      "value": 0.019044401321570172
+    },
+    {
+      "start_time": 46.2,
+      "end_time": 46.97,
+      "value": 0.01850589923549899
+    },
+    {
+      "start_time": 46.97,
+      "end_time": 47.74,
+      "value": 0.02038120298907328
+    },
+    {
+      "start_time": 47.74,
+      "end_time": 48.51,
+      "value": 0.020871526995142255
+    },
+    {
+      "start_time": 48.51,
+      "end_time": 49.28,
+      "value": 0.02098851756538017
+    },
+    {
+      "start_time": 49.28,
+      "end_time": 50.05,
+      "value": 0.022050318254266028
+    },
+    {
+      "start_time": 50.05,
+      "end_time": 50.82,
+      "value": 0.023360043093860913
+    },
+    {
+      "start_time": 50.82,
+      "end_time": 51.59,
+      "value": 0.024971145477190537
+    },
+    {
+      "start_time": 51.59,
+      "end_time": 52.36,
+      "value": 0.02672521039959648
+    },
+    {
+      "start_time": 52.36,
+      "end_time": 53.13,
+      "value": 0.027916341845232447
+    },
+    {
+      "start_time": 53.13,
+      "end_time": 53.9,
+      "value": 0.030301857068132435
+    },
+    {
+      "start_time": 53.9,
+      "end_time": 54.67,
+      "value": 0.03080192250769023
+    },
+    {
+      "start_time": 54.67,
+      "end_time": 55.44,
+      "value": 0.031067617771888448
+    },
+    {
+      "start_time": 55.44,
+      "end_time": 56.21,
+      "value": 0.030768885665363132
+    },
+    {
+      "start_time": 56.21,
+      "end_time": 56.98,
+      "value": 0.030376878555112615
+    },
+    {
+      "start_time": 56.98,
+      "end_time": 57.75,
+      "value": 0.02871110898992002
+    },
+    {
+      "start_time": 57.75,
+      "end_time": 58.52,
+      "value": 0.025021066433471895
+    },
+    {
+      "start_time": 58.52,
+      "end_time": 59.29,
+      "value": 0.019137084992272093
+    },
+    {
+      "start_time": 59.29,
+      "end_time": 60.06,
+      "value": 0.017028422554035954
+    },
+    {
+      "start_time": 60.06,
+      "end_time": 60.83,
+      "value": 0.014040307857619986
+    },
+    {
+      "start_time": 60.83,
+      "end_time": 61.6,
+      "value": 0.01182974940263499
+    },
+    {
+      "start_time": 61.6,
+      "end_time": 62.37,
+      "value": 0.008452148542015134
+    },
+    {
+      "start_time": 62.37,
+      "end_time": 63.14,
+      "value": 0.004848759615570978
+    },
+    {
+      "start_time": 63.14,
+      "end_time": 63.91,
+      "value": 0.001985206108230485
+    },
+    {
+      "start_time": 63.91,
+      "end_time": 64.68,
+      "value": 0.00017243582186836508
+    },
+    {
+      "start_time": 64.68,
+      "end_time": 65.45,
+      "value": 0.0013918423228544636
+    },
+    {
+      "start_time": 65.45,
+      "end_time": 66.22,
+      "value": 0.000861120934458056
+    },
+    {
+      "start_time": 66.22,
+      "end_time": 66.99,
+      "value": 0.00024819647512764996
+    },
+    {
+      "start_time": 66.99,
+      "end_time": 67.76,
+      "value": 0.0
+    },
+    {
+      "start_time": 67.76,
+      "end_time": 68.53,
+      "value": 0.0007706781046864705
+    },
+    {
+      "start_time": 68.53,
+      "end_time": 69.3,
+      "value": 0.001351561650992153
+    },
+    {
+      "start_time": 69.3,
+      "end_time": 70.07,
+      "value": 0.00238318879429523
+    },
+    {
+      "start_time": 70.07,
+      "end_time": 70.84,
+      "value": 0.003907917652737176
+    },
+    {
+      "start_time": 70.84,
+      "end_time": 71.61,
+      "value": 0.007760755746634621
+    },
+    {
+      "start_time": 71.61,
+      "end_time": 72.38,
+      "value": 0.009149407983442426
+    },
+    {
+      "start_time": 72.38,
+      "end_time": 73.15,
+      "value": 0.008824626101101966
+    },
+    {
+      "start_time": 73.15,
+      "end_time": 73.92,
+      "value": 0.008175077897816393
+    },
+    {
+      "start_time": 73.92,
+      "end_time": 74.69,
+      "value": 0.007867055638267397
+    },
+    {
+      "start_time": 74.69,
+      "end_time": 75.46,
+      "value": 0.007693063676864078
+    },
+    {
+      "start_time": 75.46,
+      "end_time": 76.23,
+      "value": 0.008766177500169055
+    },
+    {
+      "start_time": 76.23,
+      "end_time": 77.0,
+      "value": 0.014995326251617229
+    }
+  ],
+  "tags": [],
+  "categories": [
+    "Science & Technology"
+  ],
+  "age_limit": 0,
+  "_has_drm": null,
+  "live_status": "not_live",
+  "playable_in_embed": true,
+  "extractor": "youtube",
+  "extractor_key": "Youtube",
+  "_version": {
+    "version": "2026.02.04",
+    "current_git_head": null,
+    "release_git_head": "c677d866d41eb4075b0a5e0c944a6543fc13f15d",
+    "repository": "yt-dlp/yt-dlp"
+  }
+}

@@ -86,6 +86,7 @@ pub async fn execute_command_to_file(
 /// # Errors
 ///
 /// Returns an error if the command fails, times out, or cannot be executed
+// LCOV_EXCL_START — requires real yt-dlp/ffmpeg binary on PATH
 async fn execute_command_internal(
     executable_path: impl Into<PathBuf>,
     args: &[String],
@@ -253,6 +254,7 @@ async fn execute_command_internal(
         stderr,
     })
 }
+// LCOV_EXCL_STOP
 
 /// Helper function to read a stream into a buffer
 ///

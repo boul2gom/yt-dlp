@@ -17,4 +17,5 @@ pub use config::progress::ProgressTracker;
 pub use config::speed_profile::SpeedProfile;
 pub use engine::fetcher::Fetcher;
 pub use engine::partial::PartialRange;
+pub use engine::range_fetcher::HttpRangeFetcher;
 pub use manager::{DownloadManager, DownloadPriority, DownloadStatus, ManagerConfig};

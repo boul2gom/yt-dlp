@@ -201,8 +201,36 @@ For internal functions, use the most optimized type for the operations applied:
 
 ### 🧪 Testing
 
-There are **no `#[cfg(test)]` modules** in `src/`. All testing is done via:
-- 📝 **Doctests** — `cargo test --doc` (111+ tests)
+There are **no `#[cfg(test)]` modules** in `src/`. No tests live in `tests/common/` (only shared helpers).
+
+**Test harnesses** — three separate binaries under `tests/`:
+
+| Harness | Command | Scope |
+|---------|---------|-------|
+| Unit | `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` | Pure logic, no I/O, no network |
+| Integration | `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` | wiremock servers, tempdir I/O, async flows |
+| E2E | `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1` | Full download pipeline with wiremock |
+| Doctests | `cargo test --doc --workspace` | Code examples in rustdoc |
+
+**Directory conventions** — test directories mirror `src/` module hierarchy:
+```
+tests/unit/model/       ← matches src/model/
+tests/unit/download/    ← matches src/download/
+tests/integration/cache/ ← matches src/cache/
+```
+Create a subdirectory when a domain has ≥ 2 test files.
+
+**Adding a new test:**
+1. Create the test file in the appropriate subdirectory (e.g. `tests/unit/download/new_test.rs`)
+2. Register it in the harness entry point (`tests/unit.rs`) with `#[path = "unit/download/new_test.rs"] mod new_test;`
+3. Feature-gated tests use `#[cfg(feature = "...")]` on the module declaration in the entry point
+
+**Conventions:**
+- Test names follow `fn verb_noun_condition()` (e.g. `fn parse_format_returns_video_type()`)
+- All test output goes to `tempfile::tempdir()`, never to project root
+- Use `assert_matches!` for error variant checks, `pretty_assertions` for struct comparisons
+- Mock servers use `wiremock::MockServer` (dev-dependency)
+- Fixtures: JSON in `tests/fixtures/json/`, media in `tests/fixtures/media/`
 - 📊 **Benchmarks** — `benches/benchmarks.rs` with [criterion](https://crates.io/crates/criterion)
 - 🧪 **Integration examples** — `examples/` directory
 
@@ -844,6 +872,10 @@ Use `⚙️` for internal operations and `✅` for success — same as the main 
 # media-seek standalone lint
 cargo clippy -p media-seek -- -D warnings
 
+# Run media-seek unit + integration tests
+cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- media_seek
+cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- media_seek
+
 # Doc-tests (both crates)
 cargo test --doc --workspace
 ```
@@ -854,11 +886,13 @@ cargo test --doc --workspace
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
 - [ ] 💄 `cargo +nightly fmt --all -- --check` — properly formatted
+- [ ] 🧪 `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` — all unit tests pass
+- [ ] 🧪 `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` — all integration tests pass
+- [ ] 🧪 `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1` — all E2E tests pass
 - [ ] 🧪 `cargo test --doc --workspace` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 🧹 `cargo machete` — no unused dependencies

@@ -1,0 +1,27 @@
+[
+  {
+    "start_time": 0.0,
+    "title": "Introduction",
+    "end_time": 30.0
+  },
+  {
+    "start_time": 30.0,
+    "title": "Setup",
+    "end_time": 60.0
+  },
+  {
+    "start_time": 60.0,
+    "title": "Implementation",
+    "end_time": 90.0
+  },
+  {
+    "start_time": 90.0,
+    "title": "Testing",
+    "end_time": 120.0
+  },
+  {
+    "start_time": 120.0,
+    "title": "Conclusion",
+    "end_time": 150.0
+  }
+]

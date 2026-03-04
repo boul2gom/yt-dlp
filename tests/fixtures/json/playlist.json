@@ -1,0 +1,95 @@
+{
+  "id": "PLhixgUqwRTjwvBI-hmbZ2rpkAl4lutnJG",
+  "title": "Minecraft:HACKED",
+  "description": "A Minecraft let's play series where we explore the technical side of minecraft, including developing our own hacks.\n\nhttps://github.com/LiveOverflow/minecraft-hacked",
+  "availability": null,
+  "webpage_url": "https://www.youtube.com/playlist?list=PLhixgUqwRTjwvBI-hmbZ2rpkAl4lutnJG&si=IlKs3s__VZd8qdQm",
+  "channel": "LiveOverflow",
+  "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+  "channel_url": "https://www.youtube.com/channel/UClcE-kVhqyiHCcjYwcpfj9w",
+  "uploader": "LiveOverflow",
+  "uploader_id": "@LiveOverflow",
+  "uploader_url": "https://www.youtube.com/@LiveOverflow",
+  "view_count": 261607,
+  "thumbnails": [
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/playlist_0.jpg",
+      "id": "0",
+      "height": 94,
+      "width": 168
+    },
+    {
+      "url": "{{MOCK_SERVER}}/thumbnails/playlist_0.jpg",
+      "id": "0",
+      "height": 110,
+      "width": 196
+    }
+  ],
+  "entries": [
+    {
+      "id": "Ekcseve-mOg",
+      "title": "I Spent 100 Days Hacking Minecraft",
+      "url": "https://www.youtube.com/watch?v=Ekcseve-mOg",
+      "duration": 1179,
+      "thumbnail": "https://i.ytimg.com/vi/Ekcseve-mOg/3.jpg",
+      "uploader": "LiveOverflow",
+      "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+      "availability": "public",
+      "playlist_index": 1
+    },
+    {
+      "id": "BW9ybETXAM8",
+      "title": "Breaching Security of Palais des Congrès (in Minecraft) #shorts",
+      "url": "https://www.youtube.com/watch?v=BW9ybETXAM8",
+      "duration": 56,
+      "thumbnail": "https://i.ytimg.com/vi/BW9ybETXAM8/maxres2.jpg?sqp=-oaymwEoCIAKENAF8quKqQMcGADwAQH4AZQDgALQBYoCDAgAEAEYPCBlKCQwDw==&rs=AOn4CLBFE7UbzFykac3XWOJL-HOluG-iWQ",
+      "uploader": "LiveOverflow",
+      "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+      "availability": "public",
+      "playlist_index": 2
+    },
+    {
+      "id": "OXdFckukh2I",
+      "title": "Minecraft, But It's Reverse Engineered...",
+      "url": "https://www.youtube.com/watch?v=OXdFckukh2I",
+      "duration": 1081,
+      "thumbnail": "https://i.ytimg.com/vi/OXdFckukh2I/3.jpg",
+      "uploader": "LiveOverflow",
+      "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+      "availability": "public",
+      "playlist_index": 3
+    },
+    {
+      "id": "Hmmr1oLt-V8",
+      "title": "Modding is Hacking...",
+      "url": "https://www.youtube.com/watch?v=Hmmr1oLt-V8",
+      "duration": 1343,
+      "thumbnail": "https://i.ytimg.com/vi/Hmmr1oLt-V8/3.jpg",
+      "uploader": "LiveOverflow",
+      "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+      "availability": "public",
+      "playlist_index": 4
+    },
+    {
+      "id": "jJuDP7Rz2hE",
+      "title": "Flying Without Elytra",
+      "url": "https://www.youtube.com/watch?v=jJuDP7Rz2hE",
+      "duration": 1520,
+      "thumbnail": "https://i.ytimg.com/vi/jJuDP7Rz2hE/3.jpg",
+      "uploader": "LiveOverflow",
+      "channel_id": "UClcE-kVhqyiHCcjYwcpfj9w",
+      "availability": "public",
+      "playlist_index": 5
+    }
+  ],
+  "tags": [],
+  "categories": [],
+  "extractor": "youtube:tab",
+  "extractor_key": "YoutubeTab",
+  "_version": {
+    "version": "2026.02.04",
+    "current_git_head": null,
+    "release_git_head": "c677d866d41eb4075b0a5e0c944a6543fc13f15d",
+    "repository": "yt-dlp/yt-dlp"
+  }
+}

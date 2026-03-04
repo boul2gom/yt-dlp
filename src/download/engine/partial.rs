@@ -12,7 +12,7 @@ use crate::error::{Error, Result};
 /// # Examples
 ///
 /// ```rust,no_run
-/// use yt_dlp::download::partial::PartialRange;
+/// use yt_dlp::download::PartialRange;
 ///
 /// // Download from 1:30 to 5:00
 /// let time_range = PartialRange::TimeRange {

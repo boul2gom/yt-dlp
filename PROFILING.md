@@ -23,10 +23,10 @@ This enables the `dhat` global allocator hook so heap profiling data is collecte
 cargo install flamegraph
 
 # Profile a real URL
-cargo flamegraph --example profiling --features profiling --release -- <URL>
+cargo flamegraph --bench profiling --features profiling --release -- <URL>
 
 # Profile without network (dry-run mode)
-cargo flamegraph --example profiling --features profiling --release -- --dry-run
+cargo flamegraph --bench profiling --features profiling --release -- --dry-run
 
 # Output is written to flamegraph.svg in the current directory
 ```
@@ -41,8 +41,8 @@ Open `flamegraph.svg` in any browser to explore the interactive call-graph. Arte
 cargo install samply
 
 # Build first, then profile
-cargo build --example profiling --features profiling --release
-samply record ./target/release/examples/profiling <URL>
+cargo build --bench profiling --features profiling --release
+samply record ./target/release/deps/profiling-* <URL>
 
 # samply opens the Firefox profiler UI automatically
 ```
@@ -54,11 +54,11 @@ samply captures kernel-level samples with minimal overhead. Use `--dry-run` to p
 ## 🧠 Heap Profiling with dhat-rs
 
 ```bash
-# Run the example — dhat-heap.json is written on exit
-cargo run --example profiling --features profiling --release -- <URL>
+# Run the bench — dhat-heap.json is written on exit
+cargo bench --bench profiling --features profiling -- <URL>
 
 # Dry-run (no network)
-cargo run --example profiling --features profiling --release -- --dry-run
+cargo bench --bench profiling --features profiling -- --dry-run
 
 # Open the viewer at:
 # https://nnethercote.github.io/dh_view/dh_view.html
@@ -73,9 +73,9 @@ The `dhat-heap.json` file is written to the working directory and excluded by `.
 
 ```bash
 # Build without the profiling feature (heaptrack intercepts malloc at the OS level)
-cargo build --example profiling --release
+cargo build --bench profiling --release
 
-heaptrack ./target/release/examples/profiling <URL>
+heaptrack ./target/release/deps/profiling-* <URL>
 
 # Analyse via CLI
 heaptrack --analyze heaptrack.profiling.*
@@ -127,7 +127,7 @@ re-encoding with post-processing filters, embedding metadata and chapters, and e
 partial ranges. These are the most CPU-intensive operations and are measured through the
 profiling harness.
 
-### Available scenarios in `examples/profiling.rs`
+### Available scenarios in `benches/profiling.rs`
 
 | Scenario | FFmpeg operation |
 |---|---|
@@ -136,14 +136,14 @@ profiling harness.
 
 ```bash
 # Profile the combine step (inside download_video)
-cargo flamegraph --example profiling --features profiling --release -- <URL> --scenario download_video
+cargo flamegraph --bench profiling --features profiling --release -- <URL> --scenario download_video
 
 # Profile post-processing only
-cargo flamegraph --example profiling --features profiling --release -- <URL> --scenario postprocess
+cargo flamegraph --bench profiling --features profiling --release -- <URL> --scenario postprocess
 
 # Or use samply for a more detailed macOS/Linux profile
-cargo build --example profiling --features profiling --release
-samply record ./target/release/examples/profiling <URL> --scenario postprocess
+cargo build --bench profiling --features profiling --release
+samply record ./target/release/deps/profiling-* <URL> --scenario postprocess
 ```
 
 ### Heap allocation during FFmpeg arg construction
@@ -165,7 +165,7 @@ The `postprocess` scenario isolates the FFmpeg re-encode step from the download 
 
 ## ⚡ Compare: raw yt-dlp vs library
 
-`examples/compare.rs` benchmarks **every scenario from the README performance tables**. For each
+`benches/compare.rs` benchmarks **every scenario from the README performance tables**. For each
 scenario it measures raw `yt-dlp` (metadata + download in one subprocess) and the three library
 speed profiles (**Conservative**, **Balanced**, **Aggressive**), then prints the results as
 Markdown tables ready to paste into the README.
@@ -174,10 +174,10 @@ Markdown tables ready to paste into the README.
 
 ```bash
 # Default: 3 runs per scenario
-cargo run --example compare --features profiling --release -- <URL> --cookies-from-browser safari
+cargo bench --bench compare --features profiling -- <URL> --cookies-from-browser safari
 
 # Custom run count for better statistical accuracy
-cargo run --example compare --features profiling --release -- <URL> --cookies-from-browser safari --runs 5
+cargo bench --bench compare --features profiling -- <URL> --cookies-from-browser safari --runs 5
 ```
 
 ### What it measures
@@ -198,15 +198,15 @@ The tool iterates over **14 scenarios** grouped into 4 sections:
 All scenarios that do not require network access run fine with `--dry-run`. This lets you measure pure-Rust code paths (format selection, validation, config builders, event bus, etc.) without any yt-dlp or ffmpeg binaries:
 
 ```bash
-cargo run --example profiling --features profiling --release -- --dry-run
+cargo bench --bench profiling --features profiling -- --dry-run
 ```
 
 You can focus on a single scenario:
 
 ```bash
-cargo run --example profiling --features profiling --release -- --dry-run --scenario format_selection
-cargo run --example profiling --features profiling --release -- --dry-run --scenario event_bus
-cargo run --example profiling --features profiling --release -- --dry-run --scenario validation
+cargo bench --bench profiling --features profiling -- --dry-run --scenario format_selection
+cargo bench --bench profiling --features profiling -- --dry-run --scenario event_bus
+cargo bench --bench profiling --features profiling -- --dry-run --scenario validation
 ```
 
 ---

@@ -19,7 +19,7 @@ const RANGE_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// Forwards `Range: bytes=start-end` requests to the target URL, passing any
 /// format-specific HTTP headers (e.g. signed cookies required by YouTube CDNs).
-pub(crate) struct HttpRangeFetcher {
+pub struct HttpRangeFetcher {
     client: Arc<reqwest::Client>,
     url: String,
     headers: HeaderMap,
@@ -27,7 +27,17 @@ pub(crate) struct HttpRangeFetcher {
 
 impl HttpRangeFetcher {
     /// Creates a new fetcher targeting `url` with the given extra `headers`.
-    pub(crate) fn new(client: Arc<reqwest::Client>, url: impl Into<String>, headers: HeaderMap) -> Self {
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - Shared reqwest HTTP client
+    /// * `url` - Target URL to fetch byte ranges from
+    /// * `headers` - Extra HTTP headers (e.g. cookies for authenticated CDNs)
+    ///
+    /// # Returns
+    ///
+    /// A new `HttpRangeFetcher` ready to serve range requests.
+    pub fn new(client: Arc<reqwest::Client>, url: impl Into<String>, headers: HeaderMap) -> Self {
         Self {
             client,
             url: url.into(),

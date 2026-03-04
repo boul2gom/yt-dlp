@@ -2219,7 +2219,7 @@ Apply advanced post-processing to videos using FFmpeg:
 - 🔧 Converting video codec and bitrate:
 ```rust,no_run
 use yt_dlp::Downloader;
-use yt_dlp::download::postprocess::{PostProcessConfig, VideoCodec, AudioCodec};
+use yt_dlp::download::{PostProcessConfig, VideoCodec, AudioCodec};
 use yt_dlp::client::deps::Libraries;
 use std::path::PathBuf;
 
@@ -2253,7 +2253,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - 🎛️ Applying resolution, framerate, and visual filters:
 ```rust,no_run
 use yt_dlp::Downloader;
-use yt_dlp::download::postprocess::{
+use yt_dlp::download::{
     PostProcessConfig, VideoCodec, Resolution, EncodingPreset,
     FfmpegFilter, WatermarkPosition
 };
@@ -2569,11 +2569,11 @@ See [PROFILING.md](PROFILING.md) for the complete guide (flamegraph, samply, dha
 
 The library fetches video metadata via `yt-dlp --dump-json`, then **downloads format streams
 directly over HTTP using parallel segments** — bypassing yt-dlp's sequential download engine.
-Run [`examples/compare.rs`](#-profiling-feature-profiling) with any public YouTube URL to
+Run [`benches/compare.rs`](#-profiling-feature-profiling) with any public YouTube URL to
 reproduce these numbers on your own connection:
 
 ```bash
-cargo run --example compare --features profiling --release -- https://www.youtube.com/watch?v=gXtp6C-3JKo --cookies-from-browser safari --runs 10
+cargo bench --bench compare --features profiling -- https://www.youtube.com/watch?v=gXtp6C-3JKo --cookies-from-browser safari --runs 10
 ```
 
 > Results below are averages over 10 runs on a typical broadband connection.
@@ -2636,12 +2636,8 @@ See [PROFILING.md](PROFILING.md) for detailed micro-benchmarks.
 ---
 
 ## 💡Features coming soon
-- [ ] Cargo profile configuration for optimized release builds
-- [ ] Use `rust-ffmpeg` as safe bindings instead of commands, and keep Command fallback as a feature flag
-- [ ] Full test suite, with fake server (due to anti-bot measures)
-- [x] Clip extraction (download a specific time range)
+- [ ] Use `rust-ffmpeg` and `ffmpeg-sys-next` as safe bindings instead of commands, and keep Command fallback as a feature flag
 - [ ] Bandwidth throttling (limit download speed)
-- [x] Chapter-based splitting (split video into chapter files)
 - [ ] Download queue persistence (resume queue across restarts)
 - [ ] SponsorBlock integration (skip/mark sponsor segments)
 

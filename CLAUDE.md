@@ -13,7 +13,47 @@ Key Principles
 - Write code with safety, concurrency, and performance in mind, embracing Rust's ownership and type system.
 - Use `impl Into<String>`, `impl Into<PathBuf>`, `impl AsRef<str>` for public API parameters — not concrete `String` or `&str`.
 - Use optimized types in function parameters according to the operations applied (borrowing vs owned, `&str` vs `String`, `&Path` vs `PathBuf`).
-- No `#[cfg(test)]` modules in `src/`. Tests are done via doctests (`cargo test --doc`), benchmarks (`benches/benchmarks.rs` with criterion), and integration examples (`examples/`).
+- No `#[cfg(test)]` modules in `src/`. No tests in `tests/common/` (only shared helpers).
+- Tests live in three harnesses under `tests/`: `--test unit`, `--test integration`, `--test e2e`, plus doctests (`cargo test --doc`).
+- Benchmarks in `benches/benchmarks.rs` with criterion; integration examples in `examples/`.
+
+Test Architecture
+
+Three harness binaries in `tests/`, each registered via `#[path = ...]` in the entry point (`unit.rs`, `integration.rs`, `e2e.rs`):
+
+| Harness | Scope | Notes |
+|---------|-------|-------|
+| `--test unit` | Pure logic, no I/O, no network | Fast, runs in parallel |
+| `--test integration` | wiremock servers, tempdir I/O, async flows | Feature-gated modules |
+| `--test e2e` | Full download pipeline with wiremock + ffmpeg | Serial (`--test-threads=1`) |
+| `--doc` | Code examples in rustdoc comments | Both crates |
+
+Directory conventions — test directories mirror `src/` module hierarchy:
+```
+tests/unit/model/        ← src/model/
+tests/unit/download/     ← src/download/
+tests/integration/cache/ ← src/cache/
+tests/e2e/download/      ← src/client/streams/ (download pipeline)
+```
+- Create a subdirectory when a domain has ≥ 2 test files.
+- File names match source module names where possible.
+- Shared helpers (e.g. `TestExtractor`) live in `tests/common/` — no `#[test]` functions there.
+
+Test naming: `fn verb_noun_condition()` — e.g. `fn parse_format_returns_video_type()`, `fn download_404_url_returns_error()`.
+
+Feature-gated tests use `#[cfg(feature = "...")]` on the **module declaration** in the entry point, not on individual tests:
+```rust
+// In tests/integration.rs:
+#[cfg(feature = "cache-json")]
+#[path = "integration/cache/json.rs"]
+mod cache_json;
+```
+
+Conventions:
+- All test output goes to `tempfile::tempdir()`, never to project root.
+- `assert_matches!` for error variant checks, `pretty_assertions::assert_eq!` for struct comparisons.
+- Mock HTTP servers use `wiremock::MockServer` (dev-dependency).
+- JSON fixtures in `tests/fixtures/json/`, media files in `tests/fixtures/media/`.
 
 Project Architecture
 
@@ -400,7 +440,7 @@ Constants & Magic Numbers
 - Public constants: `pub const FORMAT_URL_LIFETIME: i64 = 6 * 3600;`.
 - Configuration structs via `TypedBuilder` with `#[builder(default = ...)]`.
 - Lookup tables (e.g., bitrate tables, sample rate tables) are `const` arrays at file top, never inline in match arms.
-- Magic byte sequences for format detection use named constants: `const EBML_MAGIC: &[u8] = &[0x1A, 0x45, 0xDF, 0xA5];` — never raw `&[0x1A, ...]` in conditionals.
+- Magic byte sequences for format detection use named constants: `const EBML_MAGIC: [u8; 4] = [0x1A, 0x45, 0xDF, 0xA3];` — never raw `&[0x1A, ...]` in conditionals.
 
 Return Types
 
@@ -543,18 +583,18 @@ Verification
 
 All edits must pass these checks:
 ```bash
-# Lint each feature in isolation (workspace-wide, covers both yt-dlp and media-seek)
-cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
-
-# Lint tiered cache combinations (L1 Moka + L2 persistent)
-cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
+# Lint feature-complete builds (covers both yt-dlp and media-seek)
+cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording -- -D warnings
 
 # Check formatting (requires nightly)
 cargo +nightly fmt --all -- --check
 
-# Run all doc-tests (workspace-wide)
+# Run all test harnesses (unit + integration + e2e + doctests)
+cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
 cargo test --doc --workspace
 
 # Check dependencies (licenses, advisories, bans)

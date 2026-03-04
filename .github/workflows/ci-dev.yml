@@ -18,40 +18,29 @@ permissions:
   contents: read
 
 jobs:
-  build-each-feature:
-    name: 🦀 Setup and build (each feature)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+  # ==================== Build + Lint + Test (feature-complete per backend) ====================
 
-    steps:
-      - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
-
-      - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          prefix-key: rust-toolchain-
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: 📦 Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-
-      - name: 🦀 Clippy (each feature in isolation)
-        run: cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
-
-  build-tiered-cache:
-    name: 🦀 Setup and build (L1+L2, cache-memory + ${{ matrix.backend }})
+  build-and-test:
+    name: 🦀 Build & Test (${{ matrix.name }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
-        backend: [cache-json, cache-redb, cache-redis]
+        include:
+          - name: default
+            cargo_features: ""
+            run_integration: true
+          - name: full-json
+            cargo_features: "--features cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+            run_integration: true
+          - name: full-redb
+            cargo_features: "--features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording"
+            run_integration: true
+          - name: full-redis
+            cargo_features: "--features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
+            run_integration: false
 
     steps:
       - name: 📁 Check out the repository
@@ -67,32 +56,21 @@ jobs:
         with:
           components: clippy
 
-      - name: 🦀 Clippy (cache-memory + ${{ matrix.backend }})
-        run: cargo clippy --workspace --features cache-memory,${{ matrix.backend }} -- -D warnings
+      - name: 🦀 Clippy
+        run: cargo clippy --workspace ${{ matrix.cargo_features }} -- -D warnings
 
-  check-format:
-    name: 💄 Check formatting
-    if: github.event_name == 'pull_request'
-    needs: [build-each-feature, build-tiered-cache]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+      - name: 🧪 Run unit tests
+        run: cargo test --test unit ${{ matrix.cargo_features }}
 
-    steps:
-      - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+      - name: 🔗 Run integration tests
+        if: matrix.run_integration
+        run: cargo test --test integration ${{ matrix.cargo_features }}
 
-      - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-
-      - name: 💄 Check formatting
-        run: cargo +nightly fmt --all -- --check
+  # ==================== Checks ====================
 
   doc-tests:
     name: 📚 Test docs
-    needs: [build-each-feature, build-tiered-cache]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -114,7 +92,7 @@ jobs:
 
   check-spell:
     name: 📝 Check spelling
-    needs: [build-each-feature, build-tiered-cache]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -130,6 +108,93 @@ jobs:
 
       - name: 📝 Check spelling
         uses: crate-ci/typos@v1.44.0
+
+  check-format:
+    name: 💄 Check formatting
+    if: github.event_name == 'pull_request'
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 🛠️ Set up nightly Rust (for rustfmt)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: 💄 Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+  # ==================== Redis Integration (needs service container) ====================
+
+  integration-tests-redis:
+    name: 🔗 Integration tests (cache-redis)
+    needs: [build-and-test, doc-tests, check-spell]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🔗 Run integration tests (cache-redis)
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
+
+  # ==================== E2E + Coverage ====================
+
+  e2e-tests:
+    name: 🚀 E2E tests
+    needs: [build-and-test, doc-tests, check-spell]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-toolchain-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🛠️ Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: 🚀 Run E2E tests
+        run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
+
+  # ==================== Analysis ====================
 
   analysis:
     name: 🔍 Static Analysis
@@ -211,3 +276,47 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
+
+  coverage:
+    name: 📊 Code coverage
+    needs: [doc-tests, check-spell]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Cache Rust toolchain
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          prefix-key: rust-coverage-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: 📦 Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: 🛠️ Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: 📊 Generate coverage (unit + integration + e2e)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+          cargo llvm-cov --no-report --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+          cargo llvm-cov --no-report --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: 📦 Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: false

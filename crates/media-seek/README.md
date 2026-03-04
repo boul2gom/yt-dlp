@@ -156,41 +156,69 @@ impl RangeFetcher for HttpFetcher {
 ```rust,no_run
 use media_seek::{parse, RangeFetcher};
 
-# struct HttpFetcher;
-# impl RangeFetcher for HttpFetcher {
-#     type Error = std::io::Error;
-#     async fn fetch(&self, _: u64, _: u64) -> std::result::Result<Vec<u8>, Self::Error> { Ok(vec![]) }
-# }
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let fetcher = HttpFetcher { /* … */ };
+struct FileFetcher(Vec<u8>);
 
-// 512 KB is recommended — enough for most format headers and indices
-let probe: Vec<u8> = fetcher.fetch(0, 512 * 1024).await?;
+impl RangeFetcher for FileFetcher {
+    type Error = std::io::Error;
 
-// Total stream size in bytes (from Content-Length or a HEAD request)
-let total_size: Option<u64> = Some(1_234_567_890);
+    async fn fetch(&self, start: u64, end: u64) -> std::result::Result<Vec<u8>, Self::Error> {
+        let s = start as usize;
+        let e = (end as usize + 1).min(self.0.len());
+        Ok(self.0[s..e].to_vec())
+    }
+}
 
-let index = parse(&probe, total_size, &fetcher).await?;
-# Ok(())
-# }
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let fetcher = FileFetcher(std::fs::read("video.mp4")?);
+
+    // 512 KB is recommended — enough for most format headers and indices
+    let probe: Vec<u8> = fetcher.fetch(0, 512 * 1024).await?;
+
+    // Total stream size in bytes (from Content-Length or a HEAD request)
+    let total_size: Option<u64> = Some(1_234_567_890);
+
+    let index = parse(&probe, total_size, &fetcher).await?;
+    Ok(())
+}
 ```
 
 ### 3. Translate timestamps to byte ranges
 
 ```rust,no_run
-# use media_seek::{ContainerIndex, RangeFetcher};
-# async fn example(index: ContainerIndex, fetcher: impl RangeFetcher<Error = std::io::Error>) -> Result<(), Box<dyn std::error::Error>> {
-if let Some(range) = index.find_byte_range(60.0, 120.0) {
-    // Always prefetch the init segment so decoders have codec parameters
-    let init = fetcher.fetch(0, index.init_end_byte).await?;
-    let clip = fetcher.fetch(range.start, range.end).await?;
+use media_seek::{parse, RangeFetcher};
 
-    // Write init + clip to a file, then trim with FFmpeg stream copy:
-    // ffmpeg -i combined.mp4 -ss 60 -t 60 -c copy -avoid_negative_ts 1 -y out.mp4
-    let _ = (init, clip);
+struct FileFetcher(Vec<u8>);
+
+impl RangeFetcher for FileFetcher {
+    type Error = std::io::Error;
+
+    async fn fetch(&self, start: u64, end: u64) -> std::result::Result<Vec<u8>, Self::Error> {
+        let s = start as usize;
+        let e = (end as usize + 1).min(self.0.len());
+        Ok(self.0[s..e].to_vec())
+    }
 }
-# Ok(())
-# }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let fetcher = FileFetcher(std::fs::read("video.mp4")?);
+    let probe: Vec<u8> = fetcher.fetch(0, 512 * 1024).await?;
+    let total_size: Option<u64> = Some(1_234_567_890);
+
+    let index = parse(&probe, total_size, &fetcher).await?;
+
+    if let Some(range) = index.find_byte_range(60.0, 120.0) {
+        // Always prefetch the init segment so decoders have codec parameters
+        let init = fetcher.fetch(0, index.init_end_byte).await?;
+        let clip = fetcher.fetch(range.start, range.end).await?;
+
+        // Write init + clip to a file, then trim with FFmpeg stream copy:
+        // ffmpeg -i combined.mp4 -ss 60 -t 60 -c copy -avoid_negative_ts 1 -y out.mp4
+        let _ = (init, clip);
+    }
+    Ok(())
+}
 ```
 
 ---

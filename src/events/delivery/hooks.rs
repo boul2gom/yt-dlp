@@ -278,9 +278,10 @@ impl std::fmt::Display for HookRegistry {
 #[macro_export]
 macro_rules! simple_hook {
     ($name:expr, $filter:expr, $closure:expr) => {{
+        #[derive(Clone)]
         struct SimpleHook<F>
         where
-            F: Fn(&$crate::events::DownloadEvent) -> $crate::events::HookResult + Send + Sync,
+            F: Fn(&$crate::events::DownloadEvent) -> $crate::events::HookResult + Clone + Send + Sync,
         {
             name: &'static str,
             filter: $crate::events::EventFilter,
@@ -290,7 +291,7 @@ macro_rules! simple_hook {
         #[$crate::async_trait::async_trait]
         impl<F> $crate::events::EventHook for SimpleHook<F>
         where
-            F: Fn(&$crate::events::DownloadEvent) -> $crate::events::HookResult + Send + Sync,
+            F: Fn(&$crate::events::DownloadEvent) -> $crate::events::HookResult + Clone + Send + Sync,
         {
             async fn on_event(&self, event: &$crate::events::DownloadEvent) -> $crate::events::HookResult {
                 (self.closure)(event)

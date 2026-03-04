@@ -449,6 +449,14 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
         | DownloadEvent::PlaylistItemFailed { .. } => {
             tracing::debug!(event = ?event, "📊 Untracked event, ignoring");
         }
+
+        #[cfg(feature = "live-recording")]
+        DownloadEvent::LiveRecordingStarted { .. }
+        | DownloadEvent::LiveRecordingProgress { .. }
+        | DownloadEvent::LiveRecordingStopped { .. }
+        | DownloadEvent::LiveRecordingFailed { .. } => {
+            tracing::debug!(event = ?event, "📊 Live recording event, ignoring in stats");
+        }
     }
 }
 

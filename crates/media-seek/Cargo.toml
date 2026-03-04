@@ -33,3 +33,6 @@ pre-release-replacements = [
 thiserror = "2.0.18"
 tracing = "0.1.44"
 futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+tokio = { version = "1.49.0", features = ["rt", "macros"] }
