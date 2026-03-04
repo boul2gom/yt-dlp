@@ -35,4 +35,4 @@ tracing = "0.1.44"
 futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
-tokio = { version = "1.49.0", features = ["rt", "macros"] }
+tokio = { version = "1.50.0", features = ["rt", "macros"] }
