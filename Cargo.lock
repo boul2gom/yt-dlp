@@ -4058,7 +4058,6 @@ dependencies = [
  "futures-util",
  "id3",
  "indicatif",
- "lazy_static",
  "lofty",
  "m3u8-rs",
  "media-seek",

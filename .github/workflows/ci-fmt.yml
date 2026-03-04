@@ -33,11 +33,6 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.head_ref || github.ref }}
 
-      - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          prefix-key: rust-toolchain-
-
       - name: 🛠️ Set up nightly Rust (for rustfmt)
         uses: dtolnay/rust-toolchain@nightly
         with:

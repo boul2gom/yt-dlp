@@ -30,15 +30,19 @@ jobs:
       matrix:
         include:
           - name: default
+            shared_key: "default"
             cargo_features: ""
             run_integration: true
           - name: full-json
+            shared_key: "full-json"
             cargo_features: "--features cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
             run_integration: true
           - name: full-redb
+            shared_key: "full-redb"
             cargo_features: "--features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording"
             run_integration: true
           - name: full-redis
+            shared_key: "full-redis"
             cargo_features: "--features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
             run_integration: false
 
@@ -46,10 +50,18 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # sccache intercepts individual rustc calls and caches them across parallel matrix variants.
+      # Combined with cache-targets: false on rust-cache, this avoids duplicating the same dep
+      # compilations (tokio, reqwest, serde…) across the 4 feature variants.
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-toolchain-
+          shared-key: ${{ matrix.shared_key }}
+          # target/ is handled by sccache; rust-cache only manages ~/.cargo/registry here
+          cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -79,10 +91,11 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # Restores the target/ saved by build-and-test (default): doc tests share the same feature set.
+      - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-toolchain-
+          shared-key: "default"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -152,10 +165,11 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # Restores the target/ saved by build-and-test (full-redis): same feature set.
+      - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-toolchain-
+          shared-key: "full-redis"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -178,10 +192,11 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # Restores the target/ saved by build-and-test (full-json): same feature set.
+      - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-toolchain-
+          shared-key: "full-json"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -207,10 +222,12 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # cargo-semver-checks compiles with --release and unique features: keep an isolated key.
+      # cargo deny and cargo machete don't compile but benefit from the registry cache.
+      - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-analysis-
+          shared-key: "analysis"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -309,10 +326,12 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      - name: 📦 Cache Rust toolchain
+      # cargo llvm-cov adds -C instrument-coverage: artifacts are incompatible with normal builds.
+      # Isolated key avoids polluting the shared caches used by other jobs.
+      - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          prefix-key: rust-coverage-
+          shared-key: "coverage"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
