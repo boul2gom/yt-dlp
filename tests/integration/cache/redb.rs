@@ -91,22 +91,21 @@ async fn video_remove() {
 #[tokio::test]
 async fn concurrent_reads() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = std::sync::Arc::new(
+        RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
+            .await
+            .expect("cache creation failed"),
+    );
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=redb_concurrent";
     cache.put(url.to_string(), video).await.expect("put failed");
 
-    // Multiple concurrent reads should succeed
+    // Multiple concurrent reads sharing a single DB handle should succeed
     let mut handles = Vec::new();
     for _ in 0..5 {
         let u = url.to_string();
-        // Re-create cache with same dir (they share the same DB file)
-        let c = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-            .await
-            .expect("cache creation failed");
+        let c = cache.clone();
         handles.push(tokio::spawn(
             async move { c.get(&u).await.expect("concurrent get failed") },
         ));

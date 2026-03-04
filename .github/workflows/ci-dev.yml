@@ -165,11 +165,11 @@ jobs:
           REDIS_URL: redis://localhost:6379
         run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
 
-  # ==================== E2E + Coverage ====================
+  # ==================== E2E ====================
 
   e2e-tests:
     name: 🚀 E2E tests
-    needs: [build-and-test, doc-tests, check-spell]
+    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -197,8 +197,8 @@ jobs:
   # ==================== Analysis ====================
 
   analysis:
-    name: 🔍 Static Analysis
-    needs: [doc-tests, check-spell]
+    name: 🔍 Static analysis
+    needs: [build-and-test, doc-tests, check-spell]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -245,7 +245,7 @@ jobs:
   scorecard-analysis:
     name: 🔍 Scorecard analysis
     if: github.event_name == 'push'
-    needs: [doc-tests, check-spell]
+    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -279,7 +279,7 @@ jobs:
 
   coverage:
     name: 📊 Code coverage
-    needs: [doc-tests, check-spell]
+    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
     runs-on: ubuntu-latest
     permissions:
       contents: read
