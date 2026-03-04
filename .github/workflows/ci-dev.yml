@@ -265,6 +265,11 @@ jobs:
           results_format: sarif
           publish_results: true
 
+      - name: 🧹 Filter Pinned-Dependencies from SARIF results
+        run: |
+          jq 'del(.runs[].results[] | select(.ruleId == "PinnedDependencies"))' results.sarif > results-filtered.sarif
+          mv results-filtered.sarif results.sarif
+
       - name: 📦 Upload Scorecard scan results artifact
         uses: actions/upload-artifact@v7.0.0
         with:
@@ -276,6 +281,22 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
+
+  fossa:
+    name: 📜 FOSSA license scan
+    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📜 Run FOSSA scan
+        uses: fossas/fossa-action@v1.8.0
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
 
   coverage:
     name: 📊 Code coverage

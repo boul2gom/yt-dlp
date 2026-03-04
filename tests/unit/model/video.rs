@@ -13,7 +13,7 @@ use crate::common::fixtures;
 fn video_deserialize_from_fixture() {
     let video = fixtures::load_video_fixture();
     assert_eq!(video.id, "gXtp6C-3JKo");
-    assert_eq!(video.title, "Le virus le plus flippant de l'Histoire");
+    assert_eq!(video.title, "The scariest virus in History");
     assert_eq!(video.channel.as_deref(), Some("Micode"));
     assert!(video.tags.is_empty());
 }
@@ -104,7 +104,7 @@ fn video_display() {
     let video = fixtures::load_video_fixture();
     let display = format!("{}", video);
     assert!(display.contains("gXtp6C-3JKo"));
-    assert!(display.contains("Le virus le plus flippant"));
+    assert!(display.contains("The scariest virus in History"));
 }
 
 #[test]

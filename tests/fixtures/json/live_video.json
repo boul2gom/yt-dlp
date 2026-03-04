@@ -1,8 +1,8 @@
 {
   "id": "Z-Nwo-ypKtM",
-  "title": "franceinfo - DIRECT TV - actualité France et monde, interviews, documentaires et analyses 2026-03-03 22:37",
+  "title": "franceinfo - DIRECT TV - news France and world, interviews, documentaries and analyses 2026-03-03 22:37",
   "thumbnail": "{{MOCK_SERVER}}/thumbnails/live_maxresdefault.jpg",
-  "description": "Suivez toute l'actualité sur http://www.franceinfo.fr\n\nDisponible 24h/24 et 7j/7 sur le canal 16 de la TNT, sur les box, et sur tous les écrans numériques, la chaîne TV d’information en continu franceinfo propose des émissions diffusées simultanément à la radio sur certaines tranches horaires, des JT à l’heure et à la demi-heure (6 sont sous-titrés et 2 sont en langue des signes chaque jour), des rappels des titres, des modules d’analyse et d’approfondissement ainsi que des duplex réunissant toutes les rédactions partenaires. \n\nToute l'info en direct et les meilleures vidéos en streaming et Replay. Actualité France et Monde, Interviews, Documentaires et Analyses.",
+  "description": "Follow all the news on http://www.franceinfo.fr\n\nAvailable 24/7 on channel 16 of the DTT, on cable boxes, and on all digital screens, the continuous news TV channel franceinfo airs programs broadcast simultaneously on radio during certain time slots, news bulletins every hour and half-hour (6 are subtitled and 2 are in sign language each day), headline recaps, analysis and in-depth modules as well as live cross-overs bringing together all partner newsrooms. \n\nAll news live and the best videos in streaming and Replay. News France and World, Interviews, Documentaries and Analyses.",
   "availability": "public",
   "timestamp": 1628781617,
   "duration": null,
@@ -220,13 +220,13 @@
   "chapters": null,
   "heatmap": null,
   "tags": [
-    "actualité",
+    "news",
     "Interviews",
     "france",
-    "monde",
+    "world",
     "TV",
-    "direct",
-    "documentaires"
+    "live",
+    "documentaries"
   ],
   "categories": [
     "News & Politics"

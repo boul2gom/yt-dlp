@@ -1,3 +1,8 @@
+[files]
+extend-exclude = ["tests/fixtures/"]
+
 [default.extend-words]
 # "Clonable" is used intentionally when referring to DynClone trait objects
 clonable = "clonable"
+# "Nwo" appears in the real YouTube video ID "Z-Nwo-ypKtM" referenced in test code
+Nwo = "Nwo"

@@ -58,6 +58,10 @@ Translate any <code>[start_secs, end_secs]</code> window into the exact byte ran
   <img src="https://repobeats.axiom.co/api/embed/81fed25250909bb618c0180c8092c143feae0616.svg" alt="Statistics" title="Repobeats analytics image" />
 </p>
 
+<p align="center">
+  <a href="https://app.fossa.com/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp?ref=badge_small" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp.svg?type=small"/></a>
+</p>
+
 ---
 
 ## 💭 Why media-seek?

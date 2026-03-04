@@ -61,6 +61,13 @@
   <img src="https://repobeats.axiom.co/api/embed/81fed25250909bb618c0180c8092c143feae0616.svg" alt="Statistics" title="Repobeats analytics image" />
 </p>
 
+<p align="center">
+  <a href="https://app.fossa.com/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp?ref=badge_small" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp.svg?type=small"/></a>
+  <a href="https://codecov.io/gh/boul2gom/yt-dlp"><img src="https://img.shields.io/codecov/c/github/boul2gom/yt-dlp?token=M9LN6PRPUU&label=Codecov&logo=codecov" alt="Codecov"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=boul2gom_yt-dlp"><img src="https://img.shields.io/sonar/quality_gate/boul2gom_yt-dlp?server=https%3A%2F%2Fsonarcloud.io&label=Quality&logo=sonarqubecloud" alt="Quality"></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/boul2gom/yt-dlp"><img src="https://img.shields.io/ossf-scorecard/github.com/boul2gom/yt-dlp?label=Scorecard&logo=securityscorecard" alt="Scorecard"></a>
+</p>
+
 ---
 
 ## 💭️ Why use an external Python app?
