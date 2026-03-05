@@ -204,6 +204,37 @@ pub enum DownloadEvent {
         bitrate_bps: f64,
     },
 
+    /// Live fragment streaming started
+    #[cfg(feature = "live-recording")]
+    LiveStreamStarted {
+        video_id: String,
+        url: String,
+        quality: String,
+    },
+
+    /// Live fragment streaming progress update
+    #[cfg(feature = "live-recording")]
+    LiveStreamProgress {
+        video_id: String,
+        elapsed: Duration,
+        bytes_received: u64,
+        segments: u64,
+        bitrate_bps: f64,
+    },
+
+    /// Live fragment streaming stopped
+    #[cfg(feature = "live-recording")]
+    LiveStreamStopped {
+        video_id: String,
+        reason: String,
+        total_bytes: u64,
+        total_duration: Duration,
+    },
+
+    /// Live fragment streaming failed
+    #[cfg(feature = "live-recording")]
+    LiveStreamFailed { video_id: String, error: String },
+
     /// Live recording stopped (graceful)
     #[cfg(feature = "live-recording")]
     LiveRecordingStopped {
@@ -310,7 +341,10 @@ impl DownloadEvent {
 
     /// Returns true if this is a progress event
     pub fn is_progress(&self) -> bool {
-        matches!(self, Self::DownloadProgress { .. })
+        matches!(
+            self,
+            Self::DownloadProgress { .. } | Self::LiveStreamProgress { .. } | Self::LiveRecordingProgress { .. }
+        )
     }
 
     /// Returns a human-readable event type name
@@ -348,6 +382,14 @@ impl DownloadEvent {
             Self::LiveRecordingStopped { .. } => "live_recording_stopped",
             #[cfg(feature = "live-recording")]
             Self::LiveRecordingFailed { .. } => "live_recording_failed",
+            #[cfg(feature = "live-recording")]
+            Self::LiveStreamStarted { .. } => "live_stream_started",
+            #[cfg(feature = "live-recording")]
+            Self::LiveStreamProgress { .. } => "live_stream_progress",
+            #[cfg(feature = "live-recording")]
+            Self::LiveStreamStopped { .. } => "live_stream_stopped",
+            #[cfg(feature = "live-recording")]
+            Self::LiveStreamFailed { .. } => "live_stream_failed",
         }
     }
 }

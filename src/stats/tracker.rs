@@ -454,7 +454,11 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
         DownloadEvent::LiveRecordingStarted { .. }
         | DownloadEvent::LiveRecordingProgress { .. }
         | DownloadEvent::LiveRecordingStopped { .. }
-        | DownloadEvent::LiveRecordingFailed { .. } => {
+        | DownloadEvent::LiveRecordingFailed { .. }
+        | DownloadEvent::LiveStreamStarted { .. }
+        | DownloadEvent::LiveStreamProgress { .. }
+        | DownloadEvent::LiveStreamStopped { .. }
+        | DownloadEvent::LiveStreamFailed { .. } => {
             tracing::debug!(event = ?event, "📊 Live recording event, ignoring in stats");
         }
     }

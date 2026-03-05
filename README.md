@@ -2215,7 +2215,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Reqwest engine** (default): Pure-Rust HLS segment fetcher. Polls the media playlist, downloads new segments, and writes them sequentially. Zero-copy `bytes::Bytes`, progress events throttled at 50 ms.
 - **FFmpeg engine** (fallback): Spawns `ffmpeg -i <url> -c copy <output>`. Stops gracefully via stdin `q`. Useful for encrypted streams or complex HLS features.
 - Recording stops on cancellation token, `#EXT-X-ENDLIST`, or max duration.
-- Live events: `LiveRecordingStarted`, `LiveRecordingProgress`, `LiveRecordingStopped`, `LiveRecordingFailed`.
+- Live events: `LiveRecordingStarted`, `LiveRecordingProgress`, `LiveRecordingStopped`, `LiveRecordingFailed`, `LiveStreamStarted`, `LiveStreamStopped`, `LiveStreamFailed`.
+
+#### 📡 Live fragment streaming
+
+```rust,ignore
+use yt_dlp::Downloader;
+use yt_dlp::client::deps::Libraries;
+use std::path::PathBuf;
+use tokio_stream::StreamExt;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(
+        PathBuf::from("libs/yt-dlp"),
+        PathBuf::from("libs/ffmpeg"),
+    );
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
+
+    let mut stream = downloader.stream_live(&video)
+        .execute()
+        .await?;
+
+    while let Some(fragment) = stream.next().await {
+        let fragment = fragment?;
+        println!("Fragment {} bytes", fragment.data.len());
+    }
+
+    Ok(())
+}
+```
 
 ### 🎨 Post-Processing Options
 
