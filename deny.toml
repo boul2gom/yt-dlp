@@ -14,13 +14,6 @@ no-default-features = false
 [output]
 feature-depth = 1
 
-[advisories]
-ignore = [
-    # paste is unmaintained (RUSTSEC-2024-0436) but still functional.
-    # Transitive dependency via lofty. No safe upgrade available yet.
-    "RUSTSEC-2024-0436",
-]
-
 [licenses]
 allow = [
     # Public domain / dedication (no restrictions)
@@ -73,7 +66,7 @@ skip-tree = []
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = ["https://github.com/boul2gom/lofty-rs"]
 
 [sources.allow-org]
 github = []

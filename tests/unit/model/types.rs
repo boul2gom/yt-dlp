@@ -5,8 +5,9 @@ use pretty_assertions::assert_eq;
 use yt_dlp::model::caption::{AutomaticCaption, Extension as CaptionExtension, Subtitle};
 use yt_dlp::model::chapter::Chapter;
 use yt_dlp::model::heatmap::{Heatmap, HeatmapPoint};
-use yt_dlp::model::playlist::{Playlist, PlaylistEntry};
+use yt_dlp::model::playlist::{Playlist, PlaylistDownloadProgress, PlaylistEntry};
 use yt_dlp::model::thumbnail::Thumbnail;
+use yt_dlp::model::{ChapterList, ChapterValidation};
 
 use crate::common::fixtures;
 
@@ -293,9 +294,7 @@ fn playlist_hash() {
 // ============================== PlaylistDownloadProgress ==============================
 
 #[test]
-fn playlist_download_progress_percentage() {
-    use yt_dlp::model::playlist::PlaylistDownloadProgress;
-
+fn compute_playlist_download_progress_percentage_correctly() {
     let entry = PlaylistEntry {
         id: "vid1".to_string(),
         title: "Test".to_string(),
@@ -319,9 +318,7 @@ fn playlist_download_progress_percentage() {
 }
 
 #[test]
-fn playlist_download_progress_zero_total() {
-    use yt_dlp::model::playlist::PlaylistDownloadProgress;
-
+fn compute_playlist_download_progress_zero_when_total_zero() {
     let entry = PlaylistEntry {
         id: "vid1".to_string(),
         title: "Test".to_string(),
@@ -344,9 +341,7 @@ fn playlist_download_progress_zero_total() {
 }
 
 #[test]
-fn playlist_download_progress_display() {
-    use yt_dlp::model::playlist::PlaylistDownloadProgress;
-
+fn display_playlist_download_progress_shows_completion_ratio() {
     let entry = PlaylistEntry {
         id: "vid1".to_string(),
         title: "A Video".to_string(),
@@ -677,4 +672,291 @@ fn heatmap_get_point_at_time() {
     assert!((point.value - 0.8).abs() < f64::EPSILON);
 
     assert!(heatmap.get_point_at_time(25.0).is_none());
+}
+
+// ============================== ChapterList ==============================
+
+// The chapters.json fixture has 5 chapters:
+// Introduction (0-30s), Setup (30-60s), Implementation (60-90s), Testing (90-120s), Conclusion (120-150s)
+
+#[test]
+fn count_chapter_list_entries_from_fixture() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    assert_eq!(list.count(), 5);
+}
+
+#[test]
+fn compute_chapter_list_total_duration_from_fixture() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    assert!((list.total_duration() - 150.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn search_chapter_list_by_title_finds_match() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    let results = list.search_by_title("implementation");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].title.as_deref(), Some("Implementation"));
+}
+
+#[test]
+fn search_chapter_list_by_title_returns_empty_on_no_match() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    let results = list.search_by_title("nonexistent_xyz");
+    assert!(results.is_empty());
+}
+
+#[test]
+fn find_chapter_list_by_exact_title_returns_match() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    let found = list.find_by_exact_title("introduction");
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().start_time, 0.0);
+}
+
+#[test]
+fn find_chapter_list_by_exact_title_returns_none_on_no_match() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    let found = list.find_by_exact_title("nonexistent_xyz");
+    assert!(found.is_none());
+}
+
+#[test]
+fn find_chapter_list_by_title_prefix_returns_match() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    // "Conclusion" starts with "con"
+    let results = list.find_by_title_prefix("con");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].title.as_deref(), Some("Conclusion"));
+}
+
+#[test]
+fn find_chapter_list_by_timestamp_returns_matching_chapter() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    // t=50 falls in Setup (30-60s)
+    let found = list.find_by_timestamp(50.0);
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().title.as_deref(), Some("Setup"));
+}
+
+#[test]
+fn find_chapter_list_by_timestamp_returns_none_when_out_of_range() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    assert!(list.find_by_timestamp(200.0).is_none());
+}
+
+#[test]
+fn filter_chapter_list_by_duration_returns_all_matching() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    // All 5 fixture chapters are exactly 30s → all match [25, 35]
+    let results = list.filter_by_duration(25.0, 35.0);
+    assert_eq!(results.len(), 5);
+}
+
+#[test]
+fn filter_chapter_list_with_titles_returns_all_when_all_titled() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    // All fixture chapters have titles
+    assert_eq!(list.with_titles().len(), chapters.len());
+}
+
+#[test]
+fn filter_chapter_list_with_titles_returns_only_titled() {
+    let chapters = vec![
+        Chapter {
+            start_time: 0.0,
+            end_time: 10.0,
+            title: Some("With Title".to_string()),
+        },
+        Chapter {
+            start_time: 10.0,
+            end_time: 20.0,
+            title: None,
+        },
+    ];
+    let list = ChapterList::new(&chapters);
+    assert_eq!(list.with_titles().len(), 1);
+}
+
+#[test]
+fn check_chapter_list_is_sorted_returns_true_for_fixture() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    assert!(list.is_sorted());
+}
+
+#[test]
+fn check_chapter_list_is_sorted_returns_false_for_unordered() {
+    let chapters = vec![
+        Chapter {
+            start_time: 30.0,
+            end_time: 60.0,
+            title: None,
+        },
+        Chapter {
+            start_time: 0.0,
+            end_time: 30.0,
+            title: None,
+        },
+    ];
+    let list = ChapterList::new(&chapters);
+    assert!(!list.is_sorted());
+}
+
+#[test]
+fn check_chapter_list_has_overlaps_returns_false_for_fixture() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    assert!(!list.has_overlaps());
+}
+
+#[test]
+fn check_chapter_list_has_overlaps_returns_true_for_overlapping() {
+    let chapters = vec![
+        Chapter {
+            start_time: 0.0,
+            end_time: 40.0,
+            title: None,
+        },
+        Chapter {
+            start_time: 30.0,
+            end_time: 60.0,
+            title: None,
+        },
+    ];
+    let list = ChapterList::new(&chapters);
+    assert!(list.has_overlaps());
+}
+
+// ============================== ChapterList::validate ==============================
+
+#[test]
+fn validate_chapter_list_returns_valid_for_fixture() {
+    let chapters = fixtures::load_chapters_fixture();
+    let list = ChapterList::new(&chapters);
+    let validation = list.validate();
+    assert!(validation.is_valid);
+    assert!(validation.errors.is_empty());
+}
+
+#[test]
+fn validate_chapter_list_returns_valid_for_empty() {
+    let chapters: Vec<Chapter> = vec![];
+    let list = ChapterList::new(&chapters);
+    let validation = list.validate();
+    assert!(validation.is_valid);
+}
+
+#[test]
+fn validate_chapter_list_returns_error_for_inverted_time_range() {
+    let chapters = vec![Chapter {
+        start_time: 30.0,
+        end_time: 10.0, // end < start
+        title: Some("Bad".to_string()),
+    }];
+    let list = ChapterList::new(&chapters);
+    let validation = list.validate();
+    assert!(!validation.is_valid);
+    assert!(validation.errors.iter().any(|e| e.contains("invalid time range")));
+}
+
+#[test]
+fn validate_chapter_list_produces_warning_for_time_gap() {
+    let chapters = vec![
+        Chapter {
+            start_time: 0.0,
+            end_time: 10.0,
+            title: Some("First".to_string()),
+        },
+        Chapter {
+            start_time: 20.0, // 10s gap
+            end_time: 30.0,
+            title: Some("Second".to_string()),
+        },
+    ];
+    let list = ChapterList::new(&chapters);
+    let validation = list.validate();
+    assert!(validation.is_valid); // gaps are warnings, not errors
+    assert!(validation.warnings.iter().any(|w| w.contains("Gap")));
+}
+
+#[test]
+fn validate_chapter_list_produces_warning_for_missing_title() {
+    let chapters = vec![Chapter {
+        start_time: 0.0,
+        end_time: 60.0,
+        title: None,
+    }];
+    let list = ChapterList::new(&chapters);
+    let validation = list.validate();
+    assert!(validation.is_valid);
+    assert!(validation.warnings.iter().any(|w| w.contains("no title")));
+}
+
+// ============================== ChapterValidation ==============================
+
+#[test]
+fn build_valid_chapter_validation_has_empty_errors() {
+    let v = ChapterValidation::valid();
+    assert!(v.is_valid);
+    assert!(v.errors.is_empty());
+    assert!(v.warnings.is_empty());
+    assert!(!v.has_issues());
+}
+
+#[test]
+fn build_invalid_chapter_validation_sets_errors() {
+    let v = ChapterValidation::invalid(vec!["error one".to_string()]);
+    assert!(!v.is_valid);
+    assert_eq!(v.errors.len(), 1);
+    assert!(v.has_issues());
+}
+
+#[test]
+fn chapter_validation_with_warning() {
+    let v = ChapterValidation::valid().with_warning("a warning".to_string());
+    assert!(v.is_valid);
+    assert_eq!(v.warnings.len(), 1);
+    assert!(v.has_issues());
+}
+
+#[test]
+fn add_warnings_to_chapter_validation_sets_all_warnings() {
+    let v = ChapterValidation::valid().with_warnings(vec!["w1".to_string(), "w2".to_string()]);
+    assert_eq!(v.warnings.len(), 2);
+}
+
+#[test]
+fn display_chapter_validation_shows_key_fields() {
+    let v = ChapterValidation::invalid(vec!["err".to_string()]).with_warning("warn".to_string());
+    let display = format!("{}", v);
+    assert!(display.contains("ChapterValidation"));
+    assert!(display.contains("false"));
+    assert!(display.contains("errors=1"));
+    assert!(display.contains("warnings=1"));
+}
+
+#[test]
+fn display_chapter_shows_times_and_title() {
+    let ch = Chapter {
+        start_time: 5.5,
+        end_time: 15.5,
+        title: Some("Test Chapter".to_string()),
+    };
+    let display = format!("{}", ch);
+    assert!(display.contains("Chapter"));
+    assert!(display.contains("5.50"));
+    assert!(display.contains("15.50"));
+    assert!(display.contains("Test Chapter"));
 }

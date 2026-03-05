@@ -1,9 +1,11 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use yt_dlp::extractor::youtube::{FormatPreset, PlayerClient};
-use yt_dlp::extractor::{ExtractorBase, ExtractorConfig, ExtractorName, VideoExtractor, Youtube};
+use yt_dlp::extractor::{
+    ExtractorBase, ExtractorConfig, ExtractorName, Generic, VideoExtractor, Youtube, detect_extractor_type,
+};
 
 // ============================== ExtractorName ==============================
 
@@ -381,4 +383,88 @@ fn build_base_args_includes_custom_args() {
     let args = yt.build_base_args();
     assert!(args.contains(&"--no-check-certificate".to_string()));
     assert!(args.contains(&"--verbose".to_string()));
+}
+
+// ============================== Generic extractor ==============================
+
+#[test]
+fn generic_new_creates_extractor() {
+    let generic = Generic::new(PathBuf::from("yt-dlp"));
+    // Generic supports any URL
+    assert!(generic.supports_url("https://vimeo.com/123456"));
+    assert!(generic.supports_url("https://tiktok.com/@user/video/123"));
+    assert_eq!(generic.name(), ExtractorName::Generic(None));
+}
+
+#[test]
+fn generic_for_extractor_sets_name() {
+    let generic = Generic::for_extractor(PathBuf::from("yt-dlp"), "vimeo".to_string());
+    assert_eq!(generic.name(), ExtractorName::Generic(Some("vimeo".to_string())));
+}
+
+#[test]
+fn generic_supports_all_urls() {
+    let generic = Generic::new(PathBuf::from("yt-dlp"));
+    assert!(generic.supports_url("https://example.com/video"));
+    assert!(generic.supports_url("ftp://unknown.protocol/video"));
+    assert!(generic.supports_url(""));
+}
+
+#[test]
+fn generic_build_base_args_includes_no_progress_and_dump_json() {
+    let generic = Generic::new(PathBuf::from("yt-dlp"));
+    let args = generic.build_base_args();
+    assert!(args.contains(&"--no-progress".to_string()));
+    assert!(args.contains(&"--dump-json".to_string()));
+}
+
+#[test]
+fn generic_with_extractor_args_formats_correctly() {
+    let mut generic = Generic::new(PathBuf::from("yt-dlp"));
+    generic.with_extractor_args("tiktok", "api_hostname=api.tiktok.com");
+    let args = generic.build_base_args();
+    assert!(
+        args.iter()
+            .any(|a| a.contains("--extractor-args=tiktok:api_hostname=api.tiktok.com"))
+    );
+}
+
+#[test]
+fn generic_with_credentials_adds_args() {
+    let mut generic = Generic::new(PathBuf::from("yt-dlp"));
+    generic.with_credentials("user@example.com", "secret");
+    let args = generic.build_base_args();
+    assert!(args.iter().any(|a| a.contains("--username=user@example.com")));
+    assert!(args.iter().any(|a| a.contains("--password=secret")));
+}
+
+#[test]
+fn generic_extractor_config_with_arg() {
+    let mut generic = Generic::new(PathBuf::from("yt-dlp"));
+    generic.with_arg("--no-check-certificate".to_string());
+    let args = generic.build_base_args();
+    assert!(args.contains(&"--no-check-certificate".to_string()));
+}
+
+#[test]
+fn generic_extractor_config_with_timeout() {
+    let mut generic = Generic::new(PathBuf::from("yt-dlp"));
+    generic.with_timeout(Duration::from_secs(60));
+    assert_eq!(generic.timeout(), Duration::from_secs(60));
+}
+
+// ============================== detect_extractor_type fast path ==============================
+
+#[tokio::test]
+async fn detector_youtube_url_fast_path() {
+    let result = detect_extractor_type("https://www.youtube.com/watch?v=dQw4w9WgXcQ", Path::new("yt-dlp")).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), ExtractorName::Youtube);
+}
+
+#[tokio::test]
+async fn detector_youtu_be_fast_path() {
+    let result = detect_extractor_type("https://youtu.be/dQw4w9WgXcQ", Path::new("yt-dlp")).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), ExtractorName::Youtube);
 }

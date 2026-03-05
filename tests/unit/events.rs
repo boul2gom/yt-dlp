@@ -545,3 +545,115 @@ fn event_bus_debug_display() {
     let display = format!("{}", bus);
     assert!(display.contains("EventBus"));
 }
+
+// ============================== RetryStrategy (feature = "webhooks") ==============================
+
+#[cfg(feature = "webhooks")]
+mod retry_strategy_tests {
+    use std::time::Duration;
+
+    use yt_dlp::events::RetryStrategy;
+
+    #[test]
+    fn build_exponential_retry_strategy_sets_fields() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(30));
+        assert_eq!(s.max_attempts, 3);
+        assert_eq!(s.initial_delay, Duration::from_secs(1));
+        assert_eq!(s.max_delay, Duration::from_secs(30));
+        assert!((s.backoff_multiplier - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn build_linear_retry_strategy_sets_constant_delay() {
+        let s = RetryStrategy::linear(5, Duration::from_millis(200));
+        assert_eq!(s.max_attempts, 5);
+        assert_eq!(s.initial_delay, Duration::from_millis(200));
+        assert_eq!(s.max_delay, Duration::from_millis(200));
+        assert!((s.backoff_multiplier - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn build_none_retry_strategy_sets_zero_attempts() {
+        let s = RetryStrategy::none();
+        assert_eq!(s.max_attempts, 0);
+        assert_eq!(s.initial_delay, Duration::ZERO);
+    }
+
+    #[test]
+    fn check_retry_strategy_default_is_exponential() {
+        let s = RetryStrategy::default();
+        assert_eq!(s.max_attempts, 3);
+        assert_eq!(s.initial_delay, Duration::from_secs(1));
+        assert_eq!(s.max_delay, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn retry_strategy_delay_for_attempt_0_is_initial() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(60));
+        let delay = s.delay_for_attempt(0);
+        assert_eq!(delay, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn retry_strategy_delay_for_attempt_1_doubles() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(60));
+        let delay = s.delay_for_attempt(1);
+        assert_eq!(delay, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn retry_strategy_delay_capped_at_max() {
+        let s = RetryStrategy::exponential(5, Duration::from_secs(10), Duration::from_secs(15));
+        // 10 * 2^2 = 40, capped at 15
+        let delay = s.delay_for_attempt(2);
+        assert_eq!(delay, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn retry_strategy_delay_for_attempt_at_limit_is_zero() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(30));
+        // attempt 3 >= max_attempts 3 → zero delay
+        let delay = s.delay_for_attempt(3);
+        assert_eq!(delay, Duration::ZERO);
+    }
+
+    #[test]
+    fn retry_strategy_should_retry_within_limit() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(30));
+        assert!(s.should_retry(0));
+        assert!(s.should_retry(1));
+        assert!(s.should_retry(2));
+    }
+
+    #[test]
+    fn retry_strategy_should_not_retry_at_limit() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(30));
+        assert!(!s.should_retry(3));
+        assert!(!s.should_retry(10));
+    }
+
+    #[test]
+    fn retry_strategy_none_never_retries() {
+        let s = RetryStrategy::none();
+        assert!(!s.should_retry(0));
+    }
+
+    #[test]
+    fn display_retry_strategy_shows_key_fields() {
+        let s = RetryStrategy::exponential(3, Duration::from_secs(1), Duration::from_secs(30));
+        let display = format!("{}", s);
+        assert!(display.contains("RetryStrategy"));
+        assert!(display.contains("3"));
+        assert!(display.contains("2"));
+    }
+
+    #[test]
+    fn retry_strategy_linear_delay_is_constant() {
+        let s = RetryStrategy::linear(3, Duration::from_secs(5));
+        let delay0 = s.delay_for_attempt(0);
+        let delay1 = s.delay_for_attempt(1);
+        let delay2 = s.delay_for_attempt(2);
+        assert_eq!(delay0, delay1);
+        assert_eq!(delay1, delay2);
+    }
+}

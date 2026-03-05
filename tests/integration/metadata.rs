@@ -72,3 +72,108 @@ fn playlist_metadata_fields() {
     let debug = format!("{:?}", pm);
     assert!(debug.contains("PlaylistMetadata"));
 }
+
+// ---------------------------------------------------------------------------
+// MetadataManager::add_metadata — MP3 file
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_metadata_to_mp3_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = crate::common::fixtures::media_fixture("small.mp3");
+    let dest = dir.path().join("tagged.mp3");
+    std::fs::copy(&src, &dest).unwrap();
+
+    let video = load_video_fixture();
+    let manager = yt_dlp::metadata::MetadataManager::new();
+    let result = manager.add_metadata(&dest, &video).await;
+    assert!(result.is_ok(), "add_metadata to MP3 should succeed: {:?}", result.err());
+}
+
+// ---------------------------------------------------------------------------
+// MetadataManager::add_metadata — M4A file
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_metadata_to_m4a_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = crate::common::fixtures::media_fixture("small.m4a");
+    let dest = dir.path().join("tagged.m4a");
+    std::fs::copy(&src, &dest).unwrap();
+
+    let video = load_video_fixture();
+    let manager = yt_dlp::metadata::MetadataManager::new();
+    let result = manager.add_metadata(&dest, &video).await;
+    assert!(result.is_ok(), "add_metadata to M4A should succeed: {:?}", result.err());
+}
+
+// ---------------------------------------------------------------------------
+// MetadataManager::add_metadata — FLAC file (lofty path)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_metadata_to_flac_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = crate::common::fixtures::media_fixture("small.flac");
+    let dest = dir.path().join("tagged.flac");
+    std::fs::copy(&src, &dest).unwrap();
+
+    let video = load_video_fixture();
+    let manager = yt_dlp::metadata::MetadataManager::new();
+    let result = manager.add_metadata(&dest, &video).await;
+    assert!(
+        result.is_ok(),
+        "add_metadata to FLAC should succeed: {:?}",
+        result.err()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MetadataManager::add_metadata — WAV file (lofty path)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_metadata_to_wav_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = crate::common::fixtures::media_fixture("small.wav");
+    let dest = dir.path().join("tagged.wav");
+    std::fs::copy(&src, &dest).unwrap();
+
+    let video = load_video_fixture();
+    let manager = yt_dlp::metadata::MetadataManager::new();
+    let result = manager.add_metadata(&dest, &video).await;
+    assert!(result.is_ok(), "add_metadata to WAV should succeed: {:?}", result.err());
+}
+
+// ---------------------------------------------------------------------------
+// MetadataManager::add_thumbnail_to_file — MP3
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_thumbnail_to_mp3_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let media_src = crate::common::fixtures::media_fixture("small.mp3");
+    let thumb_src = crate::common::fixtures::media_fixture("thumb.jpg");
+    let dest = dir.path().join("with_thumb.mp3");
+    std::fs::copy(&media_src, &dest).unwrap();
+
+    let manager = yt_dlp::metadata::MetadataManager::new();
+    let result = manager.add_thumbnail_to_file(&dest, &thumb_src).await;
+    assert!(
+        result.is_ok(),
+        "add_thumbnail to MP3 should succeed: {:?}",
+        result.err()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MetadataManager::extract_basic_metadata — key fields present
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extract_basic_metadata_contains_key_fields() {
+    let video = load_video_fixture();
+    let metadata = yt_dlp::metadata::MetadataManager::extract_basic_metadata(&video);
+    let keys: Vec<&str> = metadata.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(keys.contains(&"title"), "title should be in metadata");
+}

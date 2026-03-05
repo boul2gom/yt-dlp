@@ -1,6 +1,9 @@
 #[path = "common/mod.rs"]
 mod common;
 
+#[cfg(cache)]
+#[path = "unit/cache/config.rs"]
+mod cache_config;
 #[path = "unit/download/config.rs"]
 mod config;
 #[path = "unit/error.rs"]
@@ -22,10 +25,23 @@ mod media_seek;
 mod metadata;
 #[path = "unit/model/mod.rs"]
 mod model;
+#[path = "unit/utils/network_retry.rs"]
+mod network_retry;
+#[path = "unit/utils/platform.rs"]
+mod platform;
+#[path = "unit/executor/process.rs"]
+mod process;
 #[path = "unit/utils/proxy.rs"]
 mod proxy;
+#[path = "unit/download/segment.rs"]
+mod segment;
 #[path = "unit/selection.rs"]
 mod selection;
+#[cfg(feature = "statistics")]
+#[path = "unit/statistics.rs"]
+mod stats;
+#[path = "unit/utils/subtitle.rs"]
+mod subtitle;
 #[path = "unit/extractor/test_extractor.rs"]
 mod test_extractor;
 #[path = "unit/utils/validation.rs"]

@@ -1,9 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use yt_dlp::live::RecordingResult;
 use yt_dlp::live::hls::{HlsPlaylist, HlsSegment, HlsVariant, select_variant};
+use yt_dlp::live::{LiveRecorder, RecordingConfig, RecordingResult};
 
 use crate::common;
 
@@ -261,4 +263,99 @@ async fn parse_media_wrong_content() {
     let url = format!("{}/wrong.m3u8", server.uri());
     let result = yt_dlp::live::hls::parse_media(&client, &url).await;
     assert!(result.is_err(), "master playlist should not parse as media");
+}
+
+// ============================== LiveRecorder::record() ==============================
+
+/// Serves a single-segment ENDLIST playlist with target_duration=1 (poll_interval=500ms).
+async fn setup_fast_endlist_server() -> MockServer {
+    let server = MockServer::start().await;
+
+    let media_content = format!(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
+         #EXTINF:0.5,\n{}/hls/segment_0.ts\n#EXT-X-ENDLIST\n",
+        server.uri()
+    );
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/hls/.*\.m3u8$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(media_content)
+                .insert_header("Content-Type", "application/vnd.apple.mpegurl"),
+        )
+        .mount(&server)
+        .await;
+
+    let segment_bytes = common::fixtures::load_media_bytes("small.ts");
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/hls/segment_\d+\.ts$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(segment_bytes)
+                .insert_header("Content-Type", "video/mp2t"),
+        )
+        .mount(&server)
+        .await;
+
+    server
+}
+
+#[tokio::test]
+async fn record_stops_when_stream_ends_via_endlist() {
+    let server = setup_fast_endlist_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("recording.ts");
+
+    let config = RecordingConfig {
+        stream_url: format!("{}/hls/media.m3u8", server.uri()),
+        output_path: output.clone(),
+        video_id: "test_endlist".to_string(),
+        quality: "720p".to_string(),
+        max_duration: None,
+        cancellation_token: CancellationToken::new(),
+        event_bus: yt_dlp::events::EventBus::with_default_capacity(),
+    };
+
+    let client = Arc::new(reqwest::Client::new());
+    let recorder = LiveRecorder::new(config, client);
+    let result = recorder.record().await.expect("recording should succeed");
+
+    assert!(result.total_bytes > 0, "should have written bytes");
+    assert!(
+        result.segments_downloaded >= 1,
+        "should have downloaded at least one segment"
+    );
+    assert!(output.exists(), "output file should exist");
+}
+
+#[tokio::test]
+async fn record_stops_via_cancellation_token() {
+    let server = setup_hls_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("cancelled_recording.ts");
+
+    let token = CancellationToken::new();
+    let token_clone = token.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        token_clone.cancel();
+    });
+
+    let config = RecordingConfig {
+        stream_url: format!("{}/hls/720p.m3u8", server.uri()),
+        output_path: output.clone(),
+        video_id: "test_cancel".to_string(),
+        quality: "720p".to_string(),
+        max_duration: None,
+        cancellation_token: token,
+        event_bus: yt_dlp::events::EventBus::with_default_capacity(),
+    };
+
+    let client = Arc::new(reqwest::Client::new());
+    let recorder = LiveRecorder::new(config, client);
+    let result = recorder.record().await.expect("recording should succeed after cancel");
+
+    assert!(result.segments_downloaded >= 1, "initial segments should be downloaded");
+    assert!(output.exists(), "output file should be created");
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use yt_dlp::DownloadStatus;
+use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 
 use crate::common::assertions::{assert_file_exists, assert_file_size_gt};
 use crate::common::fixtures;
@@ -216,4 +217,82 @@ async fn download_specific_format() {
     );
 
     assert_file_exists(&output);
+}
+
+// ============================== Quality-based download API ==============================
+
+/// Download video stream with explicit quality and codec preferences.
+#[tokio::test]
+async fn download_video_stream_with_quality() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let result = downloader
+        .download_video_stream_with_quality(
+            &video,
+            "quality_video.webm",
+            VideoQuality::Best,
+            VideoCodecPreference::Any,
+        )
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "download_video_stream_with_quality failed: {:?}",
+        result.err()
+    );
+    crate::common::assertions::assert_file_exists(&result.unwrap());
+}
+
+/// Download audio stream with explicit quality and codec preferences.
+#[tokio::test]
+async fn download_audio_stream_with_quality() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let result = downloader
+        .download_audio_stream_with_quality(
+            &video,
+            "quality_audio.webm",
+            AudioQuality::Best,
+            AudioCodecPreference::Any,
+        )
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "download_audio_stream_with_quality failed: {:?}",
+        result.err()
+    );
+    crate::common::assertions::assert_file_exists(&result.unwrap());
+}
+
+/// download_video_with_quality requires ffmpeg for combining — verify appropriate error.
+#[tokio::test]
+async fn download_video_with_quality_fails_without_ffmpeg() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let result = downloader
+        .download_video_with_quality(
+            &video,
+            "combined.mp4",
+            VideoQuality::Best,
+            VideoCodecPreference::Any,
+            AudioQuality::Best,
+            AudioCodecPreference::Any,
+        )
+        .await;
+
+    // Without a real ffmpeg binary, combining should fail
+    assert!(
+        result.is_err(),
+        "download_video_with_quality should fail without ffmpeg"
+    );
 }

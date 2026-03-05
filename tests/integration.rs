@@ -63,3 +63,9 @@ mod metadata;
 
 #[path = "integration/download/progress_tracker.rs"]
 mod progress_tracker;
+
+#[path = "integration/utils/http.rs"]
+mod http_client;
+
+#[path = "integration/client/deps/github.rs"]
+mod github;

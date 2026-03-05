@@ -13,6 +13,8 @@ concurrency:
 
 env:
   CLICOLOR: 1
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 permissions:
   contents: read
@@ -50,17 +52,15 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      # sccache intercepts individual rustc calls and caches them across parallel matrix variants.
-      # Combined with cache-targets: false on rust-cache, this avoids duplicating the same dep
-      # compilations (tokio, reqwest, serde…) across the 4 feature variants.
       - name: 📦 Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: ${{ matrix.name != 'default' }}
 
       - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: ${{ matrix.shared_key }}
-          # target/ is handled by sccache; rust-cache only manages ~/.cargo/registry here
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
@@ -78,34 +78,10 @@ jobs:
         if: matrix.run_integration
         run: cargo test --test integration ${{ matrix.cargo_features }}
 
-  # ==================== Checks ====================
-
-  doc-tests:
-    name: 📚 Test docs
-    needs: [build-and-test]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
-
-      # Restores the target/ saved by build-and-test (default): doc tests share the same feature set.
-      - name: 📦 Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          shared-key: "default"
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: 📚 Run doc tests
-        run: cargo test --doc --workspace
+  # ==================== Checks (no compilation — run in parallel) ====================
 
   check-spell:
     name: 📝 Check spelling
-    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,11 +89,6 @@ jobs:
     steps:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
-
-      - name: 🛠️ Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
 
       - name: 📝 Check spelling
         uses: crate-ci/typos@v1.44.0
@@ -125,7 +96,6 @@ jobs:
   check-format:
     name: 💄 Check formatting
     if: github.event_name == 'pull_request'
-    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -142,11 +112,41 @@ jobs:
       - name: 💄 Check formatting
         run: cargo +nightly fmt --all -- --check
 
+  # ==================== Post-build checks (need warm sccache) ====================
+
+  doc-tests:
+    name: 📚 Test docs
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@v6.0.2
+
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          shared-key: "default"
+          cache-targets: false
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 📚 Run doc tests
+        run: cargo test --doc --workspace
+
   # ==================== Redis Integration (needs service container) ====================
 
   integration-tests-redis:
     name: 🔗 Integration tests (cache-redis)
-    needs: [build-and-test, doc-tests, check-spell]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -165,11 +165,16 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      # Restores the target/ saved by build-and-test (full-redis): same feature set.
-      - name: 📦 Cache Rust artifacts
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: "full-redis"
+          cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -183,7 +188,7 @@ jobs:
 
   e2e-tests:
     name: 🚀 E2E tests
-    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -192,11 +197,16 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      # Restores the target/ saved by build-and-test (full-json): same feature set.
-      - name: 📦 Cache Rust artifacts
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: "full-json"
+          cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -213,7 +223,7 @@ jobs:
 
   analysis:
     name: 🔍 Static analysis
-    needs: [build-and-test, doc-tests, check-spell]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -222,12 +232,16 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      # cargo-semver-checks compiles with --release and unique features: keep an isolated key.
-      # cargo deny and cargo machete don't compile but benefit from the registry cache.
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
       - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: "analysis"
+          cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -262,12 +276,15 @@ jobs:
   scorecard-analysis:
     name: 🔍 Scorecard analysis
     if: github.event_name == 'push'
-    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       security-events: write
       id-token: write
+      pull-requests: read
+      contents: read
+      actions: read
+      issues: read
 
     steps:
       - name: 📁 Check out the repository
@@ -281,6 +298,7 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🧹 Filter Pinned-Dependencies from SARIF results
         run: |
@@ -301,7 +319,7 @@ jobs:
 
   fossa:
     name: 📜 FOSSA license scan
-    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -317,7 +335,7 @@ jobs:
 
   coverage:
     name: 📊 Code coverage
-    needs: [build-and-test, doc-tests, check-spell, integration-tests-redis]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -326,12 +344,16 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@v6.0.2
 
-      # cargo llvm-cov adds -C instrument-coverage: artifacts are incompatible with normal builds.
-      # Isolated key avoids polluting the shared caches used by other jobs.
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
       - name: 📦 Cache Rust artifacts
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: "coverage"
+          cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable

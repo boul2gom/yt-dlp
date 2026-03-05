@@ -62,7 +62,7 @@
 </p>
 
 <p align="center">
-  <a href="https://app.fossa.com/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp?ref=badge_small" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/git%2Bgithub.com%2Fboul2gom%2Fyt-dlp.svg?type=small"/></a>
+  <a href="https://app.fossa.com/projects/custom%2B60779%2Fgithub.com%2Fboul2gom%2Fyt-dlp?ref=badge_small" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/custom%2B60779%2Fgithub.com%2Fboul2gom%2Fyt-dlp.svg?type=small"/></a>
   <a href="https://codecov.io/gh/boul2gom/yt-dlp"><img src="https://img.shields.io/codecov/c/github/boul2gom/yt-dlp?token=M9LN6PRPUU&label=Codecov&logo=codecov" alt="Codecov"></a>
   <a href="https://sonarcloud.io/summary/overall?id=boul2gom_yt-dlp"><img src="https://img.shields.io/sonar/quality_gate/boul2gom_yt-dlp?server=https%3A%2F%2Fsonarcloud.io&label=Quality&logo=sonarqubecloud" alt="Quality"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/boul2gom/yt-dlp"><img src="https://img.shields.io/ossf-scorecard/github.com/boul2gom/yt-dlp?label=Scorecard&logo=securityscorecard" alt="Scorecard"></a>
