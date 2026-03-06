@@ -49,21 +49,21 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: ${{ matrix.name != 'default' }}
 
       - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: ${{ matrix.shared_key }}
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           components: clippy
 
@@ -91,10 +91,10 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📝 Check spelling
-        uses: crate-ci/typos@v1.44.0
+        uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # v1.44.0
 
   check-format:
     name: 💄 Check formatting
@@ -109,10 +109,10 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@0f1b44df7e9cbb178d781a242338dfa5e243ad7f # nightly
         with:
           components: rustfmt
 
@@ -134,21 +134,21 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: true
 
       - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "default"
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 📚 Run doc tests
         run: cargo test --doc --workspace
@@ -178,21 +178,21 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: true
 
       - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "full-redis"
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🔗 Run integration tests (cache-redis)
         env:
@@ -214,21 +214,21 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: true
 
       - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "full-json"
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🛠️ Install ffmpeg
         run: |
@@ -253,24 +253,24 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: true
 
       - name: 📦 Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "analysis"
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🛠️ Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@7fa572463ed6f88f64fd37a4f8ca146df751432d # cargo-deny
 
       - name: 🔐 Security, License and Dependency Audit
         run: cargo deny check
@@ -283,7 +283,7 @@ jobs:
 
       - name: 🚀 Check Semver compatibility (yt-dlp)
         continue-on-error: true
-        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
         with:
           package: yt-dlp
           feature-group: only-explicit-features
@@ -291,7 +291,7 @@ jobs:
 
       - name: 🚀 Check Semver compatibility (media-seek)
         continue-on-error: true
-        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
         with:
           package: media-seek
           feature-group: default-features
@@ -311,12 +311,12 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       - name: 🔍 Scan with Scorecard
-        uses: ossf/scorecard-action@v2.4.3
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
@@ -324,14 +324,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: sarif-results
           path: results.sarif
           retention-days: 5
 
       - name: 📦 Upload Scorecard scan results to GitHub dashboard
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: results.sarif
 
@@ -348,10 +348,10 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📜 Run FOSSA scan
-        uses: fossas/fossa-action@v1.8.0
+        uses: fossas/fossa-action@c414b9ad82eaad041e47a7cf62a4f02411f427a0 # v1.8.0
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
 
@@ -368,26 +368,26 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           disable_annotations: true
 
       - name: 📦 Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "coverage"
           cache-targets: false
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           components: llvm-tools-preview
 
       - name: 📦 Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
 
       - name: 🛠️ Install ffmpeg
         run: |
@@ -403,7 +403,7 @@ jobs:
           cargo llvm-cov report --lcov --output-path lcov.info
 
       - name: 📦 Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
