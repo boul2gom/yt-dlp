@@ -22,19 +22,19 @@ jobs:
     steps:
       - name: 🔐 Generate ephemeral token from GitHub App
         id: app-token
-        uses: actions/create-github-app-token@v2.2.1
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.head_ref || github.ref }}
 
       - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@0f1b44df7e9cbb178d781a242338dfa5e243ad7f # nightly
         with:
           components: rustfmt
 
@@ -46,7 +46,7 @@ jobs:
           find src crates benches -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
 
       - name: 🔐 Import GPG Key and setup Git
-        uses: crazy-max/ghaction-import-gpg@v7.0.0
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
@@ -59,7 +59,7 @@ jobs:
           git_committer_email: "actions-bot@boul2gom.com"
 
       - name: 🤖 Commit formatted code
-        uses: stefanzweifel/git-auto-commit-action@v7.1.0
+        uses: stefanzweifel/git-auto-commit-action@04702edda442b2e678b25b537cec683a1493fcb9 # v7.1.0
         with:
           commit_message: "💄 Format code with Cargo formatter [skip ci]"
           commit_user_name: "boul2gom-bot"

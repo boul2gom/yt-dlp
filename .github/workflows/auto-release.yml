@@ -56,13 +56,13 @@ jobs:
 
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 100
 
       - name: 🔍 Check for unreleased commits (per crate)
         id: check_commits
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const releases = await github.rest.repos.listReleases({
@@ -188,7 +188,7 @@ jobs:
     steps:
       - name: 🔍 Check if last CI run was successful
         id: check_ci
-        uses: actions/github-script@v8.0.0
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const runs = await github.rest.actions.listWorkflowRuns({
@@ -214,21 +214,21 @@ jobs:
       resolved_ms_type: ${{ steps.resolve_ms.outputs.resolved_type }}
     steps:
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           prefix-key: rust-semver-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🚀 Check Semver compatibility (yt-dlp)
         id: semver
         continue-on-error: true
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
-        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
         with:
           package: yt-dlp
           feature-group: only-explicit-features
@@ -238,7 +238,7 @@ jobs:
         id: semver_ms
         continue-on-error: true
         if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
-        uses: obi1kenobi/cargo-semver-checks-action@v2.8
+        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
         with:
           package: media-seek
           feature-group: default-features
@@ -292,30 +292,30 @@ jobs:
     steps:
       - name: 🔐 Generate ephemeral token from GitHub App
         id: app-token
-        uses: actions/create-github-app-token@v2.2.1
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_KEY }}
   
       - name: 📁 Check out the repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # Changed to 0 to fetch all history for changelog generation
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           prefix-key: rust-toolchain-
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 📌 Install cargo-release
         run: cargo install cargo-release
 
       - name: 🔐 Import GPG Key and setup Git
-        uses: crazy-max/ghaction-import-gpg@v7.0.0
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
@@ -351,7 +351,7 @@ jobs:
       - name: 📝 Generate releases notes
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: generate_release_notes
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const releases = await github.rest.repos.listReleases({
@@ -495,7 +495,7 @@ jobs:
 
       - name: 📝 Create GitHub Release
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           token: ${{ steps.app-token.outputs.token }}
           tag_name: v${{ steps.get_version.outputs.version }}
