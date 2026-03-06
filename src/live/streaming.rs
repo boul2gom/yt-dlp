@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,6 +18,9 @@ use crate::events::DownloadEvent;
 
 /// Channel capacity for streaming fragments.
 const FRAGMENT_CHANNEL_CAPACITY: usize = 32;
+
+/// Maximum sequence numbers to track for duplicate suppression.
+const SEQUENCE_TRACK_WINDOW: usize = 512;
 
 /// Result stream type for live fragment delivery.
 pub type LiveFragmentStream = ReceiverStream<Result<LiveFragment>>;
@@ -59,18 +62,23 @@ impl LiveFragmentStreamer {
     ///
     /// # Errors
     ///
-    /// Returns an error if the playlist or any segment cannot be fetched.
+    /// Returns an error if the initial playlist cannot be fetched.
     ///
     /// # Returns
     ///
     /// A [`LiveFragmentStream`] that yields fragments as they arrive.
     pub async fn stream(&self) -> Result<LiveFragmentStream> {
+        let initial = hls::parse_media(&self.core.client, &self.core.playlist_url).await?;
+        let poll_interval = Duration::from_secs_f64(initial.target_duration / POLL_INTERVAL_DIVISOR);
+
         let (sender, receiver) = mpsc::channel(FRAGMENT_CHANNEL_CAPACITY);
         let core = self.core.clone();
 
         tokio::spawn(async move {
             let result = run_loop(
                 core.clone(),
+                initial,
+                poll_interval,
                 |fragment| async {
                     if sender.send(Ok(fragment)).await.is_err() {
                         core.cancellation_token.cancel();
@@ -95,7 +103,13 @@ impl LiveFragmentStreamer {
     }
 }
 
-async fn run_loop<F, Fut, B, BFut>(core: LiveCore, mut on_fragment: F, mut on_batch: B) -> Result<RecordingStats>
+async fn run_loop<F, Fut, B, BFut>(
+    core: LiveCore,
+    initial: hls::HlsPlaylist,
+    poll_interval: Duration,
+    mut on_fragment: F,
+    mut on_batch: B,
+) -> Result<RecordingStats>
 where
     F: FnMut(LiveFragment) -> Fut,
     Fut: Future<Output = Result<()>>,
@@ -106,6 +120,7 @@ where
     let bytes_written = Arc::new(AtomicU64::new(ZERO_U64));
     let mut segments_downloaded: u64 = ZERO_U64;
     let mut seen_sequences: HashSet<u64> = HashSet::new();
+    let mut sequence_window: VecDeque<u64> = VecDeque::new();
     let mut last_progress_nanos: u64 = ZERO_U64;
 
     tracing::info!(
@@ -121,11 +136,8 @@ where
         quality: core.quality.clone(),
     });
 
-    let initial = hls::parse_media(&core.client, &core.playlist_url).await?;
-    let poll_interval = Duration::from_secs_f64(initial.target_duration / POLL_INTERVAL_DIVISOR);
-
     for seg in &initial.segments {
-        seen_sequences.insert(seg.sequence);
+        track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
     }
 
     for seg in &initial.segments {
@@ -135,6 +147,7 @@ where
         let fragment = core.fetch_fragment(seg, SegmentErrorMode::Streaming).await?;
         bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
         segments_downloaded += 1;
+        track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
         on_fragment(fragment).await?;
     }
     on_batch().await?;
@@ -179,7 +192,7 @@ where
             let fragment = core.fetch_fragment(seg, SegmentErrorMode::Streaming).await?;
             bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
             segments_downloaded += 1;
-            seen_sequences.insert(seg.sequence);
+            track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
             on_fragment(fragment).await?;
         }
         on_batch().await?;
@@ -225,4 +238,16 @@ where
         segments_downloaded,
         stop_reason,
     })
+}
+
+fn track_sequence(sequence: u64, seen: &mut HashSet<u64>, window: &mut VecDeque<u64>) {
+    if seen.insert(sequence) {
+        window.push_back(sequence);
+    }
+
+    while window.len() > SEQUENCE_TRACK_WINDOW {
+        if let Some(evicted) = window.pop_front() {
+            seen.remove(&evicted);
+        }
+    }
 }

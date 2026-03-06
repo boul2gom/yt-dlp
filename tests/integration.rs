@@ -55,6 +55,10 @@ mod builder;
 #[path = "integration/live/recording.rs"]
 mod live_recording;
 
+#[cfg(feature = "live-streaming")]
+#[path = "integration/live/streaming.rs"]
+mod live_streaming;
+
 #[path = "integration/media-seek/mod.rs"]
 mod media_seek;
 

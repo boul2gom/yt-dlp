@@ -66,17 +66,17 @@ pub struct RecordingConfig {
 /// Common configuration shared across live fragment streaming.
 #[cfg(feature = "live-streaming")]
 pub struct StreamRecordingConfig {
-    /// The HLS stream URL to record.
+    /// The HLS stream URL to stream live fragments from.
     pub stream_url: String,
     /// The video ID (for event emission).
     pub video_id: String,
     /// Quality label (e.g. "1080p").
     pub quality: String,
-    /// Optional maximum recording duration.
+    /// Optional maximum streaming duration for this live fragment session.
     pub max_duration: Option<Duration>,
     /// Cancellation token for graceful stop.
     pub cancellation_token: CancellationToken,
-    /// The event bus for emitting recording events.
+    /// The event bus for emitting streaming events.
     pub event_bus: crate::events::EventBus,
 }
 

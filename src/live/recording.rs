@@ -1,3 +1,9 @@
+//! Reqwest-based live recording implementation.
+//!
+//! Polls the HLS media playlist, downloads new segments, and appends them to the
+//! output file. The loop stops on cancellation, stream end (`#EXT-X-ENDLIST`), or
+//! when the configured maximum duration elapses.
+
 use std::collections::HashSet;
 use std::fmt;
 use std::path::PathBuf;
