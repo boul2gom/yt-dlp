@@ -323,11 +323,6 @@ jobs:
           publish_results: true
           repo_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🧹 Filter Pinned-Dependencies from SARIF results
-        run: |
-          jq 'del(.runs[].results[] | select(.ruleId == "PinnedDependencies"))' results.sarif > results-filtered.sarif
-          mv results-filtered.sarif results.sarif
-
       - name: 📦 Upload Scorecard scan results artifact
         uses: actions/upload-artifact@v7.0.0
         with:
