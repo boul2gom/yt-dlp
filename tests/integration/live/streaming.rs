@@ -5,7 +5,7 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use yt_dlp::live::{LiveFragmentStreamer, StreamRecordingConfig};
+use yt_dlp::live::{LiveFragmentStreamer, LiveStreamConfig};
 
 use crate::common;
 
@@ -55,7 +55,7 @@ async fn stream_live_fragments_yields_segments() {
     let client = Arc::new(reqwest::Client::new());
     let cancellation_token = CancellationToken::new();
 
-    let config = StreamRecordingConfig {
+    let config = LiveStreamConfig {
         stream_url: format!("{}/hls/720p.m3u8", server.uri()),
         video_id: "test_video".to_string(),
         quality: "720p".to_string(),

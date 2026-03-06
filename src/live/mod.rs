@@ -42,7 +42,7 @@ use crate::error::{Error, Result};
 #[cfg(feature = "live-recording")]
 use crate::events::types::RecordingMethod;
 use crate::model::Video;
-use crate::model::format::Format;
+use crate::model::format::{Format, Protocol};
 
 /// Common configuration shared across live recording engines.
 #[cfg(feature = "live-recording")]
@@ -65,7 +65,7 @@ pub struct RecordingConfig {
 
 /// Common configuration shared across live fragment streaming.
 #[cfg(feature = "live-streaming")]
-pub struct StreamRecordingConfig {
+pub struct LiveStreamConfig {
     /// The HLS stream URL to stream live fragments from.
     pub stream_url: String,
     /// The video ID (for event emission).
@@ -381,7 +381,7 @@ impl<'a> LiveStreamBuilder<'a> {
                 .map_err(|e| Error::http(&resolved.stream_url, "building HTTP client", e))?,
         );
 
-        let config = StreamRecordingConfig {
+        let config = LiveStreamConfig {
             stream_url: resolved.stream_url,
             video_id: self.video.id.clone(),
             quality: resolved.quality,
@@ -423,7 +423,12 @@ fn resolve_live_format(video: &Video, format: Option<&Format>, mode: LiveMode) -
 
     let live_formats = video.live_formats();
     let format = match format {
-        Some(f) => f,
+        Some(f) => {
+            if f.protocol != Protocol::M3U8Native {
+                return Err(live_format_error(video, mode, "format is not an HLS manifest"));
+            }
+            f
+        }
         None => live_formats
             .last()
             .ok_or_else(|| live_format_error(video, mode, "no HLS formats available"))?,

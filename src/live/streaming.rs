@@ -12,7 +12,7 @@ use super::core::{
     BITS_PER_BYTE, LiveCore, LiveFragment, POLL_INTERVAL_DIVISOR, PROGRESS_THROTTLE_NANOS, RecordingStats,
     SegmentErrorMode, ZERO_F64, ZERO_U64,
 };
-use super::{StreamRecordingConfig, hls};
+use super::{LiveStreamConfig, hls};
 use crate::error::Result;
 use crate::events::DownloadEvent;
 
@@ -43,7 +43,7 @@ impl LiveFragmentStreamer {
     /// # Returns
     ///
     /// A new [`LiveFragmentStreamer`] instance.
-    pub fn new(config: StreamRecordingConfig, client: Arc<reqwest::Client>) -> Self {
+    pub fn new(config: LiveStreamConfig, client: Arc<reqwest::Client>) -> Self {
         Self {
             core: LiveCore::new(
                 config.stream_url,
