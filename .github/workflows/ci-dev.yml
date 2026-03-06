@@ -244,6 +244,10 @@ jobs:
     name: 🔍 Static analysis
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -297,10 +301,6 @@ jobs:
     if: github.event_name == 'push'
     needs: [build-and-test]
     runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     permissions:
       security-events: write
       id-token: write
