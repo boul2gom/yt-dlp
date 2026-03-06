@@ -105,6 +105,7 @@ available.
 - 🗄️ **`cache-redb`** — Embedded [redb](https://github.com/cberner/redb) backend. Single-file, pure-Rust, ACID-compliant.
 - 🌐 **`cache-redis`** — Distributed [Redis](https://redis.io/) backend. Native TTL via `SETEX`.
 - 🔴 **`live-recording`** - Enables live stream recording via HLS segment fetching (reqwest) or FFmpeg fallback. Pulls in `m3u8-rs` for HLS manifest parsing.
+- 📡 **`live-streaming`** - Enables live fragment streaming via HLS segment fetching (reqwest). Pulls in `m3u8-rs` for HLS manifest parsing.
 - 🔒 **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
 - 🌍 **`hickory-dns`** - Enables async DNS resolution via [Hickory DNS](https://github.com/hickory-dns/hickory-dns) (passes `reqwest/hickory-dns`). Replaces the default blocking system resolver with a fully async, pure-Rust resolver.
@@ -2215,9 +2216,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Reqwest engine** (default): Pure-Rust HLS segment fetcher. Polls the media playlist, downloads new segments, and writes them sequentially. Zero-copy `bytes::Bytes`, progress events throttled at 50 ms.
 - **FFmpeg engine** (fallback): Spawns `ffmpeg -i <url> -c copy <output>`. Stops gracefully via stdin `q`. Useful for encrypted streams or complex HLS features.
 - Recording stops on cancellation token, `#EXT-X-ENDLIST`, or max duration.
-- Live events: `LiveRecordingStarted`, `LiveRecordingProgress`, `LiveRecordingStopped`, `LiveRecordingFailed`, `LiveStreamStarted`, `LiveStreamStopped`, `LiveStreamFailed`.
+- Recording events: `LiveRecordingStarted`, `LiveRecordingProgress`, `LiveRecordingStopped`, `LiveRecordingFailed`.
+- Streaming events: `LiveStreamStarted`, `LiveStreamProgress`, `LiveStreamStopped`, `LiveStreamFailed`.
 
-#### 📡 Live fragment streaming
+#### 📡 Live fragment streaming (Feature: `live-streaming`)
+
+Enable the feature in your `Cargo.toml`:
+
+```toml
+[dependencies]
+yt-dlp = { version = "2.4.0", features = ["live-streaming"] }
+```
 
 ```rust,ignore
 use yt_dlp::Downloader;

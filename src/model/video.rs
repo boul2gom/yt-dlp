@@ -11,7 +11,7 @@ use serde_with::{DefaultOnNull, serde_as};
 
 use crate::model::caption::{AutomaticCaption, Subtitle};
 use crate::model::chapter::Chapter;
-#[cfg(feature = "live-recording")]
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 use crate::model::format::Protocol;
 use crate::model::format::{Format, FormatType};
 use crate::model::heatmap::Heatmap;
@@ -59,7 +59,7 @@ pub struct Video {
     pub release_timestamp: Option<i64>,
     /// Release year, if different from the upload year.
     pub release_year: Option<i64>,
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     /// The number of concurrent viewers (live streams only).
     pub concurrent_view_count: Option<i64>,
 
@@ -355,7 +355,7 @@ impl Video {
     /// # Returns
     ///
     /// `true` if the video is currently being broadcast live.
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     pub fn is_currently_live(&self) -> bool {
         const STATUS: &str = "is_live";
 
@@ -367,7 +367,7 @@ impl Video {
     /// # Returns
     ///
     /// `true` if the video is scheduled but has not started yet.
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     pub fn is_upcoming(&self) -> bool {
         const STATUS: &str = "is_upcoming";
 
@@ -382,7 +382,7 @@ impl Video {
     /// # Returns
     ///
     /// A vector of references to HLS formats, sorted by total bitrate (ascending).
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     pub fn live_formats(&self) -> Vec<&Format> {
         let mut formats: Vec<&Format> = self
             .formats

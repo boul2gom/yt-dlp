@@ -30,10 +30,11 @@ pub use crate::events::{EventHook, HookRegistry};
 #[cfg(feature = "webhooks")]
 pub use crate::events::{RetryStrategy, WebhookConfig, WebhookDelivery};
 #[cfg(feature = "live-recording")]
-pub use crate::live::{
-    FfmpegLiveRecorder, HlsPlaylist, HlsSegment, HlsVariant, LiveFragment, LiveFragmentStream, LiveFragmentStreamer,
-    LiveRecorder, LiveRecordingBuilder, LiveStreamBuilder, RecordingResult,
-};
+pub use crate::live::{FfmpegLiveRecorder, LiveRecorder, LiveRecordingBuilder, RecordingResult};
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+pub use crate::live::{HlsPlaylist, HlsSegment, HlsVariant};
+#[cfg(feature = "live-streaming")]
+pub use crate::live::{LiveFragment, LiveFragmentStream, LiveFragmentStreamer, LiveStreamBuilder};
 // Model types
 pub use crate::model::Video;
 pub use crate::model::selector::{

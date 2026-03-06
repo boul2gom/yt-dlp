@@ -1,4 +1,4 @@
-//! Live stream recording module.
+//! Live stream recording and streaming module.
 //!
 //! Provides two recording engines for HLS live streams:
 //! - **Reqwest** (primary): Pure-Rust segment fetcher with zero-copy writes.
@@ -8,27 +8,44 @@
 //! and optionally bounded by a maximum duration. Events are emitted through
 //! the crate's event bus for progress tracking.
 
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+mod core;
+#[cfg(feature = "live-recording")]
 pub mod ffmpeg_recording;
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub mod hls;
+#[cfg(feature = "live-recording")]
 pub mod recording;
+#[cfg(feature = "live-streaming")]
+pub mod streaming;
 
+#[cfg(feature = "live-streaming")]
+pub use core::LiveFragment;
 use std::fmt;
+#[cfg(feature = "live-recording")]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "live-recording")]
 pub use ffmpeg_recording::FfmpegLiveRecorder;
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub use hls::{HlsPlaylist, HlsSegment, HlsVariant};
-pub use recording::{LiveFragment, LiveFragmentStream, LiveFragmentStreamer, LiveRecorder};
+#[cfg(feature = "live-recording")]
+pub use recording::LiveRecorder;
+#[cfg(feature = "live-streaming")]
+pub use streaming::{LiveFragmentStream, LiveFragmentStreamer};
 use tokio_util::sync::CancellationToken;
 
 use crate::Downloader;
 use crate::error::{Error, Result};
+#[cfg(feature = "live-recording")]
 use crate::events::types::RecordingMethod;
 use crate::model::Video;
 use crate::model::format::Format;
 
 /// Common configuration shared across live recording engines.
+#[cfg(feature = "live-recording")]
 pub struct RecordingConfig {
     /// The HLS stream URL to record.
     pub stream_url: String,
@@ -47,6 +64,7 @@ pub struct RecordingConfig {
 }
 
 /// Common configuration shared across live fragment streaming.
+#[cfg(feature = "live-streaming")]
 pub struct StreamRecordingConfig {
     /// The HLS stream URL to record.
     pub stream_url: String,
@@ -63,6 +81,7 @@ pub struct StreamRecordingConfig {
 }
 
 /// The result of a live recording session.
+#[cfg(feature = "live-recording")]
 #[derive(Debug, Clone)]
 pub struct RecordingResult {
     /// The path to the recorded file.
@@ -75,6 +94,7 @@ pub struct RecordingResult {
     pub segments_downloaded: u64,
 }
 
+#[cfg(feature = "live-recording")]
 impl fmt::Display for RecordingResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -115,6 +135,7 @@ impl fmt::Display for RecordingResult {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(feature = "live-recording")]
 pub struct LiveRecordingBuilder<'a> {
     downloader: &'a Downloader,
     video: &'a Video,
@@ -125,6 +146,7 @@ pub struct LiveRecordingBuilder<'a> {
     cancellation_token: Option<CancellationToken>,
 }
 
+#[cfg(feature = "live-recording")]
 impl<'a> LiveRecordingBuilder<'a> {
     /// Creates a new live recording builder.
     ///
@@ -200,7 +222,7 @@ impl<'a> LiveRecordingBuilder<'a> {
     ///
     /// A [`RecordingResult`] containing recording statistics.
     pub async fn execute(self) -> Result<RecordingResult> {
-        let resolved = resolve_live_format(self.video, self.format)?;
+        let resolved = resolve_live_format(self.video, self.format, LiveMode::Recording)?;
         let cancellation_token = self
             .cancellation_token
             .unwrap_or_else(|| self.downloader.cancellation_token.child_token());
@@ -257,6 +279,7 @@ impl<'a> LiveRecordingBuilder<'a> {
 ///
 /// Created via [`Downloader::stream_live`]. Allows configuring format selection,
 /// maximum duration, and cancellation token before starting.
+#[cfg(feature = "live-streaming")]
 pub struct LiveStreamBuilder<'a> {
     downloader: &'a Downloader,
     video: &'a Video,
@@ -265,6 +288,7 @@ pub struct LiveStreamBuilder<'a> {
     cancellation_token: Option<CancellationToken>,
 }
 
+#[cfg(feature = "live-streaming")]
 impl fmt::Debug for LiveStreamBuilder<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LiveStreamBuilder")
@@ -276,6 +300,7 @@ impl fmt::Debug for LiveStreamBuilder<'_> {
     }
 }
 
+#[cfg(feature = "live-streaming")]
 impl<'a> LiveStreamBuilder<'a> {
     /// Creates a new live stream builder.
     ///
@@ -338,7 +363,7 @@ impl<'a> LiveStreamBuilder<'a> {
     ///
     /// A [`LiveFragmentStream`] that yields HLS fragments as they are downloaded.
     pub async fn execute(self) -> Result<LiveFragmentStream> {
-        let resolved = resolve_live_format(self.video, self.format)?;
+        let resolved = resolve_live_format(self.video, self.format, LiveMode::Streaming)?;
         let cancellation_token = self
             .cancellation_token
             .unwrap_or_else(|| self.downloader.cancellation_token.child_token());
@@ -370,13 +395,24 @@ impl<'a> LiveStreamBuilder<'a> {
     }
 }
 
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 #[derive(Debug, Clone)]
 struct ResolvedLiveFormat {
     stream_url: String,
     quality: String,
 }
 
-fn resolve_live_format(video: &Video, format: Option<&Format>) -> Result<ResolvedLiveFormat> {
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+#[derive(Debug, Clone, Copy)]
+enum LiveMode {
+    #[cfg(feature = "live-recording")]
+    Recording,
+    #[cfg(feature = "live-streaming")]
+    Streaming,
+}
+
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+fn resolve_live_format(video: &Video, format: Option<&Format>, mode: LiveMode) -> Result<ResolvedLiveFormat> {
     if !video.is_currently_live() {
         return Err(Error::live_unavailable(
             video.webpage_url.as_deref().unwrap_or("unknown"),
@@ -388,12 +424,9 @@ fn resolve_live_format(video: &Video, format: Option<&Format>) -> Result<Resolve
     let live_formats = video.live_formats();
     let format = match format {
         Some(f) => f,
-        None => live_formats.last().ok_or_else(|| {
-            Error::live_recording(
-                video.webpage_url.as_deref().unwrap_or("unknown"),
-                "no HLS formats available",
-            )
-        })?,
+        None => live_formats
+            .last()
+            .ok_or_else(|| live_format_error(video, mode, "no HLS formats available"))?,
     };
 
     let stream_url = format.url()?.clone();
@@ -406,6 +439,19 @@ fn resolve_live_format(video: &Video, format: Option<&Format>) -> Result<Resolve
     Ok(ResolvedLiveFormat { stream_url, quality })
 }
 
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+fn live_format_error(video: &Video, mode: LiveMode, reason: &str) -> Error {
+    let url = video.webpage_url.as_deref().unwrap_or("unknown");
+
+    match mode {
+        #[cfg(feature = "live-recording")]
+        LiveMode::Recording => Error::live_recording(url, reason),
+        #[cfg(feature = "live-streaming")]
+        LiveMode::Streaming => Error::live_streaming(url, reason),
+    }
+}
+
+#[cfg(feature = "live-recording")]
 impl fmt::Debug for LiveRecordingBuilder<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LiveRecordingBuilder")

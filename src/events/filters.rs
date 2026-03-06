@@ -191,9 +191,9 @@ impl EventFilter {
         Self::any_of(&["post_process_started", "post_process_completed", "post_process_failed"])
     }
 
-    /// Creates a filter for live recording events
+    /// Creates a filter for live recording events.
     #[cfg(feature = "live-recording")]
-    pub fn only_live() -> Self {
+    pub fn only_live_recording() -> Self {
         Self::any_of(&[
             "live_recording_started",
             "live_recording_progress",
@@ -202,17 +202,28 @@ impl EventFilter {
         ])
     }
 
-    /// Creates a filter for live recording events matching a specific video ID
+    /// Creates a filter for live recording events matching a specific video ID.
     #[cfg(feature = "live-recording")]
     pub fn live_recording(video_id: impl Into<String>) -> Self {
         let id = video_id.into();
-        Self::only_live().and_then(move |event| match event {
+        Self::only_live_recording().and_then(move |event| match event {
             DownloadEvent::LiveRecordingStarted { video_id, .. }
             | DownloadEvent::LiveRecordingProgress { video_id, .. }
             | DownloadEvent::LiveRecordingStopped { video_id, .. }
             | DownloadEvent::LiveRecordingFailed { video_id, .. } => video_id == &id,
             _ => false,
         })
+    }
+
+    /// Creates a filter for live streaming events.
+    #[cfg(feature = "live-streaming")]
+    pub fn only_live_streaming() -> Self {
+        Self::any_of(&[
+            "live_stream_started",
+            "live_stream_progress",
+            "live_stream_stopped",
+            "live_stream_failed",
+        ])
     }
 }
 

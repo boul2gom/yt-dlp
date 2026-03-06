@@ -43,8 +43,8 @@ pub use async_trait;
 #[cfg(feature = "statistics")]
 pub mod stats;
 
-// Live stream recording
-#[cfg(feature = "live-recording")]
+// Live stream recording and streaming
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub mod live;
 
 // Convenience modules
@@ -336,6 +336,10 @@ impl Downloader {
     ///
     /// * `video` - The live stream video metadata.
     ///
+    /// # Returns
+    ///
+    /// A [`live::LiveStreamBuilder`] configured for the provided live video.
+    ///
     /// # Examples
     ///
     /// ```rust,no_run
@@ -360,7 +364,7 @@ impl Downloader {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "live-recording")]
+    #[cfg(feature = "live-streaming")]
     pub fn stream_live<'a>(&'a self, video: &'a Video) -> live::LiveStreamBuilder<'a> {
         live::LiveStreamBuilder::new(self, video)
     }
