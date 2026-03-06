@@ -19,6 +19,11 @@ jobs:
     name: "🏷️ Label issues and PRs"
 
     steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          
       - name: 🔐 Generate ephemeral token from GitHub App
         id: app-token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1

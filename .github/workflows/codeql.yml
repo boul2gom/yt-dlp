@@ -1,0 +1,46 @@
+name: "🔒 CodeQL Analysis"
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
+  schedule:
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: 🔒 CodeQL Analysis (Rust)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: 🔒 Initialize CodeQL
+        uses: github/codeql-action/init@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3.32.5
+        with:
+          languages: rust
+
+      - name: 🛠️ Build workspace
+        run: cargo build --workspace
+
+      - name: 🔒 Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3.32.5
+        with:
+          category: "/language:rust"
