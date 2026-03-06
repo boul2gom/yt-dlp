@@ -244,10 +244,6 @@ jobs:
     name: 🔍 Static analysis
     needs: [build-and-test]
     runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
