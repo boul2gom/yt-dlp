@@ -27,9 +27,13 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 🏷️ Analyze and apply labels
+        id: labeler
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          # GITHUB_TOKEN carries the job-level issues: write + pull-requests: write permissions,
+          # which are required to create/apply labels. The App token cannot be used here because
+          # the GitHub App installation may not have labels write access configured.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const is_pr = !!context.payload.pull_request;
             const number = is_pr ? context.payload.pull_request.number : context.payload.issue.number;
@@ -256,17 +260,26 @@ jobs:
             console.log(`🏷️ Applied labels: ${new_labels.join(', ')}`);
 
             // ═══════════════════════════════════════════════════════════
-            // 💬 Post a contextual comment (only on newly opened items)
+            // 📤 Expose data for the comment step
             // ═══════════════════════════════════════════════════════════
-            if (context.payload.action === 'opened') {
-              const pr_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this pull request.\nYour pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!`;
-              const issue_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this issue.\nYour issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!`;
-              const comment_body = is_pr ? pr_comment : issue_comment;
+            core.setOutput('is_new', context.payload.action === 'opened' ? 'true' : 'false');
+            core.setOutput('is_pr', is_pr ? 'true' : 'false');
+            core.setOutput('issue_number', String(number));
 
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                body: comment_body,
-              });
-            }
+      - name: 💬 Post welcome comment
+        if: steps.labeler.outputs.is_new == 'true'
+        uses: actions/github-script@v8.0.0
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const is_pr = ${{ steps.labeler.outputs.is_pr }};
+            const issue_number = ${{ steps.labeler.outputs.issue_number }};
+            const pr_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this pull request.\nYour pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!`;
+            const issue_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this issue.\nYour issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              body: is_pr ? pr_comment : issue_comment,
+            });
