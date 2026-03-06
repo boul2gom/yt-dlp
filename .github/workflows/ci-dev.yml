@@ -11,11 +11,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  CLICOLOR: 1
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-
 permissions:
   contents: read
 
@@ -25,6 +20,10 @@ jobs:
   build-and-test:
     name: 🦀 Build & Test (${{ matrix.name }})
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
     strategy:
@@ -83,6 +82,10 @@ jobs:
   check-spell:
     name: 📝 Check spelling
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -97,6 +100,10 @@ jobs:
     name: 💄 Check formatting
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -118,6 +125,10 @@ jobs:
     name: 📚 Test docs
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -148,6 +159,10 @@ jobs:
     name: 🔗 Integration tests (cache-redis)
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
     services:
@@ -190,6 +205,10 @@ jobs:
     name: 🚀 E2E tests
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -225,6 +244,10 @@ jobs:
     name: 🔍 Static analysis
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -278,6 +301,10 @@ jobs:
     if: github.event_name == 'push'
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       security-events: write
       id-token: write
@@ -321,6 +348,10 @@ jobs:
     name: 📜 FOSSA license scan
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -337,6 +368,10 @@ jobs:
     name: 📊 Code coverage
     needs: [build-and-test]
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 

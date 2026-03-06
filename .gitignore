@@ -1,14 +1,43 @@
+# IDE / Editor
 .idea/
 .vscode/
-yt-dlp.iml
+*.iml
+.fleet/
+.zed/
+*.code-workspace
+.direnv/
+.mise.toml
+.tool-versions
 
+# OS artefacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Rust / Cargo
 target/
+**/*.rs.bk
 
+# Secret / environment
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime outputs
 libs/
 temp/
 
-example.json
-example-live.json
+# Reports / audit
 AUDIT.md
 REPORT.md
 
@@ -21,3 +50,13 @@ heaptrack.profiling.*
 flamegraph.svg
 perf.data
 perf.data.old
+*.folded
+massif.out.*
+callgrind.out.*
+
+# Logs
+*.log
+logs/
+
+# Benchmark / criterion artefacts
+criterion/
