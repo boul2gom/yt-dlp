@@ -15,11 +15,184 @@ permissions:
   contents: read
 
 jobs:
-  # ==================== Build + Lint + Test (feature-complete per backend) ====================
+  scorecard-analysis:
+    name: 🔍 Scorecard analysis
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      pull-requests: read
+      contents: read
+      actions: read
+      issues: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: 🔍 Scan with Scorecard
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Upload Scorecard scan results artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: sarif-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: 📦 Upload Scorecard scan results to GitHub dashboard
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
+        with:
+          sarif_file: results.sarif
+
+  fossa:
+    name: 📜 FOSSA license scan
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📜 Run FOSSA scan
+        uses: fossas/fossa-action@c414b9ad82eaad041e47a7cf62a4f02411f427a0 # v1.8.0
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
+
+  dependency-review:
+    name: 📦 Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Review dependencies
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        
+  check-spell:
+    name: 📝 Check spelling
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📝 Check spelling
+        uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # v1.44.0
+
+  check-format:
+    name: 💄 Check formatting
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🛠️ Set up nightly Rust (for rustfmt)
+        uses: dtolnay/rust-toolchain@0f1b44df7e9cbb178d781a242338dfa5e243ad7f # nightly
+        with:
+          components: rustfmt
+
+      - name: 💄 Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+  prebuild:
+    name: "🔥 Prebuild dependencies"
+    runs-on: ubuntu-latest
+    needs: [check-spell]
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: "prebuild"
+          cache-targets: false
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: 🔥 Compile all dependencies
+        run: cargo build --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+
+      - name: 📦 Save compiled target directory
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
   build-and-test:
     name: 🦀 Build & Test (${{ matrix.name }})
     runs-on: ubuntu-latest
+    needs: [check-spell, prebuild]
     env:
       CLICOLOR: 1
       SCCACHE_GHA_ENABLED: "true"
@@ -52,6 +225,7 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
+          disable-telemetry: ${{ matrix.name != 'default' }}
 
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -67,6 +241,13 @@ jobs:
           shared-key: ${{ matrix.shared_key }}
           cache-targets: false
 
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-prebuild-${{ runner.os }}-
+
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
@@ -81,60 +262,6 @@ jobs:
       - name: 🔗 Run integration tests
         if: matrix.run_integration
         run: cargo test --test integration ${{ matrix.cargo_features }}
-
-  # ==================== Checks (no compilation — run in parallel) ====================
-
-  check-spell:
-    name: 📝 Check spelling
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📝 Check spelling
-        uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # v1.44.0
-
-  check-format:
-    name: 💄 Check formatting
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@0f1b44df7e9cbb178d781a242338dfa5e243ad7f # nightly
-        with:
-          components: rustfmt
-
-      - name: 💄 Check formatting
-        run: cargo +nightly fmt --all -- --check
-
-  # ==================== Post-build checks (need warm sccache) ====================
 
   doc-tests:
     name: 📚 Test docs
@@ -152,6 +279,7 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
+          disable-telemetry: true
 
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -164,16 +292,21 @@ jobs:
       - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
-          shared-key: "default"
+          shared-key: "full-json"
           cache-targets: false
+
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-prebuild-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 📚 Run doc tests
-        run: cargo test --doc --workspace
-
-  # ==================== Redis Integration (needs service container) ====================
+        run: cargo test --doc --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
 
   integration-tests-redis:
     name: 🔗 Integration tests (cache-redis)
@@ -201,6 +334,7 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
+          disable-telemetry: true
 
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -216,6 +350,13 @@ jobs:
           shared-key: "full-redis"
           cache-targets: false
 
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-prebuild-${{ runner.os }}-
+
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
@@ -224,11 +365,9 @@ jobs:
           REDIS_URL: redis://localhost:6379
         run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
 
-  # ==================== E2E ====================
-
   e2e-tests:
     name: 🚀 E2E tests
-    needs: [build-and-test]
+    needs: [doc-tests, integration-tests-redis]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -242,6 +381,7 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
+          disable-telemetry: true
 
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -257,6 +397,13 @@ jobs:
           shared-key: "full-json"
           cache-targets: false
 
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-prebuild-${{ runner.os }}-
+
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
@@ -268,16 +415,12 @@ jobs:
       - name: 🚀 Run E2E tests
         run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
 
-  # ==================== Analysis ====================
-
   analysis:
     name: 🔍 Static analysis
-    needs: [build-and-test]
+    needs: [e2e-tests]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -286,23 +429,10 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
-        
+          disable-telemetry: true
+
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-        with:
-          shared-key: "analysis"
-          cache-targets: false
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🛠️ Install cargo-deny
         uses: taiki-e/install-action@7fa572463ed6f88f64fd37a4f8ca146df751432d # cargo-deny
@@ -310,99 +440,15 @@ jobs:
       - name: 🔐 Security, License and Dependency Audit
         run: cargo deny check
 
-      - name: 📦 Install analysis tools
-        run: cargo install cargo-machete --locked
+      - name: 🛠️ Install cargo-machete
+        uses: taiki-e/install-action@6929d36b9cc9bd3c8a031f179ec7f72cffbfc6fa # cargo-machete
 
       - name: 🧹 Unused dependencies
         run: cargo machete
 
-      - name: 🚀 Check Semver compatibility (yt-dlp)
-        continue-on-error: true
-        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
-        with:
-          package: yt-dlp
-          feature-group: only-explicit-features
-          features: cache-memory,hooks,webhooks,statistics,live-recording,hickory-dns,rustls,profiling
-
-      - name: 🚀 Check Semver compatibility (media-seek)
-        continue-on-error: true
-        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
-        with:
-          package: media-seek
-          feature-group: default-features
-
-  scorecard-analysis:
-    name: 🔍 Scorecard analysis
-    if: github.event_name == 'push'
-    needs: [build-and-test]
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      id-token: write
-      pull-requests: read
-      contents: read
-      actions: read
-      issues: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: 🔍 Scan with Scorecard
-        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          publish_results: true
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: sarif-results
-          path: results.sarif
-          retention-days: 5
-
-      - name: 📦 Upload Scorecard scan results to GitHub dashboard
-        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
-        with:
-          sarif_file: results.sarif
-
-  fossa:
-    name: 📜 FOSSA license scan
-    needs: [build-and-test]
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📜 Run FOSSA scan
-        uses: fossas/fossa-action@c414b9ad82eaad041e47a7cf62a4f02411f427a0 # v1.8.0
-        with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
-
   coverage:
     name: 📊 Code coverage
-    needs: [build-and-test]
+    needs: [e2e-tests]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -416,6 +462,7 @@ jobs:
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
           egress-policy: audit
+          disable-telemetry: true
           
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -458,24 +505,3 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: false
-
-  # ==================== PR-only checks ====================
-
-  dependency-review:
-    name: 📦 Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📦 Review dependencies
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0

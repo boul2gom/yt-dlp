@@ -5,6 +5,12 @@ on:
     types: [opened, edited]
   pull_request_target:
     types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to label"
+        required: true
+        type: number
 
 permissions:
   contents: read
@@ -13,8 +19,6 @@ jobs:
   labeler:
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     runs-on: ubuntu-latest
     name: "🏷️ Label issues and PRs"
 
@@ -35,15 +39,30 @@ jobs:
         id: labeler
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
-          # GITHUB_TOKEN carries the job-level issues: write + pull-requests: write permissions,
-          # which are required to create/apply labels. The App token cannot be used here because
-          # the GitHub App installation may not have labels write access configured.
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const is_pr = !!context.payload.pull_request;
-            const number = is_pr ? context.payload.pull_request.number : context.payload.issue.number;
-            const title = (is_pr ? context.payload.pull_request.title : context.payload.issue.title) || '';
-            const body = (is_pr ? context.payload.pull_request.body : context.payload.issue.body) || '';
+            let is_pr, number, title, body, pr_head_ref, pr_author;
+
+            if (context.eventName === 'workflow_dispatch') {
+              is_pr = true;
+              number = parseInt(context.payload.inputs.pr_number, 10);
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: number,
+              });
+              title = pr.title || '';
+              body = pr.body || '';
+              pr_head_ref = pr.head.ref || '';
+              pr_author = pr.user.login;
+            } else {
+              is_pr = !!context.payload.pull_request;
+              number = is_pr ? context.payload.pull_request.number : context.payload.issue.number;
+              title = (is_pr ? context.payload.pull_request.title : context.payload.issue.title) || '';
+              body = (is_pr ? context.payload.pull_request.body : context.payload.issue.body) || '';
+              pr_head_ref = is_pr ? (context.payload.pull_request.head.ref || '') : '';
+              pr_author = is_pr ? context.payload.pull_request.user.login : null;
+            }
             const text = `${title}\n${body}`.toLowerCase();
 
             // ═══════════════════════════════════════════════════════════
@@ -88,10 +107,9 @@ jobs:
             // ═══════════════════════════════════════════════════════════
             // 🤖 Skip bot PRs (Dependabot handles its own labels)
             // ═══════════════════════════════════════════════════════════
-            if (is_pr) {
-              const author = context.payload.pull_request.user.login;
-              if (author.endsWith('[bot]') || author === 'dependabot' || author === 'renovate') {
-                console.log(`🤖 Skipping bot PR from ${author}`);
+            if (is_pr && context.eventName !== 'workflow_dispatch' && pr_author) {
+              if (pr_author.endsWith('[bot]') || pr_author === 'dependabot' || pr_author === 'renovate') {
+                console.log(`🤖 Skipping bot PR from ${pr_author}`);
                 return;
               }
             }
@@ -147,7 +165,7 @@ jobs:
               // ═════════════════════════════════════════════════════════
               // 🌿 Branch name analysis (PRs only)
               // ═════════════════════════════════════════════════════════
-              const branch = (context.payload.pull_request.head.ref || '').toLowerCase();
+              const branch = pr_head_ref.toLowerCase();
               const branch_map = [
                 { prefixes: ['fix/', 'bugfix/', 'hotfix/'], label: 'bug' },
                 { prefixes: ['feat/', 'feature/'],          label: 'enhancement' },
@@ -195,21 +213,29 @@ jobs:
             }
 
             // ═══════════════════════════════════════════════════════════
-            // 🔍 Keyword-based labeling (fallback — title + body)
+            // 🔍 Keyword-based labeling (fallback — title only)
+            // Body is intentionally excluded: PR bodies often mention words
+            // like "security", "bug reports", "dependencies" in a context
+            // that does not warrant the label (e.g. bot-generated PRs).
             // ═══════════════════════════════════════════════════════════
             const keyword_map = [
-              { label: 'bug',             patterns: [/\bbug\b/, /\bcrash/, /\bpanic/, /\bbroken\b/] },
-              { label: 'enhancement',     patterns: [/\bfeat(ure)?\b/, /\bimplement/, /\bsupport\b/] },
+              // /\bbug\b/ removed — too noisy ("bug reports", "debug", etc.)
+              { label: 'bug',             patterns: [/\bcrash/, /\bpanic/, /\bbroken\b/, /\bregression\b/] },
+              // /\bsupport\b/ and /\bimplement/ removed — match email addresses and generic verbs
+              { label: 'enhancement',     patterns: [/\bfeat(ure)?\b/, /\bnew\s+api\b/] },
               { label: 'breaking_change', patterns: [/\bbreaking[ -]?change\b/, /\bBREAKING\b/] },
               { label: 'performance',     patterns: [/\bperf(ormance)?\b/, /\bbench/, /\boptim/, /\bspeed\b/] },
               { label: 'documentation',   patterns: [/\breadme\b/, /\btypo\b/, /\bspelling\b/] },
-              { label: 'dependencies',    patterns: [/\bbump\b/, /\bdep(endenc(y|ies))?\b/, /\bupgrade\b/] },
+              // /\bdep(endenc(y|ies))?\b/ and /\bupgrade\b/ removed — appear in any CI body
+              // /\bbump\b/ kept: it is the canonical Dependabot/Renovate format
+              { label: 'dependencies',    patterns: [/\bbump\b/] },
               { label: 'refactor',        patterns: [/\brefactor/, /\brestructure/, /\bcleanup\b/] },
-              { label: 'security',        patterns: [/\bsecurity\b/, /\bvulnerabilit/, /\bcve\b/, /\bunsafe\b/, /\bexploit/, /\badvisory\b/] },
+              // /\bsecurity\b/ and /\bunsafe\b/ removed — too broad (CI tools, Rust unsafe blocks)
+              { label: 'security',        patterns: [/\bvulnerabilit/, /\bcve\b/, /\bexploit/, /\badvisory\b/] },
             ];
 
             for (const { label, patterns } of keyword_map) {
-              if (!labels_to_add.has(label) && patterns.some(p => p.test(text))) {
+              if (!labels_to_add.has(label) && patterns.some(p => p.test(title))) {
                 labels_to_add.add(label);
               }
             }
@@ -273,7 +299,7 @@ jobs:
 
       - name: 💬 Post welcome comment
         if: steps.labeler.outputs.is_new == 'true'
-        uses: actions/github-script@v8.0.0
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |

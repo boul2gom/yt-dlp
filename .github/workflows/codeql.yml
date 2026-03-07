@@ -1,12 +1,9 @@
 name: "🔒 CodeQL Analysis"
 
 on:
-  push:
-    branches: [develop, master]
-  pull_request:
-    branches: [develop, master]
   schedule:
     - cron: "0 0 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,6 +12,10 @@ jobs:
   codeql:
     name: 🔒 CodeQL Analysis (Rust)
     runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     permissions:
       actions: read
       contents: read
@@ -29,6 +30,24 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: "codeql"
+          cache-targets: false
+
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-prebuild-${{ runner.os }}-
+
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
@@ -38,7 +57,7 @@ jobs:
           languages: rust
 
       - name: 🛠️ Build workspace
-        run: cargo build --workspace
+        run: cargo build --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
 
       - name: 🔒 Perform CodeQL Analysis
         uses: github/codeql-action/analyze@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3.32.5
