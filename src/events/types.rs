@@ -8,7 +8,7 @@ use crate::model::chapter::Chapter;
 use crate::model::format::Format;
 use crate::model::playlist::Playlist;
 
-/// The method used for live recording
+/// The method used for live recording.
 #[cfg(feature = "live-recording")]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum RecordingMethod {
@@ -217,6 +217,37 @@ pub enum DownloadEvent {
     /// Live recording failed
     #[cfg(feature = "live-recording")]
     LiveRecordingFailed { video_id: String, error: String },
+
+    /// Live fragment streaming started
+    #[cfg(feature = "live-streaming")]
+    LiveStreamStarted {
+        video_id: String,
+        url: String,
+        quality: String,
+    },
+
+    /// Live fragment streaming progress update
+    #[cfg(feature = "live-streaming")]
+    LiveStreamProgress {
+        video_id: String,
+        elapsed: Duration,
+        bytes_received: u64,
+        segments: u64,
+        bitrate_bps: f64,
+    },
+
+    /// Live fragment streaming stopped
+    #[cfg(feature = "live-streaming")]
+    LiveStreamStopped {
+        video_id: String,
+        reason: String,
+        total_bytes: u64,
+        total_duration: Duration,
+    },
+
+    /// Live fragment streaming failed
+    #[cfg(feature = "live-streaming")]
+    LiveStreamFailed { video_id: String, error: String },
 }
 
 /// Types of metadata that can be applied
@@ -310,7 +341,14 @@ impl DownloadEvent {
 
     /// Returns true if this is a progress event
     pub fn is_progress(&self) -> bool {
-        matches!(self, Self::DownloadProgress { .. })
+        match self {
+            Self::DownloadProgress { .. } => true,
+            #[cfg(feature = "live-recording")]
+            Self::LiveRecordingProgress { .. } => true,
+            #[cfg(feature = "live-streaming")]
+            Self::LiveStreamProgress { .. } => true,
+            _ => false,
+        }
     }
 
     /// Returns a human-readable event type name
@@ -348,6 +386,14 @@ impl DownloadEvent {
             Self::LiveRecordingStopped { .. } => "live_recording_stopped",
             #[cfg(feature = "live-recording")]
             Self::LiveRecordingFailed { .. } => "live_recording_failed",
+            #[cfg(feature = "live-streaming")]
+            Self::LiveStreamStarted { .. } => "live_stream_started",
+            #[cfg(feature = "live-streaming")]
+            Self::LiveStreamProgress { .. } => "live_stream_progress",
+            #[cfg(feature = "live-streaming")]
+            Self::LiveStreamStopped { .. } => "live_stream_stopped",
+            #[cfg(feature = "live-streaming")]
+            Self::LiveStreamFailed { .. } => "live_stream_failed",
         }
     }
 }

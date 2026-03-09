@@ -16,7 +16,7 @@ mod extractor;
 mod ffmpeg_args;
 #[path = "unit/utils/fs_utils.rs"]
 mod fs_utils;
-#[cfg(feature = "live-recording")]
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 #[path = "unit/live/hls_parsing.rs"]
 mod hls_parsing;
 #[path = "unit/media-seek/mod.rs"]

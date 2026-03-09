@@ -181,7 +181,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 🔥 Compile all dependencies
-        run: cargo build --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+        run: cargo build --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
 
       - name: 📦 Save compiled target directory
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -209,15 +209,15 @@ jobs:
             run_integration: true
           - name: full-json
             shared_key: "full-json"
-            cargo_features: "--features cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+            cargo_features: "--features cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
             run_integration: true
           - name: full-redb
             shared_key: "full-redb"
-            cargo_features: "--features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording"
+            cargo_features: "--features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording,live-streaming"
             run_integration: true
           - name: full-redis
             shared_key: "full-redis"
-            cargo_features: "--features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
+            cargo_features: "--features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming"
             run_integration: false
 
     steps:
@@ -306,7 +306,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 📚 Run doc tests
-        run: cargo test --doc --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+        run: cargo test --doc --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
 
   integration-tests-redis:
     name: 🔗 Integration tests (cache-redis)
@@ -363,7 +363,7 @@ jobs:
       - name: 🔗 Run integration tests (cache-redis)
         env:
           REDIS_URL: redis://localhost:6379
-        run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording"
+        run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming"
 
   e2e-tests:
     name: 🚀 E2E tests
@@ -413,7 +413,7 @@ jobs:
           sudo apt-get install -y ffmpeg
 
       - name: 🚀 Run E2E tests
-        run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
+        run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
 
   analysis:
     name: 🔍 Static analysis
@@ -494,9 +494,9 @@ jobs:
       - name: 📊 Generate coverage (unit + integration + e2e)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
-          cargo llvm-cov --no-report --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
-          cargo llvm-cov --no-report --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
+          cargo llvm-cov --no-report --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
+          cargo llvm-cov --no-report --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
+          cargo llvm-cov --no-report --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
           cargo llvm-cov report --lcov --output-path lcov.info
 
       - name: 📦 Upload coverage to Codecov
