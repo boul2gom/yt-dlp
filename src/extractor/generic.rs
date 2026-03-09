@@ -163,7 +163,7 @@ impl ExtractorBase for Generic {
     }
 
     fn build_base_args(&self) -> Vec<String> {
-        let mut args = vec!["--no-progress".to_string(), "--dump-json".to_string()];
+        let mut args = vec!["--no-progress".to_string(), "--dump-single-json".to_string()];
         args.extend(self.args.clone());
         args
     }

@@ -396,7 +396,7 @@ impl ExtractorBase for Youtube {
     }
 
     fn build_base_args(&self) -> Vec<String> {
-        let mut args = vec!["--no-progress".to_string(), "--dump-json".to_string()];
+        let mut args = vec!["--no-progress".to_string(), "--dump-single-json".to_string()];
 
         // Build extractor args (must be merged into a single --extractor-args flag)
         let mut extractor_parts = Vec::new();
