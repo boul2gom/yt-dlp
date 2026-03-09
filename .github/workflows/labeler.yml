@@ -1,6 +1,9 @@
 name: "🏷️ Issue and PR Labeler"
 
 on:
+  push:
+    branches:
+      - develop
   issues:
     types: [opened, edited]
   pull_request_target:
@@ -64,6 +67,14 @@ jobs:
               pr_author = is_pr ? context.payload.pull_request.user.login : null;
             }
             const text = `${title}\n${body}`.toLowerCase();
+
+            // ═══════════════════════════════════════════════════════════
+            // 📤 Expose data for the comment step (set early so early
+            //    returns don't prevent the welcome-comment step from running)
+            // ═══════════════════════════════════════════════════════════
+            core.setOutput('is_new', context.payload.action === 'opened' ? 'true' : 'false');
+            core.setOutput('is_pr', is_pr ? 'true' : 'false');
+            core.setOutput('issue_number', String(number));
 
             // ═══════════════════════════════════════════════════════════
             // 📋 Global configuration maps
@@ -290,13 +301,6 @@ jobs:
 
             console.log(`🏷️ Applied labels: ${new_labels.join(', ')}`);
 
-            // ═══════════════════════════════════════════════════════════
-            // 📤 Expose data for the comment step
-            // ═══════════════════════════════════════════════════════════
-            core.setOutput('is_new', context.payload.action === 'opened' ? 'true' : 'false');
-            core.setOutput('is_pr', is_pr ? 'true' : 'false');
-            core.setOutput('issue_number', String(number));
-
       - name: 💬 Post welcome comment
         if: steps.labeler.outputs.is_new == 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -314,3 +318,47 @@ jobs:
               issue_number,
               body: is_pr ? pr_comment : issue_comment,
             });
+
+  fix-notifier:
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    name: "🔔 Notify fixed issues"
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+
+      - name: 🔔 Comment on fixed issues
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const pattern = /\(to solve #(\d+)\)/gi;
+            const commits = context.payload.commits || [];
+
+            for (const commit of commits) {
+              const sha = commit.id.substring(0, 7);
+              let match;
+              while ((match = pattern.exec(commit.message)) !== null) {
+                const issue_number = parseInt(match[1], 10);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  body: `Hey ! Thanks for your report. It should have been fixed in ${sha}, and will be released next week. Tell me if the issue persists !`,
+                });
+                console.log(`🔔 Commented on issue #${issue_number} with fix SHA ${sha}`);
+              }
+              pattern.lastIndex = 0;
+            }
