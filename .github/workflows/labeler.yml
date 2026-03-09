@@ -346,11 +346,13 @@ jobs:
           script: |
             const pattern = /\(to solve #(\d+)\)/gi;
             const commits = context.payload.commits || [];
+            let found_any = false;
 
             for (const commit of commits) {
               const sha = commit.id.substring(0, 7);
               let match;
               while ((match = pattern.exec(commit.message)) !== null) {
+                found_any = true;
                 const issue_number = parseInt(match[1], 10);
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
@@ -361,4 +363,8 @@ jobs:
                 console.log(`🔔 Commented on issue #${issue_number} with fix SHA ${sha}`);
               }
               pattern.lastIndex = 0;
+            }
+
+            if (!found_any) {
+              console.log("No fixed issues found to comment on.");
             }
