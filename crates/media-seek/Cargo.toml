@@ -1,7 +1,7 @@
 [package]
 name = "media-seek"
 edition = "2024"
-version = "0.2.6"
+version = "0.3.0"
 
 authors = ["boul2gom <contact@boul2gom.fr>"]
 description = "🔍 Container format index parsing and timestamp-to-byte-offset seeking for streaming media"
