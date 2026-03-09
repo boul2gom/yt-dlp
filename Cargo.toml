@@ -127,7 +127,7 @@ url = "2.5.8"
 
 # Type utilities
 ordered-float = { version = "5.1.0", features = ["serde"] }
-uuid = { version = "1.20.0", features = ["v4"] }
+uuid = { version = "1.22.0", features = ["v4"] }
 typed-builder = "0.23.2"
 downcast-rs = "2.0.2"
 dyn-clone = "1.0.20"
