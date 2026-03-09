@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   labeler:
+    if: github.event_name != 'push'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -366,5 +367,5 @@ jobs:
             }
 
             if (!found_any) {
-              console.log("No fixed issues found to comment on.");
+              console.log("🔕 No fixed issues found to comment on.");
             }
