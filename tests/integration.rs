@@ -24,6 +24,10 @@ mod cache_memory;
 #[path = "integration/cache/json.rs"]
 mod cache_json;
 
+#[cfg(feature = "cache-json")]
+#[path = "integration/cache/files.rs"]
+mod cache_files;
+
 #[cfg(feature = "cache-redb")]
 #[path = "integration/cache/redb.rs"]
 mod cache_redb;

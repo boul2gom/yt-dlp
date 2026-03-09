@@ -27,6 +27,8 @@ mod metadata;
 mod model;
 #[path = "unit/utils/network_retry.rs"]
 mod network_retry;
+#[path = "unit/download/partial.rs"]
+mod partial_range;
 #[path = "unit/utils/platform.rs"]
 mod platform;
 #[path = "unit/executor/process.rs"]

@@ -1,6 +1,7 @@
 use wiremock::matchers::{header_exists, method};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use yt_dlp::DownloadStatus;
+use yt_dlp::download::PartialRange;
 
 use crate::common::assertions::assert_file_exists;
 use crate::common::fixtures;
@@ -119,4 +120,64 @@ async fn range_request_sent_to_server() {
     // but the server should have received at least one request.
     drop(range_mock);
     assert!(status.is_some());
+}
+
+/// download_video_partial returns an error when the video has no chapters but a
+/// chapter-based PartialRange is requested.
+#[tokio::test]
+async fn download_video_partial_no_chapters_returns_error() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+
+    let mut video = helpers::load_e2e_video(&server.uri());
+    video.chapters.clear();
+
+    let range = PartialRange::chapter_range(0, 1).expect("valid range");
+    let result = downloader
+        .download_video_partial(&video, &range, "clip_no_chapters.mp4")
+        .await;
+    assert!(result.is_err(), "should fail when video has no chapters");
+}
+
+/// download_video_partial returns an error when the requested chapter index is
+/// beyond the available chapters in the video metadata.
+#[tokio::test]
+async fn download_video_partial_chapter_out_of_bounds_returns_error() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+
+    let mut video = helpers::load_e2e_video(&server.uri());
+    // Keep chapters but request a far-out-of-bounds index
+    if video.chapters.is_empty() {
+        // If the fixture has no chapters, push a dummy one so the code reaches to_time_range
+        video.chapters.push(yt_dlp::model::chapter::Chapter {
+            start_time: 0.0,
+            end_time: 10.0,
+            title: Some("Only chapter".to_string()),
+        });
+    }
+
+    let range = PartialRange::single_chapter(999);
+    let result = downloader.download_video_partial(&video, &range, "clip_oob.mp4").await;
+    assert!(result.is_err(), "should fail when chapter index is out of bounds");
+}
+
+/// download_video_partial returns an error when the video has no downloadable
+/// formats (FormatNotAvailable).
+#[tokio::test]
+async fn download_video_partial_no_formats_returns_error() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+
+    let mut video = helpers::load_e2e_video(&server.uri());
+    video.formats.clear();
+
+    let range = PartialRange::time_range(0.0, 5.0).expect("valid range");
+    let result = downloader
+        .download_video_partial(&video, &range, "clip_no_formats.mp4")
+        .await;
+    assert!(result.is_err(), "should fail when video has no formats");
 }

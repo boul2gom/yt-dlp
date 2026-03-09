@@ -556,10 +556,7 @@ impl DownloadCache {
         video_id: Option<String>,
         format: Option<&Format>,
     ) -> Result<CachedFile> {
-        let size = tokio::runtime::Handle::current()
-            .block_on(tokio::fs::metadata(source_path))
-            .map(|m| m.len() as i64)
-            .unwrap_or(0);
+        let size = std::fs::metadata(source_path).map(|m| m.len() as i64).unwrap_or(0);
 
         let mime = guess_mime(source_path).to_string();
 
