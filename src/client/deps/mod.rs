@@ -132,6 +132,7 @@ impl LibraryInstaller {
 
         let release = fetcher.fetch_release(auth_token).await?;
         release.download(path.clone()).await?;
+        fs::set_executable(path.clone()).await?;
 
         Ok(path)
     }
