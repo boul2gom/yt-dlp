@@ -202,16 +202,6 @@ impl EventFilter {
         ])
     }
 
-    /// Deprecated alias for [`EventFilter::only_live_recording`].
-    ///
-    /// This method has been renamed to [`only_live_recording`]. It is kept for
-    /// backwards compatibility and may be removed in a future major release.
-    #[deprecated(note = "renamed to `only_live_recording`; use that instead")]
-    #[cfg(feature = "live-recording")]
-    pub fn only_live() -> Self {
-        Self::only_live_recording()
-    }
-
     /// Creates a filter for live recording events matching a specific video ID.
     #[cfg(feature = "live-recording")]
     pub fn live_recording(video_id: impl Into<String>) -> Self {

@@ -9,8 +9,8 @@ use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::core::{
-    BITS_PER_BYTE, LiveCore, LiveFragment, POLL_INTERVAL_DIVISOR, PROGRESS_THROTTLE_NANOS, RecordingStats,
-    SegmentErrorMode, ZERO_F64, ZERO_U64,
+    BITS_PER_BYTE, LiveCore, LiveCoreConfig, LiveFragment, POLL_INTERVAL_DIVISOR, PROGRESS_THROTTLE_NANOS,
+    RecordingStats, SegmentErrorMode, ZERO_F64, ZERO_U64,
 };
 use super::{LiveStreamConfig, hls};
 use crate::error::Result;
@@ -45,16 +45,16 @@ impl LiveFragmentStreamer {
     /// A new [`LiveFragmentStreamer`] instance.
     pub fn new(config: LiveStreamConfig, client: Arc<reqwest::Client>) -> Self {
         Self {
-            core: LiveCore::new(
-                config.stream_url,
-                config.video_id,
-                config.quality,
-                config.max_duration,
-                config.cancellation_token,
+            core: LiveCore::new(LiveCoreConfig {
+                playlist_url: config.stream_url,
+                video_id: config.video_id,
+                quality: config.quality,
+                max_duration: config.max_duration,
+                cancellation_token: config.cancellation_token,
                 client,
-                config.event_bus,
-                None,
-            ),
+                event_bus: config.event_bus,
+                output_path: None,
+            }),
         }
     }
 

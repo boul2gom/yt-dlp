@@ -14,10 +14,11 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::{fs, time};
 
-use super::core::{
-    BITS_PER_BYTE, LiveCore, PROGRESS_THROTTLE_NANOS, RecordingStats, SegmentErrorMode, ZERO_F64, ZERO_U64,
+use super::super::core::{
+    BITS_PER_BYTE, LiveCore, LiveCoreConfig, PROGRESS_THROTTLE_NANOS, RecordingStats, SegmentErrorMode, ZERO_F64,
+    ZERO_U64,
 };
-use super::{RecordingConfig, hls};
+use super::super::{RecordingConfig, hls};
 use crate::error::{Error, Result};
 use crate::events::DownloadEvent;
 use crate::events::types::RecordingMethod;
@@ -46,16 +47,16 @@ impl LiveRecorder {
     /// * `client` - Shared HTTP client.
     pub fn new(config: RecordingConfig, client: Arc<reqwest::Client>) -> Self {
         Self {
-            core: LiveCore::new(
-                config.stream_url,
-                config.video_id,
-                config.quality,
-                config.max_duration,
-                config.cancellation_token,
+            core: LiveCore::new(LiveCoreConfig {
+                playlist_url: config.stream_url,
+                video_id: config.video_id,
+                quality: config.quality,
+                max_duration: config.max_duration,
+                cancellation_token: config.cancellation_token,
                 client,
-                config.event_bus,
-                Some(config.output_path.clone()),
-            ),
+                event_bus: config.event_bus,
+                output_path: Some(config.output_path.clone()),
+            }),
             output_path: config.output_path,
         }
     }
@@ -74,8 +75,8 @@ impl LiveRecorder {
     ///
     /// # Returns
     ///
-    /// A [`super::RecordingResult`] with recording statistics.
-    pub async fn record(&self) -> Result<super::RecordingResult> {
+    /// A [`super::super::RecordingResult`] with recording statistics.
+    pub async fn record(&self) -> Result<super::super::RecordingResult> {
         if let Some(parent) = self.output_path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -95,7 +96,7 @@ impl LiveRecorder {
             "✅ Live recording stopped"
         );
 
-        Ok(super::RecordingResult {
+        Ok(super::super::RecordingResult {
             output_path: self.output_path.clone(),
             total_bytes: stats.total_bytes,
             total_duration: stats.total_duration,
@@ -135,7 +136,8 @@ impl LiveRecorder {
             });
 
         let initial = hls::parse_media(&self.core.client, &self.core.playlist_url).await?;
-        let poll_interval = Duration::from_secs_f64(initial.target_duration / super::core::POLL_INTERVAL_DIVISOR);
+        let poll_interval =
+            Duration::from_secs_f64(initial.target_duration / super::super::core::POLL_INTERVAL_DIVISOR);
 
         for seg in &initial.segments {
             seen_sequences.insert(seg.sequence);

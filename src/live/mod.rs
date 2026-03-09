@@ -11,11 +11,9 @@
 #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 mod core;
 #[cfg(feature = "live-recording")]
-pub mod ffmpeg_recording;
+pub mod recording;
 #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub mod hls;
-#[cfg(feature = "live-recording")]
-pub mod recording;
 #[cfg(feature = "live-streaming")]
 pub mod streaming;
 
@@ -28,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(feature = "live-recording")]
-pub use ffmpeg_recording::FfmpegLiveRecorder;
+pub use recording::FfmpegLiveRecorder;
 #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub use hls::{HlsPlaylist, HlsSegment, HlsVariant};
 #[cfg(feature = "live-recording")]

@@ -55,6 +55,26 @@ pub struct LiveFragment {
     pub data: Vec<u8>,
 }
 
+/// Configuration required to construct a [`LiveCore`] instance.
+pub(super) struct LiveCoreConfig {
+    /// The URL of the HLS media playlist to poll.
+    pub(super) playlist_url: String,
+    /// The video ID (for event emission).
+    pub(super) video_id: String,
+    /// Quality label for event metadata.
+    pub(super) quality: String,
+    /// Optional maximum recording duration.
+    pub(super) max_duration: Option<Duration>,
+    /// Cancellation token for graceful stop.
+    pub(super) cancellation_token: CancellationToken,
+    /// Shared HTTP client.
+    pub(super) client: Arc<reqwest::Client>,
+    /// The event bus for emitting recording events.
+    pub(super) event_bus: EventBus,
+    /// Optional output path for recording mode.
+    pub(super) output_path: Option<PathBuf>,
+}
+
 /// Shared state and utilities for live recording/streaming.
 #[derive(Debug, Clone)]
 pub(super) struct LiveCore {
@@ -78,26 +98,21 @@ pub(super) struct LiveCore {
 }
 
 impl LiveCore {
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn new(
-        playlist_url: String,
-        video_id: String,
-        quality: String,
-        max_duration: Option<Duration>,
-        cancellation_token: CancellationToken,
-        client: Arc<reqwest::Client>,
-        event_bus: EventBus,
-        output_path: Option<PathBuf>,
-    ) -> Self {
+    /// Creates a new [`LiveCore`] from the provided configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - All shared state needed by the live recording/streaming engines.
+    pub(super) fn new(config: LiveCoreConfig) -> Self {
         Self {
-            playlist_url,
-            video_id,
-            quality,
-            max_duration,
-            cancellation_token,
-            client,
-            event_bus,
-            output_path,
+            playlist_url: config.playlist_url,
+            video_id: config.video_id,
+            quality: config.quality,
+            max_duration: config.max_duration,
+            cancellation_token: config.cancellation_token,
+            client: config.client,
+            event_bus: config.event_bus,
+            output_path: config.output_path,
         }
     }
 

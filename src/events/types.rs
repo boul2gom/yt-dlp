@@ -204,6 +204,20 @@ pub enum DownloadEvent {
         bitrate_bps: f64,
     },
 
+    /// Live recording stopped (graceful)
+    #[cfg(feature = "live-recording")]
+    LiveRecordingStopped {
+        video_id: String,
+        reason: String,
+        output_path: PathBuf,
+        total_bytes: u64,
+        total_duration: Duration,
+    },
+
+    /// Live recording failed
+    #[cfg(feature = "live-recording")]
+    LiveRecordingFailed { video_id: String, error: String },
+
     /// Live fragment streaming started
     #[cfg(feature = "live-streaming")]
     LiveStreamStarted {
@@ -234,20 +248,6 @@ pub enum DownloadEvent {
     /// Live fragment streaming failed
     #[cfg(feature = "live-streaming")]
     LiveStreamFailed { video_id: String, error: String },
-
-    /// Live recording stopped (graceful)
-    #[cfg(feature = "live-recording")]
-    LiveRecordingStopped {
-        video_id: String,
-        reason: String,
-        output_path: PathBuf,
-        total_bytes: u64,
-        total_duration: Duration,
-    },
-
-    /// Live recording failed
-    #[cfg(feature = "live-recording")]
-    LiveRecordingFailed { video_id: String, error: String },
 }
 
 /// Types of metadata that can be applied
