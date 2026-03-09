@@ -157,7 +157,7 @@ src/
 │       ├── json.rs     # JSON file (L2)
 │       ├── redb.rs     # Embedded redb (L2)
 │       └── redis.rs    # Distributed Redis (L2)
-├── live/               # Live stream recording (feature: live-recording)
+├── live/               # Live recording/streaming (features: live-recording, live-streaming)
 │   ├── hls.rs          # HLS manifest parsing via m3u8-rs
 │   ├── recording.rs    # LiveRecorder — reqwest-based HLS segment recorder (primary)
 │   └── ffmpeg_recording.rs  # FfmpegLiveRecorder — FFmpeg-based recorder (fallback)
@@ -398,6 +398,7 @@ Features in `Cargo.toml`:
 - `hooks`, `webhooks`, `statistics` — zero-dependency feature flags.
 - **Cache hierarchy**: `cache-memory` (Moka in-memory), `cache-json` (JSON files), `cache-redb` (embedded redb), `cache-redis` (distributed Redis). The `cache` cfg is emitted by `build.rs` when any of these is enabled.
 - `live-recording` — live stream recording via HLS (pulls `m3u8-rs`).
+- `live-streaming` — live fragment streaming via HLS (pulls `m3u8-rs`).
 - `rustls` — optional TLS backend.
 - `hickory-dns` — optional async DNS resolver (passes `reqwest/hickory-dns`).
 - `profiling` — optional `dhat` heap profiler.
@@ -413,7 +414,8 @@ Usage patterns:
 - `#[cfg(feature = "cache-json")]` — backend-specific module declarations and imports.
 - `#[cfg(persistent_cache)]` — guard for any persistent backend code.
 - `#[cfg(feature = "hooks")]` — module declarations, struct fields, `pub use` exports.
-- `#[cfg(feature = "live-recording")]` — live recording module, error variants, event variants, executor streaming.
+- `#[cfg(feature = "live-recording")]` — live recording module, error variants, recording events, executor streaming.
+- `#[cfg(feature = "live-streaming")]` — live streaming events and fragment streaming API.
 
 HTTP Client Configuration
 
@@ -584,17 +586,17 @@ Verification
 All edits must pass these checks:
 ```bash
 # Lint feature-complete builds (covers both yt-dlp and media-seek)
-cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings
+cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings
 
 # Check formatting (requires nightly)
 cargo +nightly fmt --all -- --check
 
 # Run all test harnesses (unit + integration + e2e + doctests)
-cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
-cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
-cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1
+cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
+cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
+cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
 cargo test --doc --workspace
 
 # Check dependencies (licenses, advisories, bans)

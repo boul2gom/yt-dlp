@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
-use super::RecordingConfig;
+use super::super::RecordingConfig;
 use crate::error::Result;
 use crate::events::DownloadEvent;
 use crate::events::types::RecordingMethod;
@@ -72,8 +72,8 @@ impl FfmpegLiveRecorder {
     ///
     /// # Returns
     ///
-    /// A [`super::RecordingResult`] with recording statistics.
-    pub async fn record(&self) -> Result<super::RecordingResult> {
+    /// A [`super::super::RecordingResult`] with recording statistics.
+    pub async fn record(&self) -> Result<super::super::RecordingResult> {
         let start = Instant::now();
 
         tracing::info!(
@@ -169,7 +169,7 @@ impl FfmpegLiveRecorder {
             total_duration,
         });
 
-        Ok(super::RecordingResult {
+        Ok(super::super::RecordingResult {
             output_path: self.output_path.clone(),
             total_bytes,
             total_duration,

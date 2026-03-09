@@ -207,7 +207,7 @@ pub enum Error {
 
     // ==================== Live Stream Errors ====================
     /// The video is not currently a live stream.
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     #[error("Video at {url} is not live (status={live_status}): {reason}")]
     LiveStreamUnavailable {
         url: String,
@@ -216,7 +216,7 @@ pub enum Error {
     },
 
     /// Failed to parse an HLS manifest.
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     #[error("HLS parsing failed for {url}: {context}")]
     HlsParsing { url: String, context: String },
 
@@ -224,6 +224,11 @@ pub enum Error {
     #[cfg(feature = "live-recording")]
     #[error("Live recording failed for {url}: {reason}")]
     LiveRecording { url: String, reason: String },
+
+    /// A live streaming operation failed.
+    #[cfg(feature = "live-streaming")]
+    #[error("Live streaming failed for {url}: {reason}")]
+    LiveStreaming { url: String, reason: String },
 
     // ==================== Metadata Errors ====================
     /// A metadata tagging operation failed.
@@ -596,7 +601,7 @@ impl Error {
     /// # Returns
     ///
     /// An Error::LiveStreamUnavailable variant with the provided details
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     pub fn live_unavailable(url: impl Into<String>, live_status: impl Into<String>, reason: impl Into<String>) -> Self {
         let url_str = url.into();
         let live_status_str = live_status.into();
@@ -626,7 +631,7 @@ impl Error {
     /// # Returns
     ///
     /// An Error::HlsParsing variant with the provided details
-    #[cfg(feature = "live-recording")]
+    #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
     pub fn hls_parsing(url: impl Into<String>, context: impl Into<String>) -> Self {
         let url_str = url.into();
         let context_str = context.into();
@@ -660,6 +665,45 @@ impl Error {
             url: url_str,
             reason: reason_str,
         }
+    }
+
+    /// Create a live streaming error.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the live stream
+    /// * `reason` - Why the streaming failed
+    ///
+    /// # Returns
+    ///
+    /// An Error::LiveStreaming variant with the provided details
+    #[cfg(feature = "live-streaming")]
+    pub fn live_streaming(url: impl Into<String>, reason: impl Into<String>) -> Self {
+        let url_str = url.into();
+        let reason_str = reason.into();
+
+        tracing::error!(url = url_str, reason = reason_str, "Live streaming failed");
+
+        Self::LiveStreaming {
+            url: url_str,
+            reason: reason_str,
+        }
+    }
+
+    /// Create an error for a failed live segment fetch.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL of the live segment
+    /// * `status` - The HTTP status code returned
+    ///
+    /// # Returns
+    ///
+    /// An Error::LiveStreaming variant with the provided details
+    #[cfg(feature = "live-streaming")]
+    pub fn live_segment_fetch_failed(url: &str, status: reqwest::StatusCode) -> Self {
+        let reason = format!("{} {}", SEGMENT_FETCH_ERROR_PREFIX, status);
+        Self::live_streaming(url, reason)
     }
 
     /// Create a metadata error with operation and path context.
@@ -850,3 +894,6 @@ impl From<zip::result::ZipError> for Error {
         }
     }
 }
+/// Error context prefix for failed segment fetches.
+#[cfg(feature = "live-streaming")]
+const SEGMENT_FETCH_ERROR_PREFIX: &str = "segment fetch returned HTTP";

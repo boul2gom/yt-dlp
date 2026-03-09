@@ -29,7 +29,7 @@ keywords = ["youtube", "downloader", "async", "yt-dlp", "youtube-dl"]
 debug = true
 
 [package.metadata.docs.rs]
-features = ["cache-memory", "cache-redb", "hooks", "webhooks", "statistics", "profiling"]
+features = ["cache-memory", "cache-redb", "hooks", "webhooks", "statistics", "profiling", "live-recording", "live-streaming"]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [package.metadata.release]
@@ -63,6 +63,8 @@ cache-redb = ["dep:redb"]
 # Redis cache backend (distributed/server). Enable with features = ["cache-redis"].
 cache-redis = ["dep:redis"]
 
+# Live fragment streaming via HLS (reqwest). Enable with features = ["live-streaming"].
+live-streaming = ["dep:m3u8-rs"]
 # Live stream recording via HLS (reqwest + ffmpeg fallback). Enable with features = ["live-recording"].
 live-recording = ["dep:m3u8-rs"]
 

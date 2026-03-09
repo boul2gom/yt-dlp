@@ -43,8 +43,8 @@ pub use async_trait;
 #[cfg(feature = "statistics")]
 pub mod stats;
 
-// Live stream recording
-#[cfg(feature = "live-recording")]
+// Live stream recording and streaming
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 pub mod live;
 
 // Convenience modules
@@ -302,7 +302,6 @@ impl Downloader {
     ///
     /// * `video` - The live stream video metadata.
     /// * `output` - The output filename for the recording.
-    ///
     /// # Examples
     ///
     /// ```rust,no_run
@@ -326,6 +325,48 @@ impl Downloader {
     #[cfg(feature = "live-recording")]
     pub fn record_live<'a>(&'a self, video: &'a Video, output: impl Into<PathBuf>) -> live::LiveRecordingBuilder<'a> {
         live::LiveRecordingBuilder::new(self, video, output)
+    }
+
+    /// Creates a live stream builder for streaming HLS fragments.
+    ///
+    /// The video must be currently live (`is_currently_live() == true`).
+    /// Only the reqwest engine is supported for fragment streaming.
+    ///
+    /// # Arguments
+    ///
+    /// * `video` - The live stream video metadata.
+    ///
+    /// # Returns
+    ///
+    /// A [`live::LiveStreamBuilder`] configured for the provided live video.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # use tokio_stream::StreamExt;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let video = downloader.fetch_video_infos("https://youtube.com/watch?v=LIVE_ID").await?;
+    ///
+    /// let mut stream = downloader.stream_live(&video)
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// while let Some(fragment) = stream.next().await {
+    ///     let fragment = fragment?;
+    ///     println!("Fragment {} bytes", fragment.data.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "live-streaming")]
+    pub fn stream_live<'a>(&'a self, video: &'a Video) -> live::LiveStreamBuilder<'a> {
+        live::LiveStreamBuilder::new(self, video)
     }
 
     /// Creates a new YouTube fetcher, and installs the yt-dlp and ffmpeg binaries.

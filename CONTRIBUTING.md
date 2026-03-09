@@ -113,7 +113,7 @@ src/
 │   └── selector.rs     #    VideoQuality, AudioQuality, StoryboardQuality enums
 ├── cache/              # 🔍 VideoCache, DownloadCache, PlaylistCache (feature-gated)
 │   └── backend/        #    Backend trait + implementations (memory/moka, json, redb, redis)
-├── live/               # 🔴 Live stream recording (feature: live-recording)
+├── live/               # 🔴 Live recording/streaming (features: live-recording, live-streaming)
 │   ├── hls.rs          #    HLS manifest parsing via m3u8-rs
 │   ├── recording.rs    #    Reqwest-based HLS segment recorder (primary)
 │   └── ffmpeg_recording.rs  # FFmpeg-based recorder (fallback)
@@ -629,6 +629,7 @@ MyNewEvent(u64, String),
 | `cache-redb` | Embedded redb backend | `redb` |
 | `cache-redis` | Distributed Redis backend | `redis` |
 | `live-recording` | Live stream recording (HLS) | `m3u8-rs` |
+| `live-streaming` | Live fragment streaming (HLS) | `m3u8-rs` |
 | `rustls` | TLS backend | `reqwest/rustls` |
 | `hickory-dns` | Async DNS resolver | `reqwest/hickory-dns` |
 | `profiling` | Heap profiler | `dhat` |
@@ -886,13 +887,13 @@ cargo test --doc --workspace
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
 - [ ] 💄 `cargo +nightly fmt --all -- --check` — properly formatted
-- [ ] 🧪 `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` — all unit tests pass
-- [ ] 🧪 `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` — all integration tests pass
-- [ ] 🧪 `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1` — all E2E tests pass
+- [ ] 🧪 `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"` — all unit tests pass
+- [ ] 🧪 `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"` — all integration tests pass
+- [ ] 🧪 `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1` — all E2E tests pass
 - [ ] 🧪 `cargo test --doc --workspace` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 🧹 `cargo machete` — no unused dependencies
