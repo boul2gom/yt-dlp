@@ -2614,7 +2614,7 @@ See [PROFILING.md](PROFILING.md) for the complete guide (flamegraph, samply, dha
 
 ## 🏎️ Performances
 
-The library fetches video metadata via `yt-dlp --dump-json`, then **downloads format streams
+The library fetches video metadata via `yt-dlp --dump-single-json`, then **downloads format streams
 directly over HTTP using parallel segments** — bypassing yt-dlp's sequential download engine.
 Run [`benches/compare.rs`](#-profiling-feature-profiling) with any public YouTube URL to
 reproduce these numbers on your own connection:

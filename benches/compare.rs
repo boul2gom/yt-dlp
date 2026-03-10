@@ -721,7 +721,11 @@ async fn main() {
     meta_spinner.set_message("📡 Fetching video metadata with yt-dlp...");
 
     let info_json_path = output_dir.join("info.json");
-    let mut dump_args = vec![args.url.clone(), "--dump-json".to_string(), "--no-playlist".to_string()];
+    let mut dump_args = vec![
+        args.url.clone(),
+        "--dump-single-json".to_string(),
+        "--no-playlist".to_string(),
+    ];
     if let Some(ref c) = args.cookies {
         dump_args.push(format!("--cookies={}", c));
     }

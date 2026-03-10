@@ -60,3 +60,7 @@ logs/
 
 # Benchmark / criterion artefacts
 criterion/
+
+# Fixtures generation artefacts
+# Original video, got from yt-dlp -f "bestvideo[height<=144]+bestaudio/best[height<=144]" "https://www.youtube.com/watch?v=gXtp6C-3JKo"
+tests/fixtures/media/original_video.webm

@@ -91,7 +91,7 @@ async fn detect_via_ytdlp(url: &str, executable_path: &Path) -> Result<String> {
     );
 
     let args = vec![
-        "--dump-json".to_string(),
+        "--dump-single-json".to_string(),
         "--simulate".to_string(),
         "--no-warnings".to_string(),
         url.to_string(),

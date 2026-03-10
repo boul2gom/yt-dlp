@@ -4,6 +4,10 @@
 //! page header encodes the decoded sample count up to that page. This module
 //! binary-searches for page boundaries corresponding to the requested timestamps
 //! by fetching ranges from the stream.
+//!
+//! Supported codecs in the identification page: Vorbis, Opus, FLAC-in-OGG.
+//! Unknown codecs (Theora video, Speex, CELT, …) produce a `ParseFailed` error
+//! with a descriptive message naming the unrecognised codec magic.
 
 use futures_util::future::try_join_all;
 
@@ -11,24 +15,33 @@ use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
+// ==================== Constants ====================
+
 /// OGG page capture pattern.
 const OGG_CAPTURE: &[u8; 4] = b"OggS";
+
 /// Minimum OGG page header size (bytes).
 const PAGE_HEADER_MIN: usize = 27;
+
 /// Opus granule positions are always in 48 kHz units regardless of input sample rate.
 const OPUS_GRANULE_RATE: u32 = 48000;
-/// Fallback sample rate for FLAC-in-OGG when extraction fails.
-const FLAC_FALLBACK_RATE: u32 = 44100;
+
 /// Number of evenly-spaced seek point probes across the stream.
 const SEEK_POINTS: u64 = 64;
+
 /// Bytes fetched per seek-point probe window.
 const PROBE_WINDOW: u64 = 8192;
+
+// ==================== Public entry point ====================
 
 /// Parses an OGG stream and returns a `ContainerIndex`.
 ///
 /// Reads the identification page from `probe` to extract the codec sample rate,
 /// then binary-searches the stream via `fetcher` to build a page-boundary index
 /// covering at most 64 evenly-spaced seek points.
+///
+/// Seek points whose byte positions fall entirely within `probe` are processed
+/// directly without issuing an extra `fetch` call.
 ///
 /// # Arguments
 ///
@@ -45,8 +58,7 @@ where
     F: RangeFetcher,
 {
     tracing::debug!(probe_len = probe.len(), total_size = ?total_size, "⚙️ Parsing OGG stream");
-    let sample_rate =
-        read_sample_rate(probe).ok_or_else(|| Error::parse("could not read OGG identification page sample rate"))?;
+    let sample_rate = read_sample_rate(probe).ok_or_else(|| Error::parse(identify_codec_error(probe)))?;
 
     let total = total_size.ok_or_else(|| Error::parse("OGG binary search requires total_size"))?;
 
@@ -69,25 +81,39 @@ where
 
     for i in 1..SEEK_POINTS {
         let byte_pos = i * total / SEEK_POINTS;
-        let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
 
-        fetch_positions.push((byte_pos, window_end));
+        if byte_pos < probe.len() as u64 {
+            // Position is already in the probe buffer — read directly without a fetch.
+            let slice = &probe[byte_pos as usize..];
+            if let Some(sync_off) = find_ogg_sync(slice)
+                && let Some((granule, _)) = read_page_granule(slice, sync_off)
+                && granule != u64::MAX
+            {
+                points.push((granule, byte_pos + sync_off as u64));
+            }
+        } else {
+            let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
+            fetch_positions.push((byte_pos, window_end));
+        }
     }
 
-    // Fetch all seek-point windows in parallel
-    let fetches = fetch_positions.iter().map(|&(start, end)| async move {
-        let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
-        Ok::<_, Error>((start, chunk))
-    });
+    // Fetch all out-of-probe seek-point windows in parallel.
+    if !fetch_positions.is_empty() {
+        tracing::debug!(fetches = fetch_positions.len(), "⚙️ OGG parallel seek-point fetches");
+        let fetches = fetch_positions.iter().map(|&(start, end)| async move {
+            let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
+            Ok::<_, Error>((start, chunk))
+        });
 
-    let results = try_join_all(fetches).await?;
+        let results = try_join_all(fetches).await?;
 
-    for (byte_pos, chunk) in results {
-        if let Some(sync_off) = find_ogg_sync(&chunk)
-            && let Some((granule, _)) = read_page_granule(&chunk, sync_off)
-            && granule != u64::MAX
-        {
-            points.push((granule, byte_pos + sync_off as u64));
+        for (byte_pos, chunk) in results {
+            if let Some(sync_off) = find_ogg_sync(&chunk)
+                && let Some((granule, _)) = read_page_granule(&chunk, sync_off)
+                && granule != u64::MAX
+            {
+                points.push((granule, byte_pos + sync_off as u64));
+            }
         }
     }
 
@@ -97,7 +123,9 @@ where
 
     // Deduplicate by granule (same time position seen from different probes),
     // then sort by byte offset for the final index.
-    points.sort_unstable_by_key(|&(granule, _)| granule);
+    // Secondary sort by offset ensures the smallest offset is kept for each unique granule
+    // when dedup_by_key drops one of two entries with matching granule but different offsets.
+    points.sort_unstable_by_key(|&(granule, off)| (granule, off));
     points.dedup_by_key(|&mut (granule, _)| granule);
     points.sort_unstable_by_key(|&(_, off)| off);
 
@@ -136,13 +164,16 @@ where
     })
 }
 
+// ==================== Internal helpers ====================
+
 /// Reads the sample rate from the OGG identification page.
 ///
-/// The first page in a Vorbis or Opus stream is the identification page.
-/// - Vorbis: magic `\x01vorbis`, sample_rate at bytes 12-15 (LE u32)
-/// - Opus: magic `OpusHead`, input_sample_rate at bytes 12-15 (LE u32, nominally 48000)
+/// Supported codecs:
+/// - Vorbis: magic `\x01vorbis`, sample_rate at bytes 12–15 (LE u32)
+/// - Opus: magic `OpusHead`, uses a fixed granule rate of 48000 Hz
+/// - FLAC-in-OGG: magic `\x7fFLAC`, sample_rate extracted from STREAMINFO
 fn read_sample_rate(data: &[u8]) -> Option<u32> {
-    // Skip the OGG page header to reach the packet data
+    // Skip the OGG page header to reach the packet data.
     let page_payload_off = page_payload_offset(data, 0)?;
     let pkt = &data[page_payload_off..];
 
@@ -153,26 +184,50 @@ fn read_sample_rate(data: &[u8]) -> Option<u32> {
     if pkt.len() >= 16 && pkt.starts_with(b"OpusHead") {
         return Some(OPUS_GRANULE_RATE);
     }
-    // FLAC-in-OGG: `\x7fFLAC` header followed by STREAMINFO
-    // OGG FLAC mapping: \x7fFLAC + version(2) + num_headers(2) + fLaC(4) + block_header(4) + STREAMINFO
-    // STREAMINFO has sample rate at bytes 10-12 (20 bits starting at bit 80)
+    // FLAC-in-OGG: `\x7fFLAC` header followed by STREAMINFO.
+    // OGG FLAC mapping: \x7fFLAC(5) + major(1) + minor(1) + num_headers(2) + fLaC(4) + block_header(4)
+    // STREAMINFO starts at offset 17; bytes 8–10 of STREAMINFO hold the sample_rate (top 20 bits).
     if pkt.starts_with(b"\x7fFLAC") && pkt.len() >= 21 {
-        // Skip: \x7fFLAC(5) + major(1) + minor(1) + num_headers(2) + fLaC(4) + block_header(4) = 17
-        // STREAMINFO starts at offset 17; sample rate is at bytes 10-12 of STREAMINFO (offset 27)
-        // But first 4 bytes of STREAMINFO are min/max block size, next 3+3 are min/max frame size
-        // Then bytes 8-11 contain: sample_rate(20 bits) + channels(3 bits) + bps(5 bits) + ...
-        let streaminfo_start = 17; // after \x7fFLAC(5) + version(2) + num_headers(2) + fLaC(4) + block_header(4)
+        let streaminfo_start = 17;
         if pkt.len() >= streaminfo_start + 12 {
             let si = &pkt[streaminfo_start..];
-            // Bytes 8-10 of STREAMINFO: sample_rate is top 20 bits of bytes[8..11]
+            // sample_rate is the top 20 bits of bytes[8..11]
             let sr = ((si[8] as u32) << 12) | ((si[9] as u32) << 4) | ((si[10] as u32) >> 4);
             if sr > 0 {
                 return Some(sr);
             }
         }
-        return Some(FLAC_FALLBACK_RATE);
+        // STREAMINFO extraction failed — return None so the caller emits a clear error.
+        // A silent 44100 Hz fallback would produce wrong seek positions for other rates.
+        return None;
     }
+
     None
+}
+
+/// Returns a descriptive error message for an unrecognised OGG codec.
+///
+/// Inspects the identification packet magic to name the codec where possible.
+fn identify_codec_error(data: &[u8]) -> &'static str {
+    let Some(off) = page_payload_offset(data, 0) else {
+        return "OGG identification page truncated or missing";
+    };
+    let pkt = &data[off..];
+
+    if pkt.starts_with(b"\x80theora") {
+        return "OGG Theora video streams cannot be seeked by sample position";
+    }
+    if pkt.starts_with(b"Speex   ") {
+        return "OGG Speex codec not supported";
+    }
+    if pkt.starts_with(b"CELT    ") {
+        return "OGG CELT codec not supported";
+    }
+    if pkt.starts_with(b"\x7fFLAC") {
+        return "OGG FLAC-in-OGG: could not extract sample rate from STREAMINFO";
+    }
+
+    "OGG identification page: unrecognised codec"
 }
 
 /// Returns the byte offset of the first page's data payload.

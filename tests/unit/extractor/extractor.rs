@@ -254,7 +254,7 @@ fn build_base_args_default() {
     let yt = Youtube::new(PathBuf::from("yt-dlp"));
     let args = yt.build_base_args();
     assert!(args.contains(&"--no-progress".to_string()));
-    assert!(args.contains(&"--dump-json".to_string()));
+    assert!(args.contains(&"--dump-single-json".to_string()));
     // No extractor-args or format preset by default
     assert!(!args.iter().any(|a| a.contains("--extractor-args")));
     assert!(!args.iter().any(|a| a == "-f"));
@@ -415,7 +415,7 @@ fn generic_build_base_args_includes_no_progress_and_dump_json() {
     let generic = Generic::new(PathBuf::from("yt-dlp"));
     let args = generic.build_base_args();
     assert!(args.contains(&"--no-progress".to_string()));
-    assert!(args.contains(&"--dump-json".to_string()));
+    assert!(args.contains(&"--dump-single-json".to_string()));
 }
 
 #[test]

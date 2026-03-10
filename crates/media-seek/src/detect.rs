@@ -23,13 +23,19 @@ const ADTS_SYNC_SECOND_BYTE_PATTERN: u8 = 0xF0;
 /// Minimum ADTS header length (no CRC).
 const ADTS_MIN_HEADER: usize = 7;
 
-/// Bitmask for MPEG audio sync + version + layer bits in the second byte.
-/// Used to detect MP3 (Layer III) sync frames without ID3.
-const MP3_SYNC_MASK: u8 = 0xE6;
+/// Bitmask for MPEG audio sync + layer bits in the second byte.
+/// Applied to the second byte of a bare-sync MPEG audio frame (after 0xFF).
+/// Isolates sync (bits 7-5) and layer (bits 2-1); ignores version and protection_absent.
+const MPEG_SYNC_LAYER_MASK: u8 = 0xE6;
 
-/// Expected pattern for MPEG-1 Layer III after masking (sync=111, version=1x, layer=01).
-/// Only Layer III (MP3) matches — Layer II (0xE4) is intentionally excluded.
-const MP3_SYNC_PATTERN_MPEG1_L3: u8 = 0xE2;
+/// Expected pattern for MPEG Layer III after masking (sync=111, layer bits=01).
+const MPEG_SYNC_PATTERN_L3: u8 = 0xE2;
+
+/// Expected pattern for MPEG Layer II after masking (sync=111, layer bits=10).
+const MPEG_SYNC_PATTERN_L2: u8 = 0xE4;
+
+/// Expected pattern for MPEG Layer I after masking (sync=111, layer bits=11).
+const MPEG_SYNC_PATTERN_L1: u8 = 0xE6;
 
 /// ISO Base Media File Format box types recognized at offset 4.
 const ISOBMFF_BOXES: &[&[u8]] = &[
@@ -122,9 +128,13 @@ pub(crate) fn detect(probe: &[u8]) -> Option<Format> {
         }
     }
 
-    // MP3 sync frame without ID3 (0xFF 0xE* with layer bits indicating Layer III only)
-    if probe.len() >= 2 && probe[0] == 0xFF && (probe[1] & MP3_SYNC_MASK) == MP3_SYNC_PATTERN_MPEG1_L3 {
-        return Some(Format::Mp3);
+    // MPEG audio bare sync (Layer I, II, or III without an ID3 header).
+    // All three layers start with 0xFF followed by sync(111)+layer bits.
+    if probe.len() >= 2 && probe[0] == 0xFF {
+        let masked = probe[1] & MPEG_SYNC_LAYER_MASK;
+        if masked == MPEG_SYNC_PATTERN_L3 || masked == MPEG_SYNC_PATTERN_L2 || masked == MPEG_SYNC_PATTERN_L1 {
+            return Some(Format::Mp3);
+        }
     }
 
     // RIFF container — discriminate WAV vs AVI via WAVE/AVI subtype at offset 8
