@@ -55,7 +55,7 @@ where
     let fps = read_fps_from_avih(probe);
 
     // Check for OpenDML indx chunk in the probe first.
-    if let Some(index) = try_parse_odml_index(probe, fps) {
+    if let Some(index) = try_parse_odml_index(probe, fps, total_size) {
         tracing::debug!(segments = ?index.inner, "✅ AVI OpenDML indx index parsed");
         return Ok(index);
     }
@@ -81,8 +81,11 @@ where
 
 /// Attempts to parse an OpenDML `indx` super-index from the probe.
 ///
+/// `total_size` is used as the last-segment byte boundary; falls back to the end of
+/// the index entries array when `None`.
+///
 /// Returns `Some(ContainerIndex)` if a usable `indx` chunk is found, `None` otherwise.
-fn try_parse_odml_index(probe: &[u8], fps: Option<f64>) -> Option<ContainerIndex> {
+fn try_parse_odml_index(probe: &[u8], fps: Option<f64>, total_size: Option<u64>) -> Option<ContainerIndex> {
     // Search for "indx" chunk inside the probe (typically inside the hdrl LIST).
     let tag = b"indx";
     let pos = probe.windows(4).position(|w| w == tag)?;
@@ -127,7 +130,8 @@ fn try_parse_odml_index(probe: &[u8], fps: Option<f64>) -> Option<ContainerIndex
         return None;
     }
 
-    let segments = keyframes_to_segments(&keyframes, fps_val, base_offset + (entries_in_use as u64 * 8));
+    let last_byte = total_size.unwrap_or(base_offset + entries_in_use as u64 * 8);
+    let segments = keyframes_to_segments(&keyframes, fps_val, last_byte);
     let init_end_byte = segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
     Some(ContainerIndex {
         init_end_byte,
@@ -288,6 +292,13 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
 
 /// Converts `(frame_index, byte_offset)` keyframe pairs to `SegmentEntry` list using `fps`.
 fn keyframes_to_segments(keyframes: &[(u64, u64)], fps: f64, last_byte: u64) -> Vec<SegmentEntry> {
+    // Pre-compute average inter-keyframe interval for the last segment's duration estimate.
+    let avg_frame_gap = if keyframes.len() >= 2 {
+        (keyframes[keyframes.len() - 1].0 - keyframes[0].0) as f64 / (keyframes.len() - 1) as f64
+    } else {
+        1.0
+    };
+
     let mut segments = Vec::with_capacity(keyframes.len());
     for i in 0..keyframes.len() {
         let (fidx, byte_offset) = keyframes[i];
@@ -297,7 +308,11 @@ fn keyframes_to_segments(keyframes: &[(u64, u64)], fps: f64, last_byte: u64) -> 
         } else {
             (fidx, last_byte)
         };
-        let end_secs = next_fidx as f64 / fps;
+        let end_secs = if i + 1 < keyframes.len() {
+            next_fidx as f64 / fps
+        } else {
+            (fidx as f64 + avg_frame_gap) / fps
+        };
         segments.push(SegmentEntry {
             start_secs,
             end_secs,

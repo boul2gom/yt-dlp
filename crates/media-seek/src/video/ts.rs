@@ -104,13 +104,20 @@ where
     points.dedup_by_key(|p| (p.0 * PCR_DEDUP_SCALE) as u64);
     points.sort_unstable_by_key(|p| p.1);
 
+    // Pre-compute average inter-point duration for the last segment's end estimate.
+    let avg_pcr_step = if points.len() >= 2 {
+        (points[points.len() - 1].0 - points[0].0) / (points.len() - 1) as f64
+    } else {
+        0.0
+    };
+
     let mut segments = Vec::with_capacity(points.len());
     for i in 0..points.len() {
         let (start_secs, byte_offset) = points[i];
         let (end_secs, next_byte) = if i + 1 < points.len() {
             points[i + 1]
         } else {
-            (start_secs, total)
+            (start_secs + avg_pcr_step, total)
         };
         segments.push(SegmentEntry {
             start_secs,

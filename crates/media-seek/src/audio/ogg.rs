@@ -186,6 +186,9 @@ fn read_sample_rate(data: &[u8]) -> Option<u32> {
 
     if pkt.len() >= 16 && pkt.starts_with(b"\x01vorbis") {
         let sr = u32::from_le_bytes(pkt[12..16].try_into().ok()?);
+        if sr == 0 {
+            return None;
+        }
         return Some(sr);
     }
     if pkt.len() >= 16 && pkt.starts_with(b"OpusHead") {

@@ -104,7 +104,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
             keyframes = fallback_keyframes.len(),
             "⚙️ FLV onMetaData absent, building index from video keyframes"
         );
-        let segments = build_fallback_segments(&fallback_keyframes);
+        let segments = build_fallback_segments(&fallback_keyframes, probe.len() as u64);
         tracing::debug!(segments = segments.len(), "✅ FLV index parsed (video-tag fallback)");
         let init_end_byte = segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
         return Ok(ContainerIndex {
@@ -124,7 +124,10 @@ fn u24_be(b: &[u8]) -> u32 {
 }
 
 /// Builds a coarse segment list from raw video keyframe `(timestamp_ms, byte_offset)` pairs.
-fn build_fallback_segments(keyframes: &[(u32, u64)]) -> Vec<SegmentEntry> {
+///
+/// `file_end` is the best-known upper bound for the last segment's extent (typically
+/// `probe.len()` or the total file size when available).
+fn build_fallback_segments(keyframes: &[(u32, u64)], file_end: u64) -> Vec<SegmentEntry> {
     let mut segments = Vec::with_capacity(keyframes.len());
     for i in 0..keyframes.len() {
         let (ts_ms, byte_offset) = keyframes[i];
@@ -134,9 +137,9 @@ fn build_fallback_segments(keyframes: &[(u32, u64)]) -> Vec<SegmentEntry> {
             (next_ms as f64 / 1000.0, next_off)
         } else if i > 0 {
             let avg_interval = (ts_ms - keyframes[0].0) as f64 / 1000.0 / i as f64;
-            (start_secs + avg_interval, byte_offset)
+            (start_secs + avg_interval, file_end)
         } else {
-            (start_secs, byte_offset)
+            (start_secs, file_end)
         };
         let byte_size = next_byte.saturating_sub(byte_offset);
         segments.push(SegmentEntry {

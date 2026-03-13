@@ -141,7 +141,7 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
                         },
                     });
                 };
-                (last_sample, byte_offset)
+                (last_sample, total_size.unwrap_or(byte_offset))
             };
             let end_secs = next_sample as f64 / sample_rate as f64;
             let byte_size = next_off.saturating_sub(byte_offset);
