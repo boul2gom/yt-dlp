@@ -444,6 +444,11 @@ jobs:
                 continue;
               }
 
+              if (message.includes('Update crate version dropdown in bug report [skip ci]')) {
+                console.log(`Skipping version dropdown update commit: ${message}`);
+                continue;
+              }
+
               // Use local git command instead of API to avoid rate limiting and speed up process
               try {
                 const execSync = require('child_process').execSync;

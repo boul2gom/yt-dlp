@@ -56,14 +56,29 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: dropdown
     id: crate_version
     attributes:
       label: 📦 Crate version
       description: Which version of the `yt-dlp` crate are you using?
-      placeholder: "2.0.1"
+      options:
+        - 2.5.0 (latest)
+        - 2.4.0
+        - 2.3.0
+        - 2.1.0
+        - 1.4.12
+        - Other
     validations:
       required: true
+
+  - type: input
+    id: crate_version_other
+    attributes:
+      label: 📦 Crate version (if "Other")
+      description: If you selected "Other" above, please specify the exact version you are using.
+      placeholder: "1.0.0"
+    validations:
+      required: false
 
   - type: dropdown
     id: os

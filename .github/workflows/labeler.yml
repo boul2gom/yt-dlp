@@ -76,6 +76,7 @@ jobs:
             core.setOutput('is_new', context.payload.action === 'opened' ? 'true' : 'false');
             core.setOutput('is_pr', is_pr ? 'true' : 'false');
             core.setOutput('issue_number', String(number));
+            core.setOutput('labels_applied', 'false');
 
             // ═══════════════════════════════════════════════════════════
             // 📋 Global configuration maps
@@ -300,6 +301,7 @@ jobs:
               labels: new_labels,
             });
 
+            core.setOutput('labels_applied', 'true');
             console.log(`🏷️ Applied labels: ${new_labels.join(', ')}`);
 
       - name: 💬 Post welcome comment
@@ -310,14 +312,26 @@ jobs:
           script: |
             const is_pr = ${{ steps.labeler.outputs.is_pr }};
             const issue_number = ${{ steps.labeler.outputs.issue_number }};
-            const pr_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this pull request.\nYour pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!`;
-            const issue_comment = `Hi there! 👋\nI have automatically applied some labels to categorize this issue.\nYour issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!`;
+            const labels_applied = '${{ steps.labeler.outputs.labels_applied }}' === 'true';
+
+            const GREETING = 'Hi there! 👋';
+            const LABELS_SENTENCE = is_pr
+              ? 'I have automatically applied some labels to categorize this pull request.'
+              : 'I have automatically applied some labels to categorize this issue.';
+            const CLOSING = is_pr
+              ? 'Your pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!'
+              : 'Your issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!';
+
+            const parts = [GREETING];
+            if (labels_applied) parts.push(LABELS_SENTENCE);
+            parts.push(CLOSING);
+            const body = parts.join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number,
-              body: is_pr ? pr_comment : issue_comment,
+              body,
             });
 
   fix-notifier:
