@@ -172,9 +172,13 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
 
     // Walk top-level elements inside Segment until we've found SeekHead and Info.
     while pos + 1 < segment_end {
-        let Some((elem_id, id_len)) = read_elem_id(data, pos) else { break };
+        let Some((elem_id, id_len)) = read_elem_id(data, pos) else {
+            break;
+        };
         pos += id_len;
-        let Some((elem_size, sz_len)) = read_vint(data, pos) else { break };
+        let Some((elem_size, sz_len)) = read_vint(data, pos) else {
+            break;
+        };
         pos += sz_len;
 
         // Guard against unknown-size child elements: treat as extending to segment end.
@@ -215,10 +219,7 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
         {
             let abs_pos = search_start + rel;
             cues_offset = Some((abs_pos as u64).saturating_sub(segment_data_start));
-            tracing::debug!(
-                cues_abs = abs_pos,
-                "⚙️ WebM Cues found by probe scan (no SeekHead)"
-            );
+            tracing::debug!(cues_abs = abs_pos, "⚙️ WebM Cues found by probe scan (no SeekHead)");
         }
     }
 

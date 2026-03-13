@@ -58,9 +58,7 @@ where
     // audio-only or unusual streams where PAT/PMT may not be in the probe.
     let pcr_pid = find_pcr_pid(probe)
         .or_else(|| find_any_pcr_pid(probe))
-        .ok_or_else(|| {
-            Error::index_not_found("no PCR PID found in TS probe (audio-only or PAT/PMT absent)")
-        })?;
+        .ok_or_else(|| Error::index_not_found("no PCR PID found in TS probe (audio-only or PAT/PMT absent)"))?;
 
     // Build coarse seek index: sample SEEK_POINTS equidistant byte positions.
     // Phase 1: synchronously handle positions that fall within the probe buffer.

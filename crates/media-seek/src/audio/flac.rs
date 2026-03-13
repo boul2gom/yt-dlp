@@ -166,9 +166,7 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
     } else {
         0.0
     };
-    let audio_bytes = total_size
-        .unwrap_or(probe.len() as u64)
-        .saturating_sub(audio_start) as f64;
+    let audio_bytes = total_size.unwrap_or(probe.len() as u64).saturating_sub(audio_start) as f64;
     let byte_rate = if total_secs > 0.0 {
         audio_bytes / total_secs
     } else {

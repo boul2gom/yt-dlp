@@ -73,8 +73,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     while pos + TAG_HEADER_SIZE <= probe.len() {
         let tag_type = probe[pos];
         let data_size = u24_be(&probe[pos + 1..pos + 4]) as usize;
-        let timestamp_ms = u24_be(&probe[pos + 4..pos + 7])
-            | ((probe[pos + 7] as u32) << 24);
+        let timestamp_ms = u24_be(&probe[pos + 4..pos + 7]) | ((probe[pos + 7] as u32) << 24);
         let tag_data_start = pos + TAG_HEADER_SIZE;
         let tag_end = tag_data_start + data_size;
         if tag_end > probe.len() {
@@ -255,7 +254,9 @@ fn extract_keyframes(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f64>)> 
             positions = Some(fp);
         } else {
             // Unknown AMF0 type stops scanning gracefully rather than failing.
-            let Ok((_, consumed)) = skip_amf_value(data, pos) else { break };
+            let Ok((_, consumed)) = skip_amf_value(data, pos) else {
+                break;
+            };
             pos += consumed;
         }
 
@@ -320,7 +321,9 @@ fn parse_keyframes_object(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f6
             }
         } else {
             // Unknown AMF0 type stops scanning gracefully rather than failing.
-            let Ok((_, consumed)) = skip_amf_value(data, pos) else { break };
+            let Ok((_, consumed)) = skip_amf_value(data, pos) else {
+                break;
+            };
             pos += consumed;
         }
     }

@@ -67,9 +67,7 @@ where
         .map_err(Error::fetch)?;
 
     let idx1 = find_idx1(&tail).ok_or_else(|| {
-        Error::index_not_found(
-            "idx1 chunk not found in AVI tail (OpenDML/AVI 2.0 or truncated file)",
-        )
+        Error::index_not_found("idx1 chunk not found in AVI tail (OpenDML/AVI 2.0 or truncated file)")
     })?;
 
     let result = parse_idx1(idx1, fps, tail_start, probe);
@@ -259,9 +257,7 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
         );
         (audio_keyframes, true)
     } else {
-        return Err(Error::index_not_found(
-            "idx1 contains no video or audio keyframes",
-        ));
+        return Err(Error::index_not_found("idx1 contains no video or audio keyframes"));
     };
 
     let fps_val = if is_audio_only {

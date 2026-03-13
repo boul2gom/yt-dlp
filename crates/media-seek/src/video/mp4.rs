@@ -167,11 +167,7 @@ pub(crate) async fn parse<F: RangeFetcher>(
             let fetch_start = probe.len() as u64;
             if fetch_start < total {
                 let fetch_end = (fetch_start + SIDX_FETCH_WINDOW - 1).min(total - 1);
-                tracing::debug!(
-                    fetch_start,
-                    fetch_end,
-                    "⚙️ No SIDX/moov in probe, fetching next window"
-                );
+                tracing::debug!(fetch_start, fetch_end, "⚙️ No SIDX/moov in probe, fetching next window");
                 match fetcher.fetch(fetch_start, fetch_end).await {
                     Ok(extra) => {
                         let sidx_list2 = find_all_sidx(&extra);
@@ -180,10 +176,7 @@ pub(crate) async fn parse<F: RangeFetcher>(
                             if let Ok(ref idx) = result
                                 && let Inner::Segments(ref segs) = idx.inner
                             {
-                                tracing::debug!(
-                                    segments = segs.len(),
-                                    "✅ fMP4 SIDX index parsed (fetched)"
-                                );
+                                tracing::debug!(segments = segs.len(), "✅ fMP4 SIDX index parsed (fetched)");
                             }
                             return result;
                         }
@@ -303,7 +296,10 @@ fn parse_all_sidx(sidx_list: &[(&[u8], usize)], base_offset: u64) -> Result<Cont
     // Sort by byte_offset to handle non-ordered SIDX boxes.
     all_segments.sort_unstable_by_key(|s| s.byte_offset);
 
-    let init_end_byte = all_segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
+    let init_end_byte = all_segments
+        .first()
+        .map(|s| s.byte_offset.saturating_sub(1))
+        .unwrap_or(0);
 
     Ok(ContainerIndex {
         init_end_byte,
