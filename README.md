@@ -85,7 +85,7 @@ Using an external program is not ideal, but it is the most reliable and maintain
 Add the following to your `Cargo.toml` file:
 ```toml
 [dependencies]
-yt-dlp = "2.5.0"
+yt-dlp = "2.6.0"
 ```
 
 A new release is automatically published every two weeks, to keep up to date with dependencies and features.
@@ -131,31 +131,31 @@ backend for a tiered L1 + L2 setup.
 **Default (in-memory Moka)** — no persistence, TTL-based eviction, useful for short-lived processes:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["cache-memory"] }
+yt-dlp = { version = "2.6.0", features = ["cache-memory"] }
 ```
 
 **JSON** — persistent, file-system backed, no extra dependencies:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["cache-json"] }
+yt-dlp = { version = "2.6.0", features = ["cache-json"] }
 ```
 
 **Redb** — embedded, single-file, ACID-compliant, great for desktop/server apps:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["cache-redb"] }
+yt-dlp = { version = "2.6.0", features = ["cache-redb"] }
 ```
 
 **Redis** — distributed, ideal for multi-node or cloud deployments:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["cache-redis"] }
+yt-dlp = { version = "2.6.0", features = ["cache-redis"] }
 ```
 
 **Tiered (Moka L1 + persistent L2)** — best of both worlds:
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["cache-memory", "cache-redb"] }
+yt-dlp = { version = "2.6.0", features = ["cache-memory", "cache-redb"] }
 ```
 
 #### CDN URL expiry and cache invalidation
@@ -1591,7 +1591,7 @@ Register async functions to be called when events occur:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["hooks"] }
+yt-dlp = { version = "2.6.0", features = ["hooks"] }
 ```
 
 - 🎣 Registering a hook for download events:
@@ -1689,7 +1689,7 @@ Send events to external HTTP endpoints with automatic retry:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["webhooks"] }
+yt-dlp = { version = "2.6.0", features = ["webhooks"] }
 ```
 
 - 📡 Registering a webhook:
@@ -1850,7 +1850,7 @@ Enable real-time, aggregate metrics with zero manual bookkeeping:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["statistics"] }
+yt-dlp = { version = "2.6.0", features = ["statistics"] }
 ```
 
 The [`StatisticsTracker`](https://docs.rs/yt-dlp/latest/yt_dlp/stats/struct.StatisticsTracker.html) subscribes to the internal event bus in a background task and continuously updates running counters. Call `snapshot()` at any time to obtain an atomic view of all metrics:
@@ -2151,7 +2151,7 @@ Enable the feature in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.5.0", features = ["live-recording"] }
+yt-dlp = { version = "2.6.0", features = ["live-recording"] }
 ```
 
 #### 📥 Basic live recording (reqwest engine)
@@ -2225,7 +2225,7 @@ Enable the feature in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-yt-dlp = { version = "2.4.0", features = ["live-streaming"] }
+yt-dlp = { version = "2.6.0", features = ["live-streaming"] }
 ```
 
 ```rust,ignore
