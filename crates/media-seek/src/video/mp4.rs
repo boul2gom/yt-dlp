@@ -13,10 +13,14 @@
 //!   (`stsc`), and keyframe sample indices (`stss`). Segments are produced at
 //!   keyframe boundaries for video tracks, or at chunk boundaries for audio tracks.
 
+use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
 // ==================== fMP4 / SIDX constants ====================
+
+/// Size of the initial fetch window when searching for SIDX beyond the probe (512 KB).
+const SIDX_FETCH_WINDOW: u64 = 524_288;
 
 // ==================== Classic MP4 / moov constants ====================
 
@@ -119,30 +123,78 @@ struct MoovTables {
 
 /// Parses an MP4/M4A/ISO BMFF stream and returns a [`ContainerIndex`].
 ///
-/// First checks for an fMP4 SIDX box; if not found, falls back to classic
-/// moov-based parsing (ISO 14496-12 `moov → trak → stbl` traversal).
+/// First checks for fMP4 SIDX boxes (collecting all chained SIDX boxes); if none
+/// are found in the probe, attempts to fetch a window beyond the probe to locate
+/// SIDX. Falls back to classic moov-based parsing when no SIDX is found.
 ///
 /// # Arguments
 ///
 /// * `probe` - Leading bytes of the MP4/M4A stream (512 KB recommended).
+/// * `total_size` - Total stream size in bytes (used for out-of-probe SIDX fetch).
+/// * `fetcher` - Provides additional byte ranges when SIDX lies beyond the probe.
 ///
 /// # Errors
 ///
 /// - [`Error::ParseFailed`] when the SIDX or moov box is present but malformed.
-/// - [`Error::IndexNotFound`] when neither a SIDX box nor a `moov` box is found
-///   in the probe (the probe may be too small, or the file is not a valid MP4).
-pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
+/// - [`Error::IndexNotFound`] when neither a SIDX box nor a `moov` box is found.
+/// - [`Error::FetchFailed`] when a required extra Range request fails.
+pub(crate) async fn parse<F: RangeFetcher>(
+    probe: &[u8],
+    total_size: Option<u64>,
+    fetcher: &F,
+) -> Result<ContainerIndex> {
     tracing::debug!(probe_len = probe.len(), "⚙️ Parsing MP4/ISOBMFF stream");
 
-    // Fast path: fMP4 with SIDX box.
-    if let Some((sidx, sidx_end)) = find_sidx_with_end(probe) {
-        let result = parse_sidx(sidx, sidx_end);
+    // Fast path: collect all SIDX boxes from the probe.
+    let sidx_list = find_all_sidx(probe);
+    if !sidx_list.is_empty() {
+        let result = parse_all_sidx(&sidx_list, 0);
         if let Ok(ref idx) = result
             && let Inner::Segments(ref segs) = idx.inner
         {
-            tracing::debug!(segments = segs.len(), "✅ fMP4 SIDX index parsed");
+            tracing::debug!(
+                sidx_count = sidx_list.len(),
+                segments = segs.len(),
+                "✅ fMP4 SIDX index parsed"
+            );
         }
         return result;
+    }
+
+    // If the probe has no moov either, try fetching beyond the probe for SIDX.
+    if find_box(probe, b"moov").is_none() {
+        if let Some(total) = total_size {
+            let fetch_start = probe.len() as u64;
+            if fetch_start < total {
+                let fetch_end = (fetch_start + SIDX_FETCH_WINDOW - 1).min(total - 1);
+                tracing::debug!(
+                    fetch_start,
+                    fetch_end,
+                    "⚙️ No SIDX/moov in probe, fetching next window"
+                );
+                match fetcher.fetch(fetch_start, fetch_end).await {
+                    Ok(extra) => {
+                        let sidx_list2 = find_all_sidx(&extra);
+                        if !sidx_list2.is_empty() {
+                            let result = parse_all_sidx(&sidx_list2, fetch_start);
+                            if let Ok(ref idx) = result
+                                && let Inner::Segments(ref segs) = idx.inner
+                            {
+                                tracing::debug!(
+                                    segments = segs.len(),
+                                    "✅ fMP4 SIDX index parsed (fetched)"
+                                );
+                            }
+                            return result;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(err = %e, "⚙️ fetch beyond probe failed, falling through");
+                    }
+                }
+            }
+        }
+        return Err(Error::index_not_found("no SIDX or moov box found in probe"));
     }
 
     // Classic MP4: locate the moov box.
@@ -196,15 +248,70 @@ fn find_box<'a>(data: &'a [u8], box_type: &[u8; 4]) -> Option<(&'a [u8], usize)>
 
 // ==================== fMP4 / SIDX parsing ====================
 
-/// Locates the `sidx` box within `data` in a single traversal.
+/// Collects all `sidx` boxes from `data` in a single linear traversal.
 ///
-/// Returns `(body, sidx_end)` where `body` is the box payload (after the header)
+/// Returns a list of `(body, sidx_end)` pairs where `body` is the box payload
 /// and `sidx_end` is the byte position immediately after the box in `data`.
-fn find_sidx_with_end(data: &[u8]) -> Option<(&[u8], usize)> {
-    find_box(data, b"sidx")
+fn find_all_sidx(data: &[u8]) -> Vec<(&[u8], usize)> {
+    let mut result = Vec::new();
+    let mut pos = 0usize;
+    while pos + 8 <= data.len() {
+        let size32 = u32::from_be_bytes(match data[pos..pos + 4].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        }) as usize;
+
+        let (header_len, box_size) = if size32 == 1 {
+            if pos + 16 > data.len() {
+                break;
+            }
+            let extended = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().unwrap()) as usize;
+            (16, extended)
+        } else if size32 == 0 {
+            (8, data.len() - pos)
+        } else if size32 < 8 {
+            break;
+        } else {
+            (8, size32)
+        };
+
+        if pos + 4 + 4 <= data.len() && &data[pos + 4..pos + 8] == b"sidx" {
+            let end = (pos + box_size).min(data.len());
+            result.push((&data[pos + header_len..end], pos + box_size));
+        }
+        pos += box_size;
+    }
+    result
 }
 
-/// Parses a SIDX box payload and returns a `ContainerIndex`.
+/// Parses all SIDX boxes in `sidx_list` where byte offsets in `data` are relative
+/// to `base_offset` within the stream.
+fn parse_all_sidx(sidx_list: &[(&[u8], usize)], base_offset: u64) -> Result<ContainerIndex> {
+    let mut all_segments: Vec<SegmentEntry> = Vec::new();
+
+    for &(sidx, sidx_end_in_data) in sidx_list {
+        let sidx_end_in_stream = base_offset + sidx_end_in_data as u64;
+        let mut segs = parse_sidx(sidx, sidx_end_in_stream as usize)?;
+        // Adjust byte_offset to be stream-absolute (parse_sidx already uses sidx_end_in_stream).
+        all_segments.append(&mut segs);
+    }
+
+    if all_segments.is_empty() {
+        return Err(Error::parse("all SIDX boxes were empty"));
+    }
+
+    // Sort by byte_offset to handle non-ordered SIDX boxes.
+    all_segments.sort_unstable_by_key(|s| s.byte_offset);
+
+    let init_end_byte = all_segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
+
+    Ok(ContainerIndex {
+        init_end_byte,
+        inner: Inner::Segments(all_segments),
+    })
+}
+
+/// Parses a SIDX box payload and returns a `Vec<SegmentEntry>`.
 ///
 /// SIDX layout (ISO 14496-12 §8.16.3):
 ///   - 1 byte  version
@@ -216,7 +323,11 @@ fn find_sidx_with_end(data: &[u8]) -> Option<(&[u8], usize)> {
 ///   - 2 bytes reserved
 ///   - 2 bytes reference_count
 ///   - reference_count × 12 bytes entries
-fn parse_sidx(sidx: &[u8], sidx_end_in_probe: usize) -> Result<ContainerIndex> {
+///
+/// `sidx_end_in_stream` is the absolute stream byte offset immediately after this
+/// SIDX box; `first_offset` in the SIDX header is added to it to compute the first
+/// referenced fragment's byte offset.
+fn parse_sidx(sidx: &[u8], sidx_end_in_stream: usize) -> Result<Vec<SegmentEntry>> {
     if sidx.len() < 12 {
         return Err(Error::parse("SIDX box too short for header"));
     }
@@ -259,7 +370,7 @@ fn parse_sidx(sidx: &[u8], sidx_end_in_probe: usize) -> Result<ContainerIndex> {
 
     let mut segments = Vec::with_capacity(ref_count);
     let mut current_pts = earliest_pts as f64;
-    let mut current_byte = sidx_end_in_probe as u64 + first_offset;
+    let mut current_byte = sidx_end_in_stream as u64 + first_offset;
 
     for i in 0..ref_count {
         let off = entries_start + i * 12;
@@ -281,12 +392,7 @@ fn parse_sidx(sidx: &[u8], sidx_end_in_probe: usize) -> Result<ContainerIndex> {
         current_byte += ref_size;
     }
 
-    let init_end_byte = segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
-
-    Ok(ContainerIndex {
-        init_end_byte,
-        inner: Inner::Segments(segments),
-    })
+    Ok(segments)
 }
 
 // ==================== Classic MP4 / moov parsing ====================

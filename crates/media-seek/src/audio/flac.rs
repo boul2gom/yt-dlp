@@ -27,12 +27,14 @@ const FALLBACK_BYTE_RATE: f64 = 128_000.0 / 8.0;
 /// # Arguments
 ///
 /// * `probe` - Leading bytes of the FLAC stream.
+/// * `total_size` - Total stream size in bytes, used to compute the linear byte rate
+///   when no SEEKTABLE is present and the file is larger than the probe.
 ///
 /// # Errors
 ///
 /// Returns `Error::ParseFailed` when the stream does not start with the FLAC marker
 /// or the STREAMINFO block is malformed.
-pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
+pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIndex> {
     tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLAC stream");
     if !probe.starts_with(FLAC_MARKER) {
         return Err(Error::parse("missing fLaC marker"));
@@ -56,7 +58,13 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
 
         let block_end = pos + block_len;
         if block_end > probe.len() {
-            break; // Truncated block — stop here
+            // Truncated block body — record audio_start if this is the last block,
+            // then advance pos so the loop exits on the next header check.
+            if is_last {
+                audio_start = block_end as u64;
+            }
+            pos = block_end; // exceeds probe.len(); loop exits on next iteration
+            continue;
         }
 
         match block_type {
@@ -116,9 +124,11 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
                 let last_sample = if total_samples > 0 {
                     total_samples
                 } else if i > 0 {
-                    // Estimate: extend by the same interval as the previous seek point gap
+                    // Estimate: extend by the same interval as the previous seek point gap.
+                    // Use saturating arithmetic to guard against non-monotonic SEEKTABLE entries.
                     let prev_sample = points[i - 1].0;
-                    sample_num + (sample_num - prev_sample)
+                    let gap = sample_num.saturating_sub(prev_sample);
+                    sample_num.saturating_add(gap)
                 } else {
                     // Single seek point with unknown total: cannot estimate duration reliably.
                     // Fall back to a linear index using the fallback byte rate.
@@ -150,15 +160,17 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
     }
 
     // No SEEKTABLE — fall back to linear (FLAC is lossless CBR for a given encoding; this is
-    // an approximation based on the STREAMINFO total_samples and the stream size in the probe)
+    // an approximation based on the STREAMINFO total_samples and the actual file size when known).
     let total_secs = if total_samples > 0 {
         total_samples as f64 / sample_rate as f64
     } else {
         0.0
     };
-    let probe_audio_bytes = (probe.len() as u64).saturating_sub(audio_start) as f64;
+    let audio_bytes = total_size
+        .unwrap_or(probe.len() as u64)
+        .saturating_sub(audio_start) as f64;
     let byte_rate = if total_secs > 0.0 {
-        probe_audio_bytes / total_secs
+        audio_bytes / total_secs
     } else {
         FALLBACK_BYTE_RATE
     };

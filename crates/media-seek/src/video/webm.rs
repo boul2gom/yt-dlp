@@ -14,6 +14,27 @@ const NS_PER_SEC: f64 = 1_000_000_000.0;
 /// Initial fetch size for Cues element when beyond the probe (256 KB).
 const INITIAL_CUES_FETCH: u64 = 262_144;
 
+/// EBML unknown-size sentinel for each VINT width (width 1..=8).
+///
+/// A VINT whose all data bits are 1 signals "unknown size" per the EBML spec.
+/// For width W the sentinel value (after stripping the leading marker bit) is
+/// `(1 << (7 * W)) - 1`. We only need width 8 in practice (Segment element).
+const VINT_UNKNOWN: [u64; 8] = [
+    0x7F,
+    0x3FFF,
+    0x1F_FFFF,
+    0x0FFF_FFFF,
+    0x07_FFFF_FFFF,
+    0x03FF_FFFF_FFFF,
+    0x01_FFFF_FFFF_FFFF,
+    0x00FF_FFFF_FFFF_FFFF,
+];
+
+/// Returns `true` when `(value, width)` represents an EBML unknown-size sentinel.
+fn is_vint_unknown(value: u64, width: usize) -> bool {
+    (1..=8).contains(&width) && value == VINT_UNKNOWN[width - 1]
+}
+
 // EBML element IDs of interest
 const ID_EBML: u32 = 0x1A45_DFA3;
 const ID_SEGMENT: u32 = 0x1853_8067;
@@ -33,6 +54,8 @@ const ID_CUE_CLUSTER_POSITION: u32 = 0xF1;
 /// Reads a variable-length EBML integer (VINT) from `data[pos..]`.
 ///
 /// Returns `(value, bytes_consumed)` or `None` if the data is too short.
+/// The caller can use [`is_vint_unknown`] with `(value, bytes_consumed)` to detect
+/// the "unknown size" sentinel.
 fn read_vint(data: &[u8], pos: usize) -> Option<(u64, usize)> {
     if pos >= data.len() {
         return None;
@@ -105,6 +128,10 @@ struct Locations {
 }
 
 /// Locates the Segment element and parses its SeekHead and Info.
+///
+/// Handles the EBML "unknown size" sentinel for the Segment element (common in
+/// streaming WebM) and falls back to a linear probe scan for the Cues element
+/// when no SeekHead is present or SeekHead does not reference Cues.
 fn locate_segment(data: &[u8]) -> Option<Locations> {
     let mut pos = 0usize;
 
@@ -126,8 +153,16 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
         return None;
     }
     pos += seg_id_len;
-    let (_, seg_sz_len) = read_vint(data, pos)?;
+    let (seg_size, seg_sz_len) = read_vint(data, pos)?;
     pos += seg_sz_len;
+
+    // Determine how far the segment body extends in the probe.
+    // If the size is an EBML unknown-size sentinel, the segment runs to the end of the buffer.
+    let segment_end = if is_vint_unknown(seg_size, seg_sz_len) {
+        data.len()
+    } else {
+        (pos + seg_size as usize).min(data.len())
+    };
 
     let segment_data_start = pos as u64;
 
@@ -135,27 +170,55 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
     let mut timestamp_scale_ns: u64 = DEFAULT_TIMESTAMP_SCALE_NS;
     let mut duration_scaled: Option<f64> = None;
 
-    // Walk top-level elements inside Segment until we've found SeekHead and Info
-    while pos + 1 < data.len() {
-        let (elem_id, id_len) = read_elem_id(data, pos)?;
+    // Walk top-level elements inside Segment until we've found SeekHead and Info.
+    while pos + 1 < segment_end {
+        let Some((elem_id, id_len)) = read_elem_id(data, pos) else { break };
         pos += id_len;
-        let (elem_size, sz_len) = read_vint(data, pos)?;
+        let Some((elem_size, sz_len)) = read_vint(data, pos) else { break };
         pos += sz_len;
-        let end = (pos + elem_size as usize).min(data.len());
+
+        // Guard against unknown-size child elements: treat as extending to segment end.
+        let elem_body_end = if is_vint_unknown(elem_size, sz_len) {
+            segment_end
+        } else {
+            (pos + elem_size as usize).min(segment_end)
+        };
 
         match elem_id {
             ID_SEEK_HEAD => {
-                cues_offset = parse_seek_head(&data[pos..end]);
+                cues_offset = parse_seek_head(&data[pos..elem_body_end]);
             }
             ID_INFO => {
-                parse_info(&data[pos..end], &mut timestamp_scale_ns, &mut duration_scaled);
+                parse_info(&data[pos..elem_body_end], &mut timestamp_scale_ns, &mut duration_scaled);
             }
             _ => {}
         }
 
-        pos = end;
+        pos = elem_body_end;
         if cues_offset.is_some() && duration_scaled.is_some() {
             break;
+        }
+    }
+
+    // Fallback: if no Cues reference was found in SeekHead, scan the probe linearly
+    // for the Cues element ID. This handles WebM files without a SeekHead.
+    if cues_offset.is_none() {
+        let cues_id_bytes: [u8; 4] = [
+            ((ID_CUES >> 24) & 0xFF) as u8,
+            ((ID_CUES >> 16) & 0xFF) as u8,
+            ((ID_CUES >> 8) & 0xFF) as u8,
+            (ID_CUES & 0xFF) as u8,
+        ];
+        let search_start = segment_data_start as usize;
+        if search_start < data.len()
+            && let Some(rel) = data[search_start..].windows(4).position(|w| w == cues_id_bytes)
+        {
+            let abs_pos = search_start + rel;
+            cues_offset = Some((abs_pos as u64).saturating_sub(segment_data_start));
+            tracing::debug!(
+                cues_abs = abs_pos,
+                "⚙️ WebM Cues found by probe scan (no SeekHead)"
+            );
         }
     }
 
@@ -367,7 +430,7 @@ where
 
     let cues_offset = loc
         .cues_offset
-        .ok_or_else(|| Error::parse("no Cues element found in SeekHead"))?;
+        .ok_or_else(|| Error::parse("Cues element not found in SeekHead or probe scan"))?;
 
     // Absolute byte position of the Cues element
     let cues_abs = loc.segment_data_start + cues_offset;

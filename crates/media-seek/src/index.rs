@@ -50,6 +50,20 @@ pub struct ContainerIndex {
     pub(crate) inner: Inner,
 }
 
+/// Converts a finite non-negative `f64` to `u64` using floor, clamping to avoid overflow.
+///
+/// Returns `u64::MAX / 2` for non-finite or negative values.
+fn f64_floor_to_u64(v: f64) -> u64 {
+    if v.is_finite() && v >= 0.0 { v.floor() as u64 } else { u64::MAX / 2 }
+}
+
+/// Converts a finite non-negative `f64` to `u64` using ceil, clamping to avoid overflow.
+///
+/// Returns `u64::MAX / 2` for non-finite or negative values.
+fn f64_ceil_to_u64(v: f64) -> u64 {
+    if v.is_finite() && v >= 0.0 { v.ceil() as u64 } else { u64::MAX / 2 }
+}
+
 impl ContainerIndex {
     /// Finds the content byte range that covers `[start_secs, end_secs]`.
     ///
@@ -69,8 +83,10 @@ impl ContainerIndex {
         match &self.inner {
             Inner::Linear { byte_rate, block_align } => {
                 let align = (*block_align).max(1);
-                let start_byte = ((start_secs * byte_rate / align as f64).floor() as u64) * align;
-                let end_byte = ((end_secs * byte_rate / align as f64).ceil() as u64) * align;
+                let start_byte = f64_floor_to_u64(start_secs * byte_rate / align as f64)
+                    .saturating_mul(align);
+                let end_byte = f64_ceil_to_u64(end_secs * byte_rate / align as f64)
+                    .saturating_mul(align);
 
                 // Guard: when start == end (point seek), ensure at least one aligned block
                 let end_byte = end_byte.max(start_byte + align);

@@ -136,7 +136,10 @@ where
         let (next_granule, next_byte) = if i + 1 < points.len() {
             points[i + 1]
         } else {
-            (granule, total)
+            // Estimate end granule from the previous inter-point gap so the last
+            // segment has a meaningful duration instead of end_secs == start_secs.
+            let step = if i > 0 { granule.saturating_sub(points[i - 1].0) } else { 0 };
+            (granule.saturating_add(step), total)
         };
         let end_secs = next_granule as f64 / sample_rate as f64;
         segments.push(SegmentEntry {

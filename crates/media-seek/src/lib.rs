@@ -96,11 +96,11 @@ pub async fn parse<F: RangeFetcher>(probe: &[u8], total_size: Option<u64>, fetch
     tracing::debug!(format = ?format, "⚙️ Detected container format");
 
     let result = match format {
-        detect::Format::Mp4 => video::mp4::parse(probe),
+        detect::Format::Mp4 => video::mp4::parse(probe, total_size, fetcher).await,
         detect::Format::Webm => video::webm::parse(probe, total_size, fetcher).await,
         detect::Format::Mp3 => audio::mp3::parse(probe, total_size, fetcher).await,
         detect::Format::Ogg => audio::ogg::parse(probe, total_size, fetcher).await,
-        detect::Format::Flac => audio::flac::parse(probe),
+        detect::Format::Flac => audio::flac::parse(probe, total_size),
         detect::Format::Wav => audio::pcm::parse_wav(probe),
         detect::Format::Aiff => audio::pcm::parse_aiff(probe),
         detect::Format::Adts => audio::adts::parse(probe),

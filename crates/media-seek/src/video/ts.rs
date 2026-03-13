@@ -54,7 +54,13 @@ where
     tracing::debug!(probe_len = probe.len(), total_size = ?total_size, "⚙️ Parsing MPEG-TS stream");
     let total = total_size.ok_or_else(|| Error::parse("TS PCR search requires total_size"))?;
 
-    let pcr_pid = find_pcr_pid(probe).ok_or_else(|| Error::parse("could not find PCR PID from PAT/PMT"))?;
+    // Try the structured PAT→PMT path first; fall back to brute-force scan for
+    // audio-only or unusual streams where PAT/PMT may not be in the probe.
+    let pcr_pid = find_pcr_pid(probe)
+        .or_else(|| find_any_pcr_pid(probe))
+        .ok_or_else(|| {
+            Error::index_not_found("no PCR PID found in TS probe (audio-only or PAT/PMT absent)")
+        })?;
 
     // Build coarse seek index: sample SEEK_POINTS equidistant byte positions.
     // Phase 1: synchronously handle positions that fall within the probe buffer.
@@ -127,6 +133,42 @@ where
 fn find_pcr_pid(data: &[u8]) -> Option<u16> {
     let pmt_pid = read_pat(data)?;
     read_pmt_pcr_pid(data, pmt_pid)
+}
+
+/// Brute-force scan: returns the PID of the first TS packet that carries a PCR.
+///
+/// Used as a fallback when PAT/PMT are absent or the stream is audio-only.
+fn find_any_pcr_pid(data: &[u8]) -> Option<u16> {
+    let n_pkts = data.len() / PKT_SIZE as usize;
+    for i in 0..n_pkts {
+        let pkt = &data[i * PKT_SIZE as usize..(i + 1) * PKT_SIZE as usize];
+        if pkt[0] != TS_SYNC {
+            continue;
+        }
+        let adaptation_field_control = (pkt[3] >> 4) & 0x03;
+        if adaptation_field_control != 0x02 && adaptation_field_control != 0x03 {
+            continue;
+        }
+        if pkt.len() < 6 {
+            continue;
+        }
+        let af_len = pkt[4] as usize;
+        if af_len < PCR_AF_MIN_LEN {
+            continue;
+        }
+        let af = &pkt[5..5 + af_len];
+        if af[0] & PCR_FLAG == 0 {
+            continue;
+        }
+        let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
+        // Ignore null PID (0x1FFF) which carries no real PCR.
+        if pid == 0x1FFF {
+            continue;
+        }
+        tracing::debug!(pid, "⚙️ TS PCR PID found by brute-force scan");
+        return Some(pid);
+    }
+    None
 }
 
 /// Scans `data` for a PAT packet (PID 0) and returns the first program's PMT PID.
@@ -264,11 +306,18 @@ fn find_pcr_in_window(window: &[u8], pcr_pid: u16) -> Option<f64> {
     None
 }
 
-/// Returns `byte_pos` aligned to the first sync byte (0x47) found in `window`.
+/// Returns `byte_pos` aligned to the first validated sync byte (0x47) in `window`.
+///
+/// A candidate sync byte is validated by checking that the next packet boundary
+/// (188 bytes later) also carries 0x47, preventing false positives on payload data.
 fn align_to_sync(window: &[u8], byte_pos: u64) -> u64 {
     for (i, &b) in window.iter().enumerate() {
         if b == TS_SYNC {
-            return byte_pos + i as u64;
+            let next = i + PKT_SIZE as usize;
+            // If next packet is in bounds, verify its sync byte too.
+            if next >= window.len() || window[next] == TS_SYNC {
+                return byte_pos + i as u64;
+            }
         }
     }
     byte_pos
