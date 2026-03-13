@@ -338,6 +338,7 @@ jobs:
     if: github.event_name == 'push'
     permissions:
       contents: read
+      issues: write
     runs-on: ubuntu-latest
     name: "🔔 Notify fixed issues"
 
@@ -375,7 +376,14 @@ jobs:
                   issue_number,
                   body: `Hey ! Thanks for your report. It should have been fixed in ${sha}, and will be released next week. Tell me if the issue persists !`,
                 });
-                console.log(`🔔 Commented on issue #${issue_number} with fix SHA ${sha}`);
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                console.log(`🔔 Commented on issue #${issue_number} with fix SHA ${sha} and closed it`);
               }
               pattern.lastIndex = 0;
             }
