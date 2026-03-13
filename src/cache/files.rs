@@ -353,7 +353,7 @@ impl DownloadCache {
         video_id: Option<String>,
         format: Option<&Format>,
     ) -> Result<PathBuf> {
-        let file_info = Self::collect_file_info(source_path, filename.into(), video_id, format)?;
+        let file_info = Self::collect_file_info(source_path, filename.into(), video_id, format).await?;
         self.put_cached_file(file_info, source_path).await
     }
 
@@ -378,7 +378,7 @@ impl DownloadCache {
         format: Option<&Format>,
         preferences: &FormatPreferences,
     ) -> Result<PathBuf> {
-        let mut file_info = Self::collect_file_info(source_path, filename.into(), video_id, format)?;
+        let mut file_info = Self::collect_file_info(source_path, filename.into(), video_id, format).await?;
 
         file_info.video_quality = utils::serde::serialize_json_opt(preferences.video_quality);
         file_info.audio_quality = utils::serde::serialize_json_opt(preferences.audio_quality);
@@ -542,14 +542,14 @@ impl DownloadCache {
     }
 
     /// Collect file metadata into a `CachedFile` struct.
-    fn collect_file_info(
+    async fn collect_file_info(
         source_path: &Path,
         filename: String,
         video_id: Option<String>,
         format: Option<&Format>,
     ) -> Result<CachedFile> {
-        let size = tokio::runtime::Handle::current()
-            .block_on(tokio::fs::metadata(source_path))
+        let size = tokio::fs::metadata(source_path)
+            .await
             .map(|m| m.len() as i64)
             .unwrap_or(0);
 

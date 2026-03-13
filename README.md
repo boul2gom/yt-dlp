@@ -102,13 +102,13 @@ available.
 - 📊 **`statistics`** - Enables real-time statistics and analytics on downloads and fetches. Exposes aggregate counters, averages, success rates, and a bounded history window.
 - ⚡ **`cache-memory`** (enabled by default) — In-memory Moka cache (pulls in `moka`). Fast TTL-based eviction; no persistence.
 - 🗃️ **`cache-json`** — JSON file-system backend. One `.json` file per entry.
-- 🗄️ **`cache-redb`** — Embedded [redb](https://github.com/cberner/redb) backend. Single-file, pure-Rust, ACID-compliant.
-- 🌐 **`cache-redis`** — Distributed [Redis](https://redis.io/) backend. Native TTL via `SETEX`.
+- 🗄️ **`cache-redb`** — Embedded [```redb```](https://github.com/cberner/redb) backend. Single-file, pure-rust, ACID-compliant.
+- 🌐 **`cache-redis`** — Distributed [```Redis```](https://redis.io/) backend. Native TTL via `SETEX`.
 - 🔴 **`live-recording`** - Enables live stream recording via HLS segment fetching (reqwest) or FFmpeg fallback. Pulls in `m3u8-rs` for HLS manifest parsing.
 - 📡 **`live-streaming`** - Enables live fragment streaming via HLS segment fetching (reqwest). Pulls in `m3u8-rs` for HLS manifest parsing.
 - 🔒 **`rustls`** - Enables the `rustls-tls` feature in the [```reqwest```](https://crates.io/crates/reqwest) crate.
   This enables building the application without openssl or other system sourced SSL libraries.
-- 🌍 **`hickory-dns`** - Enables async DNS resolution via [Hickory DNS](https://github.com/hickory-dns/hickory-dns) (passes `reqwest/hickory-dns`). Replaces the default blocking system resolver with a fully async, pure-Rust resolver.
+- 🌍 **`hickory-dns`** - Enables async DNS resolution via [```Hickory DNS```](https://github.com/hickory-dns/hickory-dns) (passes `reqwest/hickory-dns`). Replaces the default blocking system resolver with a fully async, pure-Rust resolver.
 
 ### 🗄️ Cache backends
 
