@@ -129,6 +129,77 @@ struct Locations {
     timestamp_scale_ns: u64,
 }
 
+/// Result of walking top-level Segment elements.
+struct SegmentWalkResult {
+    cues_offset: Option<u64>,
+    timestamp_scale_ns: u64,
+}
+
+/// Walks top-level elements inside a Segment body until SeekHead+Info are found.
+///
+/// `duration_scaled` is tracked internally for the early-exit heuristic but is not returned.
+fn walk_segment_elements(data: &[u8], start: usize, segment_end: usize) -> SegmentWalkResult {
+    let mut pos = start;
+    let mut cues_offset: Option<u64> = None;
+    let mut timestamp_scale_ns: u64 = DEFAULT_TIMESTAMP_SCALE_NS;
+    let mut duration_scaled: Option<f64> = None;
+
+    while pos + 1 < segment_end {
+        let Some((elem_id, id_len)) = read_elem_id(data, pos) else {
+            break;
+        };
+        pos += id_len;
+        let Some((elem_size, sz_len)) = read_vint(data, pos) else {
+            break;
+        };
+        pos += sz_len;
+
+        // Guard against unknown-size child elements: treat as extending to segment end.
+        let elem_body_end = if is_vint_unknown(elem_size, sz_len) {
+            segment_end
+        } else {
+            (pos + elem_size as usize).min(segment_end)
+        };
+        match elem_id {
+            ID_SEEK_HEAD => {
+                cues_offset = parse_seek_head(&data[pos..elem_body_end]);
+            }
+            ID_INFO => {
+                parse_info(&data[pos..elem_body_end], &mut timestamp_scale_ns, &mut duration_scaled);
+            }
+            _ => {}
+        }
+        pos = elem_body_end;
+        if cues_offset.is_some() && duration_scaled.is_some() {
+            break;
+        }
+    }
+    SegmentWalkResult {
+        cues_offset,
+        timestamp_scale_ns,
+    }
+}
+
+/// Linearly scans the probe for the Cues element ID when no SeekHead was found.
+fn probe_scan_for_cues(data: &[u8], segment_data_start: u64) -> Option<u64> {
+    let cues_id_bytes: [u8; 4] = [
+        ((ID_CUES >> 24) & 0xFF) as u8,
+        ((ID_CUES >> 16) & 0xFF) as u8,
+        ((ID_CUES >> 8) & 0xFF) as u8,
+        (ID_CUES & 0xFF) as u8,
+    ];
+    let search_start = segment_data_start as usize;
+    if search_start < data.len()
+        && let Some(rel) = data[search_start..].windows(4).position(|w| w == cues_id_bytes)
+    {
+        let abs_pos = search_start + rel;
+        tracing::debug!(cues_abs = abs_pos, "⚙️ WebM Cues found by probe scan (no SeekHead)");
+        Some((abs_pos as u64).saturating_sub(segment_data_start))
+    } else {
+        None
+    }
+}
+
 /// Locates the Segment element and parses its SeekHead and Info.
 ///
 /// Handles the EBML "unknown size" sentinel for the Segment element (common in
@@ -159,7 +230,6 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
     pos += seg_sz_len;
 
     // Determine how far the segment body extends in the probe.
-    // If the size is an EBML unknown-size sentinel, the segment runs to the end of the buffer.
     let segment_end = if is_vint_unknown(seg_size, seg_sz_len) {
         data.len()
     } else {
@@ -167,68 +237,15 @@ fn locate_segment(data: &[u8]) -> Option<Locations> {
     };
 
     let segment_data_start = pos as u64;
-
-    let mut cues_offset: Option<u64> = None;
-    let mut timestamp_scale_ns: u64 = DEFAULT_TIMESTAMP_SCALE_NS;
-    let mut duration_scaled: Option<f64> = None;
-
-    // Walk top-level elements inside Segment until we've found SeekHead and Info.
-    while pos + 1 < segment_end {
-        let Some((elem_id, id_len)) = read_elem_id(data, pos) else {
-            break;
-        };
-        pos += id_len;
-        let Some((elem_size, sz_len)) = read_vint(data, pos) else {
-            break;
-        };
-        pos += sz_len;
-
-        // Guard against unknown-size child elements: treat as extending to segment end.
-        let elem_body_end = if is_vint_unknown(elem_size, sz_len) {
-            segment_end
-        } else {
-            (pos + elem_size as usize).min(segment_end)
-        };
-
-        match elem_id {
-            ID_SEEK_HEAD => {
-                cues_offset = parse_seek_head(&data[pos..elem_body_end]);
-            }
-            ID_INFO => {
-                parse_info(&data[pos..elem_body_end], &mut timestamp_scale_ns, &mut duration_scaled);
-            }
-            _ => {}
-        }
-
-        pos = elem_body_end;
-        if cues_offset.is_some() && duration_scaled.is_some() {
-            break;
-        }
-    }
-
-    // Fallback: if no Cues reference was found in SeekHead, scan the probe linearly
-    // for the Cues element ID. This handles WebM files without a SeekHead.
-    if cues_offset.is_none() {
-        let cues_id_bytes: [u8; 4] = [
-            ((ID_CUES >> 24) & 0xFF) as u8,
-            ((ID_CUES >> 16) & 0xFF) as u8,
-            ((ID_CUES >> 8) & 0xFF) as u8,
-            (ID_CUES & 0xFF) as u8,
-        ];
-        let search_start = segment_data_start as usize;
-        if search_start < data.len()
-            && let Some(rel) = data[search_start..].windows(4).position(|w| w == cues_id_bytes)
-        {
-            let abs_pos = search_start + rel;
-            cues_offset = Some((abs_pos as u64).saturating_sub(segment_data_start));
-            tracing::debug!(cues_abs = abs_pos, "⚙️ WebM Cues found by probe scan (no SeekHead)");
-        }
-    }
+    let walked = walk_segment_elements(data, pos, segment_end);
+    let cues_offset = walked
+        .cues_offset
+        .or_else(|| probe_scan_for_cues(data, segment_data_start));
 
     Some(Locations {
         segment_data_start,
         cues_offset,
-        timestamp_scale_ns,
+        timestamp_scale_ns: walked.timestamp_scale_ns,
     })
 }
 
@@ -304,6 +321,96 @@ fn parse_info(data: &[u8], scale: &mut u64, duration: &mut Option<f64>) {
     }
 }
 
+/// A parsed CuePoint: timestamp (in raw EBML ticks) and segment-relative cluster offset.
+#[derive(Debug, Clone, Copy)]
+struct CuePoint {
+    time: u64,
+    cluster_pos: u64,
+}
+
+/// Parses one CuePoint element body `data[pos..end]` into a `CuePoint`.
+///
+/// Handles nested `ID_CUE_TRACK_POSITIONS` to extract `ID_CUE_CLUSTER_POSITION`.
+/// Returns `None` if either mandatory field is absent or data is truncated.
+fn parse_cue_point(data: &[u8], pos: usize, end: usize) -> Option<CuePoint> {
+    let mut cue_time: Option<u64> = None;
+    let mut cluster_pos: Option<u64> = None;
+    let mut inner = pos;
+    while inner < end {
+        let (fid, fl) = read_elem_id(data, inner)?;
+        inner += fl;
+        let (fsz, fsl) = read_vint(data, inner)?;
+        inner += fsl;
+        let fend = (inner + fsz as usize).min(data.len());
+        match fid {
+            ID_CUE_TIME => {
+                cue_time = read_uint(data, inner, fsz as usize);
+            }
+            ID_CUE_TRACK_POSITIONS => {
+                let mut ni = inner;
+                while ni < fend {
+                    let (nid, nl) = read_elem_id(data, ni)?;
+                    ni += nl;
+                    let (nsz, nsl) = read_vint(data, ni)?;
+                    ni += nsl;
+                    let nend = (ni + nsz as usize).min(data.len());
+                    if nid == ID_CUE_CLUSTER_POSITION {
+                        cluster_pos = read_uint(data, ni, nsz as usize);
+                    }
+                    ni = nend;
+                }
+            }
+            _ => {}
+        }
+        inner = fend;
+    }
+    match (cue_time, cluster_pos) {
+        (Some(time), Some(cluster_pos)) => Some(CuePoint { time, cluster_pos }),
+        _ => None,
+    }
+}
+
+/// Applies a decoded cue point to `segments`: fixes the previous entry's `byte_size`
+/// and `end_secs`, then pushes a new open entry.
+fn apply_cue_point(segments: &mut Vec<SegmentEntry>, abs_offset: u64, t_secs: f64) {
+    if let Some(prev) = segments.last_mut() {
+        prev.byte_size = abs_offset.saturating_sub(prev.byte_offset);
+        prev.end_secs = t_secs;
+    }
+    segments.push(SegmentEntry {
+        start_secs: t_secs,
+        end_secs: 0.0, // fixed by next iteration or fixup_last_cue_segment
+        byte_offset: abs_offset,
+        byte_size: 0, // fixed by next iteration or fixup_last_cue_segment
+    });
+}
+
+/// Fixes the final `SegmentEntry` once all cue points have been processed.
+///
+/// Uses average cluster duration to estimate the last segment's end time.
+fn fixup_last_cue_segment(segments: &mut [SegmentEntry], total_size: Option<u64>) {
+    let seg_count = segments.len();
+    if seg_count >= 2 {
+        let first_start = segments[0].start_secs;
+        if let Some(last) = segments.last_mut() {
+            let total = total_size.unwrap_or(last.byte_offset);
+            last.byte_size = total.saturating_sub(last.byte_offset);
+            let avg_dur = (last.start_secs - first_start) / (seg_count - 1) as f64;
+            last.end_secs = last.start_secs + avg_dur;
+        }
+    } else if let Some(last) = segments.last_mut() {
+        let total = total_size.unwrap_or(last.byte_offset);
+        last.byte_size = total.saturating_sub(last.byte_offset);
+        // Estimate duration from byte_size to avoid zero-duration single-segment files.
+        let estimated_secs = if last.byte_size > 0 && total > 0 {
+            last.start_secs + (last.byte_size as f64 / total as f64) * last.start_secs.max(1.0)
+        } else {
+            last.start_secs + 1.0
+        };
+        last.end_secs = estimated_secs;
+    }
+}
+
 /// Parses the Cues element and returns `Vec<SegmentEntry>`.
 ///
 /// Builds the segment list in a single pass: each new CuePoint fixes the previous
@@ -329,85 +436,18 @@ fn parse_cues(
         pos += sz_len;
         let end = (pos + size as usize).min(data.len());
 
-        if id == ID_CUE_POINT {
-            let mut cue_time: Option<u64> = None;
-            let mut cluster_pos: Option<u64> = None;
-            let mut inner = pos;
-            while inner < end {
-                let Some((fid, fl)) = read_elem_id(data, inner) else {
-                    break;
-                };
-                inner += fl;
-                let Some((fsz, fsl)) = read_vint(data, inner) else {
-                    break;
-                };
-                inner += fsl;
-                let fend = (inner + fsz as usize).min(data.len());
-                match fid {
-                    ID_CUE_TIME => {
-                        cue_time = read_uint(data, inner, fsz as usize);
-                    }
-                    ID_CUE_TRACK_POSITIONS => {
-                        // Parse nested element for CueClusterPosition
-                        let mut ni = inner;
-                        while ni < fend {
-                            let Some((nid, nl)) = read_elem_id(data, ni) else { break };
-                            ni += nl;
-                            let Some((nsz, nsl)) = read_vint(data, ni) else { break };
-                            ni += nsl;
-                            let nend = (ni + nsz as usize).min(data.len());
-                            if nid == ID_CUE_CLUSTER_POSITION {
-                                cluster_pos = read_uint(data, ni, nsz as usize);
-                            }
-                            ni = nend;
-                        }
-                    }
-                    _ => {}
-                }
-                inner = fend;
-            }
-            if let (Some(t), Some(cp)) = (cue_time, cluster_pos) {
-                let abs_offset = segment_data_start + cp;
-                let t_secs = t as f64 * scale_secs;
-                // Fix the previous entry now that we know where the next cluster starts
-                if let Some(prev) = segments.last_mut() {
-                    prev.byte_size = abs_offset.saturating_sub(prev.byte_offset);
-                    prev.end_secs = t_secs;
-                }
-                segments.push(SegmentEntry {
-                    start_secs: t_secs,
-                    end_secs: 0.0, // fixed by next iteration or below
-                    byte_offset: abs_offset,
-                    byte_size: 0, // fixed by next iteration or below
-                });
-            }
+        if id == ID_CUE_POINT
+            && let Some(cp) = parse_cue_point(data, pos, end)
+        {
+            let abs_offset = segment_data_start + cp.cluster_pos;
+            let t_secs = cp.time as f64 * scale_secs;
+            apply_cue_point(&mut segments, abs_offset, t_secs);
         }
 
         pos = end;
     }
 
-    // Fix the final entry
-    let seg_count = segments.len();
-    if seg_count >= 2 {
-        let first_start = segments[0].start_secs;
-        if let Some(last) = segments.last_mut() {
-            let total = total_size.unwrap_or(last.byte_offset);
-            last.byte_size = total.saturating_sub(last.byte_offset);
-            let avg_dur = (last.start_secs - first_start) / (seg_count - 1) as f64;
-            last.end_secs = last.start_secs + avg_dur;
-        }
-    } else if let Some(last) = segments.last_mut() {
-        let total = total_size.unwrap_or(last.byte_offset);
-        last.byte_size = total.saturating_sub(last.byte_offset);
-        // Estimate duration from byte_size and a rough byte rate to avoid zero-duration
-        let estimated_secs = if last.byte_size > 0 && total > 0 {
-            last.start_secs + (last.byte_size as f64 / total as f64) * last.start_secs.max(1.0)
-        } else {
-            last.start_secs + 1.0
-        };
-        last.end_secs = estimated_secs;
-    }
-
+    fixup_last_cue_segment(&mut segments, total_size);
     segments
 }
 

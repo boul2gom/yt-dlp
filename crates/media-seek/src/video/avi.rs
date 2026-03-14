@@ -151,42 +151,50 @@ fn try_parse_odml_index(probe: &[u8], fps: Option<f64>, total_size: Option<u64>)
     })
 }
 
-/// Reads the frame rate from the `avih` (AVI main header) chunk in `probe`.
-///
-/// Returns `None` if the header is not found or the microseconds-per-frame field is zero.
-fn read_fps_from_avih(probe: &[u8]) -> Option<f64> {
+/// Scans the `hdrl` list body for an `avih` chunk and returns `dwMicroSecPerFrame` if non-zero.
+fn scan_hdrl_for_avih_us_per_frame(probe: &[u8], inner_start: usize, hdrl_end: usize) -> Option<u64> {
+    let mut inner = inner_start;
+    while inner + 8 <= probe.len() && inner < hdrl_end {
+        let id = &probe[inner..inner + 4];
+        let sz = u32::from_le_bytes(probe[inner + 4..inner + 8].try_into().ok()?) as usize;
+        inner += 8;
+        if id == b"avih" && sz >= 8 {
+            let us = u32::from_le_bytes(probe[inner..inner + 4].try_into().ok()?) as u64;
+            if us > 0 {
+                return Some(us);
+            }
+        }
+        inner += sz;
+    }
+    None
+}
+
+/// Walks the top-level RIFF chunks to find the `hdrl` list and returns `dwMicroSecPerFrame`.
+fn find_avih_us_per_frame(probe: &[u8]) -> Option<u64> {
     // RIFF header: "RIFF" (4) + size (4) + "AVI " (4) = 12
-    // Then a "LIST" "hdrl" chunk contains "avih"
     let mut pos = 12usize;
     while pos + 8 <= probe.len() {
         let chunk_id = &probe[pos..pos + 4];
         let chunk_size = u32::from_le_bytes(probe[pos + 4..pos + 8].try_into().ok()?) as usize;
         pos += 8;
         if chunk_id == b"LIST" {
-            // The next 4 bytes are the list type
             let list_type = &probe[pos..pos + 4];
-            if list_type == b"hdrl" {
-                // Search for avih inside hdrl
-                let mut inner = pos + 4;
-                let hdrl_end = pos + chunk_size;
-                while inner + 8 <= probe.len() && inner < hdrl_end {
-                    let id = &probe[inner..inner + 4];
-                    let sz = u32::from_le_bytes(probe[inner + 4..inner + 8].try_into().ok()?) as usize;
-                    inner += 8;
-                    if id == b"avih" && sz >= 8 {
-                        // dwMicroSecPerFrame is the first 4 bytes of avih data
-                        let us_per_frame = u32::from_le_bytes(probe[inner..inner + 4].try_into().ok()?) as f64;
-                        if us_per_frame > 0.0 {
-                            return Some(1_000_000.0 / us_per_frame);
-                        }
-                    }
-                    inner += sz;
-                }
+            if list_type == b"hdrl"
+                && let Some(us) = scan_hdrl_for_avih_us_per_frame(probe, pos + 4, pos + chunk_size)
+            {
+                return Some(us);
             }
         }
         pos += chunk_size;
     }
     None
+}
+
+/// Reads the frame rate from the `avih` (AVI main header) chunk in `probe`.
+///
+/// Returns `None` if the header is not found or the microseconds-per-frame field is zero.
+fn read_fps_from_avih(probe: &[u8]) -> Option<f64> {
+    find_avih_us_per_frame(probe).map(|us| 1_000_000.0 / us as f64)
 }
 
 /// Locates the `idx1` chunk within `data` and returns its payload slice.
@@ -199,6 +207,81 @@ fn find_idx1(data: &[u8]) -> Option<&[u8]> {
     let size = u32::from_le_bytes(data[pos + 4..pos + 8].try_into().ok()?) as usize;
     let end = (pos + 8 + size).min(data.len());
     Some(&data[pos + 8..end])
+}
+
+/// Keyframes collected from an `idx1` scan, split by stream type.
+#[derive(Debug)]
+struct Idx1Keyframes {
+    video: Vec<(u64, u64)>,
+    audio: Vec<(u64, u64)>,
+}
+
+/// Scans an `idx1` payload and collects video and audio keyframe `(index, byte_offset)` pairs.
+fn collect_idx1_keyframes(idx1: &[u8], movi_start: u64, offsets_are_absolute: bool) -> Idx1Keyframes {
+    let n_entries = idx1.len() / IDX1_ENTRY_SIZE;
+    let mut video: Vec<(u64, u64)> = Vec::new();
+    let mut audio: Vec<(u64, u64)> = Vec::new();
+    let mut video_frame_index = 0u64;
+    let mut audio_block_index = 0u64;
+
+    for i in 0..n_entries {
+        let off = i * IDX1_ENTRY_SIZE;
+        if off + IDX1_ENTRY_SIZE > idx1.len() {
+            break;
+        }
+        let chunk_id = &idx1[off..off + 4];
+        let flags = u32::from_le_bytes(idx1[off + 4..off + 8].try_into().unwrap());
+        let chunk_offset = u32::from_le_bytes(idx1[off + 8..off + 12].try_into().unwrap()) as u64;
+        let abs_offset = if offsets_are_absolute {
+            chunk_offset
+        } else {
+            movi_start + chunk_offset
+        };
+
+        match classify_idx1_entry(chunk_id) {
+            EntryKind::Video => {
+                if flags & AVIIF_KEYFRAME != 0 {
+                    video.push((video_frame_index, abs_offset));
+                }
+                video_frame_index += 1;
+            }
+            EntryKind::Audio => {
+                if flags & AVIIF_KEYFRAME != 0 {
+                    audio.push((audio_block_index, abs_offset));
+                }
+                audio_block_index += 1;
+            }
+            EntryKind::Other => {}
+        }
+    }
+    Idx1Keyframes { video, audio }
+}
+
+/// Selects the appropriate keyframe list and FPS hint from collected `idx1` keyframes.
+#[derive(Debug)]
+struct KeyframeResolution {
+    keyframes: Vec<(u64, u64)>,
+    fps_val: Option<f64>,
+}
+
+fn resolve_keyframes_and_fps(kf: Idx1Keyframes, fps: Option<f64>) -> Result<KeyframeResolution> {
+    if !kf.video.is_empty() {
+        Ok(KeyframeResolution {
+            keyframes: kf.video,
+            fps_val: Some(fps.unwrap_or(DEFAULT_FPS)),
+        })
+    } else if !kf.audio.is_empty() {
+        tracing::debug!(
+            audio_blocks = kf.audio.len(),
+            "⚙️ AVI audio-only: building index from audio keyframes"
+        );
+        Ok(KeyframeResolution {
+            keyframes: kf.audio,
+            fps_val: None,
+        })
+    } else {
+        Err(Error::index_not_found("idx1 contains no video or audio keyframes"))
+    }
 }
 
 /// Parses the `idx1` payload and returns a `ContainerIndex` built from keyframe entries.
@@ -215,12 +298,6 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
     // Locate the movi list start byte in the file to convert idx1 offsets to absolute positions.
     let movi_start = find_movi_start(probe).unwrap_or(0);
 
-    let n_entries = idx1.len() / IDX1_ENTRY_SIZE;
-    let mut video_keyframes: Vec<(u64, u64)> = Vec::new(); // (frame_index, byte_offset)
-    let mut audio_keyframes: Vec<(u64, u64)> = Vec::new(); // (block_index, byte_offset)
-    let mut video_frame_index = 0u64;
-    let mut audio_block_index = 0u64;
-
     // Heuristic: check whether idx1 offsets are absolute (>= movi_start)
     // or relative to the movi list. Some muxers write absolute file offsets.
     let first_offset = if idx1.len() >= IDX1_ENTRY_SIZE {
@@ -230,63 +307,14 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
     };
     let offsets_are_absolute = movi_start > 0 && first_offset >= movi_start;
 
-    for i in 0..n_entries {
-        let off = i * IDX1_ENTRY_SIZE;
-        if off + IDX1_ENTRY_SIZE > idx1.len() {
-            break;
-        }
-        let chunk_id = &idx1[off..off + 4];
-        let flags = u32::from_le_bytes(idx1[off + 4..off + 8].try_into().unwrap());
-        let chunk_offset = u32::from_le_bytes(idx1[off + 8..off + 12].try_into().unwrap()) as u64;
-
-        let abs_offset = if offsets_are_absolute {
-            chunk_offset
-        } else {
-            movi_start + chunk_offset
-        };
-
-        match classify_idx1_entry(chunk_id) {
-            EntryKind::Video => {
-                if flags & AVIIF_KEYFRAME != 0 {
-                    video_keyframes.push((video_frame_index, abs_offset));
-                }
-                video_frame_index += 1;
-            }
-            EntryKind::Audio => {
-                if flags & AVIIF_KEYFRAME != 0 {
-                    audio_keyframes.push((audio_block_index, abs_offset));
-                }
-                audio_block_index += 1;
-            }
-            EntryKind::Other => {}
-        }
-    }
-
-    // Prefer video keyframes; fall back to audio keyframes for audio-only AVI.
-    let (keyframes, is_audio_only) = if !video_keyframes.is_empty() {
-        (video_keyframes, false)
-    } else if !audio_keyframes.is_empty() {
-        tracing::debug!(
-            audio_blocks = audio_block_index,
-            "⚙️ AVI audio-only: building index from audio keyframes"
-        );
-        (audio_keyframes, true)
-    } else {
-        return Err(Error::index_not_found("idx1 contains no video or audio keyframes"));
-    };
-
-    let fps_val = if is_audio_only {
-        // For audio-only AVI without a frame rate, use byte-rate timing later.
-        None
-    } else {
-        Some(fps.unwrap_or(DEFAULT_FPS))
-    };
+    let kf = collect_idx1_keyframes(idx1, movi_start, offsets_are_absolute);
+    let resolution = resolve_keyframes_and_fps(kf, fps)?;
 
     let last_byte = tail_start; // approximate end of last segment
-    let segments = if let Some(fps_v) = fps_val {
-        keyframes_to_segments(&keyframes, fps_v, last_byte)
+    let segments = if let Some(fps_v) = resolution.fps_val {
+        keyframes_to_segments(&resolution.keyframes, fps_v, last_byte)
     } else {
-        audio_keyframes_to_segments(&keyframes, last_byte)
+        audio_keyframes_to_segments(&resolution.keyframes, last_byte)
     };
 
     if segments.is_empty() {
@@ -294,7 +322,6 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
     }
 
     let init_end_byte = segments.first().map(|s| s.byte_offset.saturating_sub(1)).unwrap_or(0);
-
     Ok(ContainerIndex {
         init_end_byte,
         inner: Inner::Segments(segments),

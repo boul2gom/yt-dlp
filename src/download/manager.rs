@@ -476,34 +476,29 @@ impl DownloadManager {
         let mut rx = self.completion_tx.subscribe();
 
         // Now check if the download already completed
-        if let Some(status) = self.get_status(id).await {
-            match status {
-                DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
-                    return Some(status);
-                }
-                _ => {}
-            }
+        if let Some(status) = self.get_status(id).await
+            && is_terminal_status(&status)
+        {
+            return Some(status);
         }
 
         // Wait for the completion event for this specific download
         loop {
             match rx.recv().await {
-                Ok((download_id, status)) if download_id == id => match status {
-                    DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
+                Ok((download_id, status)) if download_id == id => {
+                    if is_terminal_status(&status) {
                         return Some(status);
                     }
-                    _ => continue,
-                },
+                    continue;
+                }
                 Ok(_) => continue, // Event for a different download
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     // Channel lagged, check current status
                     if let Some(status) = self.get_status(id).await {
-                        match status {
-                            DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled => {
-                                return Some(status);
-                            }
-                            _ => continue,
+                        if is_terminal_status(&status) {
+                            return Some(status);
                         }
+                        continue;
                     } else {
                         return None;
                     }
@@ -696,69 +691,22 @@ impl DownloadManager {
             "⚙️ Starting download queue worker"
         );
 
-        let queue = self.queue.clone();
-        let semaphore = self.semaphore.clone();
-        let statuses = self.statuses.clone();
-        let tasks = self.tasks.clone();
-        let config = self.config.clone();
-        let cancelled = self.cancelled.clone();
-        let completion_tx = self.completion_tx.clone();
-        let progress_tx = self.progress_tx.clone();
-        let event_bus = self.event_bus.clone();
-        let notify = self.worker_notify.clone();
-        let progress_counters = self.progress_counters.clone();
-        let shared_client = Arc::clone(&self.client);
-        let shutdown = self.shutdown_token.clone();
-
-        tokio::spawn(async move {
-            loop {
-                // Check for shutdown before each drain cycle
-                if shutdown.is_cancelled() {
-                    tracing::debug!("🛑 Worker shutting down");
-                    return;
-                }
-
-                // --- Drain phase: process tasks until the queue is empty ---
-                loop {
-                    let permit = match semaphore.clone().acquire_owned().await {
-                        Ok(p) => p,
-                        Err(_) => return, // Semaphore closed; shut down
-                    };
-
-                    let Some(task) = queue.lock().await.pop() else {
-                        drop(permit);
-                        break; // Queue empty — exit drain loop
-                    };
-
-                    tracing::debug!(
-                        task_id = task.id,
-                        url = %task.url,
-                        destination = ?task.destination,
-                        priority = ?task.priority,
-                        "⚙️ Popped task from download queue"
-                    );
-
-                    let ctx = WorkerContext {
-                        statuses: statuses.clone(),
-                        tasks: tasks.clone(),
-                        cancelled: cancelled.clone(),
-                        completion_tx: completion_tx.clone(),
-                        event_bus: event_bus.clone(),
-                        progress_counters: progress_counters.clone(),
-                    };
-                    process_queued_task(task, &config, &shared_client, permit, progress_tx.clone(), ctx).await;
-                }
-
-                // Queue drained — wait for the next enqueue signal or shutdown
-                tokio::select! {
-                    _ = notify.notified() => {}
-                    _ = shutdown.cancelled() => {
-                        tracing::debug!("🛑 Worker shutting down");
-                        return;
-                    }
-                }
-            }
-        });
+        let ctx = WorkerLoopCtx {
+            queue: self.queue.clone(),
+            semaphore: self.semaphore.clone(),
+            statuses: self.statuses.clone(),
+            tasks: self.tasks.clone(),
+            config: self.config.clone(),
+            cancelled: self.cancelled.clone(),
+            completion_tx: self.completion_tx.clone(),
+            progress_tx: self.progress_tx.clone(),
+            event_bus: self.event_bus.clone(),
+            notify: self.worker_notify.clone(),
+            progress_counters: self.progress_counters.clone(),
+            shared_client: Arc::clone(&self.client),
+            shutdown: self.shutdown_token.clone(),
+        };
+        tokio::spawn(run_worker_loop(ctx));
     }
 
     /// Shuts down the worker task gracefully.
@@ -794,6 +742,90 @@ impl Drop for DownloadManager {
         if let Ok(tasks) = self.tasks.try_lock() {
             for (_, handle) in tasks.iter() {
                 handle.abort();
+            }
+        }
+    }
+}
+
+/// Returns `true` when `status` is a terminal state (no further transitions possible).
+fn is_terminal_status(status: &DownloadStatus) -> bool {
+    matches!(
+        status,
+        DownloadStatus::Completed | DownloadStatus::Failed { .. } | DownloadStatus::Canceled
+    )
+}
+
+/// All state captured by the background worker task.
+#[derive(Debug)]
+struct WorkerLoopCtx {
+    queue: Arc<Mutex<BinaryHeap<DownloadTask>>>,
+    semaphore: Arc<Semaphore>,
+    statuses: Arc<Mutex<HashMap<u64, DownloadStatus>>>,
+    tasks: Arc<Mutex<HashMap<u64, JoinHandle<Result<()>>>>>,
+    config: ManagerConfig,
+    cancelled: Arc<Mutex<HashSet<u64>>>,
+    completion_tx: broadcast::Sender<(u64, DownloadStatus)>,
+    progress_tx: broadcast::Sender<ProgressUpdate>,
+    event_bus: Option<crate::events::EventBus>,
+    notify: Arc<tokio::sync::Notify>,
+    progress_counters: ProgressCounters,
+    shared_client: Arc<reqwest::Client>,
+    shutdown: CancellationToken,
+}
+
+/// Runs the worker drain loop: processes queued tasks until empty, then sleeps.
+async fn run_worker_loop(ctx: WorkerLoopCtx) {
+    loop {
+        if ctx.shutdown.is_cancelled() {
+            tracing::debug!("🛑 Worker shutting down");
+            return;
+        }
+
+        // --- Drain phase: process tasks until the queue is empty ---
+        loop {
+            let permit = match ctx.semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => return, // Semaphore closed; shut down
+            };
+
+            let Some(task) = ctx.queue.lock().await.pop() else {
+                drop(permit);
+                break; // Queue empty — exit drain loop
+            };
+
+            tracing::debug!(
+                task_id = task.id,
+                url = %task.url,
+                destination = ?task.destination,
+                priority = ?task.priority,
+                "⚙️ Popped task from download queue"
+            );
+
+            let worker_ctx = WorkerContext {
+                statuses: ctx.statuses.clone(),
+                tasks: ctx.tasks.clone(),
+                cancelled: ctx.cancelled.clone(),
+                completion_tx: ctx.completion_tx.clone(),
+                event_bus: ctx.event_bus.clone(),
+                progress_counters: ctx.progress_counters.clone(),
+            };
+            process_queued_task(
+                task,
+                &ctx.config,
+                &ctx.shared_client,
+                permit,
+                ctx.progress_tx.clone(),
+                worker_ctx,
+            )
+            .await;
+        }
+
+        // Queue drained — wait for the next enqueue signal or shutdown
+        tokio::select! {
+            _ = ctx.notify.notified() => {}
+            _ = ctx.shutdown.cancelled() => {
+                tracing::debug!("🛑 Worker shutting down");
+                return;
             }
         }
     }

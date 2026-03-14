@@ -26,6 +26,8 @@ use crate::utils::retry::is_http_error_retryable;
 
 // Buffer size for checking whether a segment has already been downloaded
 const SEGMENT_CHECK_BUFFER_SIZE: usize = 1024;
+// Batch write threshold: flush to disk when buffered data reaches this size
+const WRITE_BATCH_SIZE: usize = 256 * 1024;
 
 /// Writes `batch` to `file` at the given `offset` using positional I/O inside `spawn_blocking`.
 ///
@@ -63,6 +65,66 @@ async fn write_batch_to_file(file: Arc<std::fs::File>, batch: Vec<u8>, offset: u
     })
     .await?
     .map_err(Into::into)
+}
+
+/// Reads up to `len` bytes from `file` at `offset` and returns whether any non-zero bytes exist.
+///
+/// Uses positional I/O (`read_at` / `seek_read`) inside `spawn_blocking` so the call is
+/// non-blocking and no file lock is needed.
+async fn read_bytes_at(file: Arc<std::fs::File>, offset: u64, len: usize) -> Result<bool> {
+    Ok(tokio::task::spawn_blocking(move || -> std::io::Result<bool> {
+        let mut buf = [0u8; SEGMENT_CHECK_BUFFER_SIZE];
+        #[cfg(unix)]
+        let n = file.read_at(&mut buf[..len], offset)?;
+        #[cfg(windows)]
+        let n = file.seek_read(&mut buf[..len], offset)?;
+        Ok(n > 0 && buf[..n].iter().any(|&b| b != 0))
+    })
+    .await??)
+}
+
+/// Sends `request`, streams the response body into `context.file`, and tracks byte counts.
+///
+/// Writes are batched in [`WRITE_BATCH_SIZE`] chunks to minimise `spawn_blocking` calls.
+/// `attempt_bytes` is incremented for every byte received; the caller should subtract it
+/// from `context.downloaded_bytes` on error to avoid double-counting on retry.
+async fn stream_response_chunks(
+    request: reqwest::RequestBuilder,
+    context: &SegmentContext,
+    start: u64,
+    attempt_bytes: &mut u64,
+) -> Result<()> {
+    let response = request.send().await?.error_for_status()?;
+
+    let mut current_offset = start - context.file_offset_base;
+    let mut chunk_stream = response.bytes_stream();
+    let mut write_buf: Vec<u8> = Vec::with_capacity(WRITE_BATCH_SIZE);
+    let mut buf_offset = current_offset;
+
+    while let Some(chunk_result) = chunk_stream.next().await {
+        let chunk = chunk_result?;
+        let chunk_len = chunk.len() as u64;
+        write_buf.extend_from_slice(&chunk);
+        current_offset += chunk_len;
+
+        if write_buf.len() >= WRITE_BATCH_SIZE {
+            let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
+            write_batch_to_file(Arc::clone(&context.file), batch, buf_offset).await?;
+            buf_offset = current_offset;
+        }
+
+        *attempt_bytes += chunk_len;
+        let new_total = context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
+        if let Some(callback) = &context.progress_callback {
+            callback(new_total, context.total_bytes);
+        }
+    }
+
+    if !write_buf.is_empty() {
+        write_batch_to_file(Arc::clone(&context.file), write_buf, buf_offset).await?;
+    }
+
+    Ok(())
 }
 
 impl Fetcher {
@@ -345,32 +407,13 @@ impl Fetcher {
         let local_start = start - file_offset_base;
         let buf_len = SEGMENT_CHECK_BUFFER_SIZE.min((end - start + 1) as usize);
 
-        let file_a = Arc::clone(&file);
-        let start_has_data = tokio::task::spawn_blocking(move || -> std::io::Result<bool> {
-            let mut buf = [0u8; SEGMENT_CHECK_BUFFER_SIZE];
-            #[cfg(unix)]
-            let n = file_a.read_at(&mut buf[..buf_len], local_start)?;
-            #[cfg(windows)]
-            let n = file_a.seek_read(&mut buf[..buf_len], local_start)?;
-            Ok(n > 0 && buf[..n].iter().any(|&b| b != 0))
-        })
-        .await??;
-
-        if !start_has_data {
+        if !read_bytes_at(Arc::clone(&file), local_start, buf_len).await? {
             return Ok(Some(false));
         }
 
         let end_has_data = if (end - start + 1) > SEGMENT_CHECK_BUFFER_SIZE as u64 {
             let seek_pos = (end - file_offset_base).saturating_sub(SEGMENT_CHECK_BUFFER_SIZE as u64 - 1);
-            tokio::task::spawn_blocking(move || -> std::io::Result<bool> {
-                let mut buf = [0u8; SEGMENT_CHECK_BUFFER_SIZE];
-                #[cfg(unix)]
-                let n = file.read_at(&mut buf, seek_pos)?;
-                #[cfg(windows)]
-                let n = file.seek_read(&mut buf, seek_pos)?;
-                Ok(n > 0 && buf[..n].iter().any(|&b| b != 0))
-            })
-            .await??
+            read_bytes_at(file, seek_pos, SEGMENT_CHECK_BUFFER_SIZE).await?
         } else {
             true
         };
@@ -413,7 +456,6 @@ impl Fetcher {
         }
 
         let range_header = format!("bytes={}-{}", start, end);
-
         let url_clone = url.to_string();
         let range_clone = range_header.clone();
 
@@ -424,53 +466,14 @@ impl Fetcher {
                     // corrupting the global counter when other segments run concurrently
                     let mut attempt_bytes: u64 = 0;
 
-                    let result: std::result::Result<(), Error> = async {
-                        let mut req = client.get(&url_clone).header(RANGE, &range_clone);
-                        if let Some(ref headers) = self.extra_headers {
-                            for (key, value) in headers.iter() {
-                                req = req.header(key, value);
-                            }
+                    let mut req = client.get(&url_clone).header(RANGE, &range_clone);
+                    if let Some(ref headers) = self.extra_headers {
+                        for (key, value) in headers.iter() {
+                            req = req.header(key, value);
                         }
-                        let response = req.send().await?.error_for_status()?;
-
-                        // file_offset_base translates the URL-absolute offset to a file-local offset
-                        let mut current_offset = start - context.file_offset_base;
-                        let mut chunk_stream = response.bytes_stream();
-
-                        // Batch chunks before writing to reduce spawn_blocking calls
-                        const WRITE_BATCH_SIZE: usize = 256 * 1024; // 256 KB
-                        let mut write_buf: Vec<u8> = Vec::with_capacity(WRITE_BATCH_SIZE);
-                        let mut buf_offset = current_offset;
-
-                        while let Some(chunk_result) = chunk_stream.next().await {
-                            let chunk = chunk_result?;
-                            let chunk_len = chunk.len() as u64;
-                            write_buf.extend_from_slice(&chunk);
-                            current_offset += chunk_len;
-
-                            if write_buf.len() >= WRITE_BATCH_SIZE {
-                                let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
-                                write_batch_to_file(Arc::clone(&context.file), batch, buf_offset).await?;
-                                buf_offset = current_offset;
-                            }
-
-                            attempt_bytes += chunk_len;
-                            let new_total =
-                                context.downloaded_bytes.fetch_add(chunk_len, Ordering::Relaxed) + chunk_len;
-
-                            if let Some(callback) = &context.progress_callback {
-                                callback(new_total, context.total_bytes);
-                            }
-                        }
-
-                        // Flush remaining buffered data
-                        if !write_buf.is_empty() {
-                            write_batch_to_file(Arc::clone(&context.file), write_buf, buf_offset).await?;
-                        }
-
-                        Ok(())
                     }
-                    .await;
+
+                    let result = stream_response_chunks(req, context, start, &mut attempt_bytes).await;
 
                     // Rollback only this attempt's bytes on failure to prevent double-counting on retry
                     if result.is_err() && attempt_bytes > 0 {

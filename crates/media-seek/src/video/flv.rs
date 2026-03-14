@@ -209,29 +209,20 @@ fn parse_script_tag(data: &[u8]) -> Result<ContainerIndex> {
     })
 }
 
-/// Extracts `keyframes.times` and `keyframes.filepositions` arrays from an AMF0 object.
-fn extract_keyframes(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f64>)> {
+/// Keyframe arrays extracted from an AMF0 `keyframes` object.
+#[derive(Debug)]
+struct KeyframeData {
+    times: Option<Vec<f64>>,
+    positions: Option<Vec<f64>>,
+}
+
+/// Scans AMF0 key-value pairs for the `keyframes` entry and returns the found data.
+///
+/// Stops when the end marker is found, bounds are exceeded, or both arrays are collected.
+fn scan_amf_object_for_keyframes(data: &[u8], start: usize) -> Result<KeyframeData> {
     let mut pos = start;
-    if pos >= data.len() {
-        return Err(Error::parse("AMF0 object empty"));
-    }
-
-    let marker = data[pos];
-    pos += 1;
-
-    // Support both ECMA array (0x08) and strict object (0x03)
-    if marker == AMF_ECMA_ARRAY {
-        if pos + 4 > data.len() {
-            return Err(Error::parse("AMF0 ECMA array truncated"));
-        }
-        pos += 4; // skip approximate count
-    } else if marker != AMF_OBJECT {
-        return Err(Error::parse("AMF0 metadata is not an object or ECMA array"));
-    }
-
     let mut times: Option<Vec<f64>> = None;
     let mut positions: Option<Vec<f64>> = None;
-
     loop {
         if pos + 2 > data.len() {
             break;
@@ -241,39 +232,108 @@ fn extract_keyframes(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f64>)> 
         if key_len == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
             break;
         }
-        if pos + key_len > data.len() {
+        // Combined bounds check: key must fit AND at least one byte (value type) must follow.
+        if pos + key_len >= data.len() {
             break;
         }
         let key = &data[pos..pos + key_len];
         pos += key_len;
-
-        if pos >= data.len() {
-            break;
-        }
-
         if key == b"keyframes" {
-            // Nested object with "times" and "filepositions"
             let (t, fp, consumed) = parse_keyframes_object(data, pos)?;
             pos += consumed;
             times = Some(t);
             positions = Some(fp);
         } else {
-            // Unknown AMF0 type stops scanning gracefully rather than failing.
             let Ok((_, consumed)) = skip_amf_value(data, pos) else {
                 break;
             };
             pos += consumed;
         }
-
         if times.is_some() && positions.is_some() {
             break;
         }
     }
+    Ok(KeyframeData { times, positions })
+}
 
-    match (times, positions) {
+/// Extracts `keyframes.times` and `keyframes.filepositions` arrays from an AMF0 object.
+fn extract_keyframes(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f64>)> {
+    let mut pos = start;
+    if pos >= data.len() {
+        return Err(Error::parse("AMF0 object empty"));
+    }
+    let marker = data[pos];
+    pos += 1;
+    // Support both ECMA array (0x08) and strict object (0x03)
+    if marker == AMF_ECMA_ARRAY {
+        if pos + 4 > data.len() {
+            return Err(Error::parse("AMF0 ECMA array truncated"));
+        }
+        pos += 4; // skip approximate count
+    } else if marker != AMF_OBJECT {
+        return Err(Error::parse("AMF0 metadata is not an object or ECMA array"));
+    }
+    let kf = scan_amf_object_for_keyframes(data, pos)?;
+    match (kf.times, kf.positions) {
         (Some(t), Some(p)) => Ok((t, p)),
         _ => Err(Error::parse("FLV keyframes object not found in onMetaData")),
     }
+}
+
+/// Data collected by scanning a `keyframes` AMF0 object body.
+#[derive(Debug)]
+struct KeyframesPairData {
+    times: Option<Vec<f64>>,
+    filepositions: Option<Vec<f64>>,
+    /// Bytes consumed by the scan (relative to the start passed to the scanner).
+    consumed: usize,
+}
+
+/// Scans the key-value pairs of a `keyframes` AMF0 object body.
+fn scan_keyframes_object_pairs(data: &[u8], start: usize) -> Result<KeyframesPairData> {
+    let mut pos = start;
+    let mut times: Option<Vec<f64>> = None;
+    let mut filepositions: Option<Vec<f64>> = None;
+    loop {
+        if pos + 2 > data.len() {
+            break;
+        }
+        let key_len = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
+        pos += 2;
+        if key_len == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
+            pos += 1;
+            break;
+        }
+        // Combined bounds check: key must fit AND at least one byte (value type) must follow.
+        if pos + key_len >= data.len() {
+            break;
+        }
+        let key = &data[pos..pos + key_len];
+        pos += key_len;
+        match key {
+            b"times" => {
+                let (arr, consumed) = read_strict_array(data, pos)?;
+                pos += consumed;
+                times = Some(arr);
+            }
+            b"filepositions" => {
+                let (arr, consumed) = read_strict_array(data, pos)?;
+                pos += consumed;
+                filepositions = Some(arr);
+            }
+            _ => {
+                let Ok((_, consumed)) = skip_amf_value(data, pos) else {
+                    break;
+                };
+                pos += consumed;
+            }
+        }
+    }
+    Ok(KeyframesPairData {
+        times,
+        filepositions,
+        consumed: pos - start,
+    })
 }
 
 /// Parses the `keyframes` nested AMF0 object and returns `(times, filepositions, bytes_consumed)`.
@@ -292,48 +352,9 @@ fn parse_keyframes_object(data: &[u8], start: usize) -> Result<(Vec<f64>, Vec<f6
     } else if marker != AMF_OBJECT {
         return Err(Error::parse("keyframes value is not an object"));
     }
-
-    let mut times: Option<Vec<f64>> = None;
-    let mut filepositions: Option<Vec<f64>> = None;
-
-    loop {
-        if pos + 2 > data.len() {
-            break;
-        }
-        let key_len = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
-        pos += 2;
-        if key_len == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
-            pos += 1;
-            break;
-        }
-        if pos + key_len > data.len() {
-            break;
-        }
-        let key = &data[pos..pos + key_len];
-        pos += key_len;
-
-        if pos >= data.len() {
-            break;
-        }
-
-        if key == b"times" || key == b"filepositions" {
-            let (arr, consumed) = read_strict_array(data, pos)?;
-            pos += consumed;
-            if key == b"times" {
-                times = Some(arr);
-            } else {
-                filepositions = Some(arr);
-            }
-        } else {
-            // Unknown AMF0 type stops scanning gracefully rather than failing.
-            let Ok((_, consumed)) = skip_amf_value(data, pos) else {
-                break;
-            };
-            pos += consumed;
-        }
-    }
-
-    match (times, filepositions) {
+    let pairs = scan_keyframes_object_pairs(data, pos)?;
+    pos += pairs.consumed;
+    match (pairs.times, pairs.filepositions) {
         (Some(t), Some(fp)) => Ok((t, fp, pos - start)),
         _ => Err(Error::parse("keyframes object missing times or filepositions")),
     }
@@ -372,6 +393,20 @@ fn read_strict_array(data: &[u8], start: usize) -> Result<(Vec<f64>, usize)> {
     Ok((values, pos - start))
 }
 
+/// Reads a length-prefixed AMF0 string and returns the total bytes consumed.
+///
+/// `prefix_len` must be 2 (short string, u16 prefix) or 4 (long string, u32 prefix).
+fn skip_amf_prefixed_string(data: &[u8], pos: usize, prefix_len: usize) -> Result<usize> {
+    if pos + prefix_len > data.len() {
+        return Err(Error::parse("AMF0 string length truncated"));
+    }
+    let str_len = match prefix_len {
+        2 => u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize,
+        _ => u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize,
+    };
+    Ok(prefix_len + str_len)
+}
+
 /// Skips one AMF0 value and returns `((), bytes_consumed)`.
 ///
 /// Returns `Err` only for structurally unrecoverable situations (truncated data).
@@ -392,11 +427,7 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
             pos += 1;
         }
         AMF_STRING => {
-            if pos + 2 > data.len() {
-                return Err(Error::parse("AMF0 string length truncated"));
-            }
-            let len = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
-            pos += 2 + len;
+            pos += skip_amf_prefixed_string(data, pos, 2)?;
         }
         AMF_OBJECT => {
             pos = skip_amf_keyed_body(data, pos);
@@ -427,11 +458,7 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
         }
         AMF_LONG_STRING => {
             // 4-byte length prefix + N bytes payload
-            if pos + 4 > data.len() {
-                return Err(Error::parse("AMF0 long string length truncated"));
-            }
-            let len = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
-            pos += 4 + len;
+            pos += skip_amf_prefixed_string(data, pos, 4)?;
         }
         _ => {
             // Unknown type — cannot determine length; signal caller to stop scanning.

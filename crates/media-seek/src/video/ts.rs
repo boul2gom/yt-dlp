@@ -63,61 +63,26 @@ where
         .ok_or_else(|| Error::index_not_found("no PCR PID found in TS probe (audio-only or PAT/PMT absent)"))?;
 
     // Build coarse seek index: sample SEEK_POINTS equidistant byte positions.
-    // Phase 1: synchronously handle positions that fall within the probe buffer.
-    // Phase 2: fetch all out-of-probe positions concurrently (1 RTT instead of 64).
-    let mut points: Vec<(f64, u64)> = Vec::new();
-    let mut remote_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
-
-    for i in 0..SEEK_POINTS {
-        let byte_pos = (i.saturating_mul(total) / SEEK_POINTS) / PKT_SIZE * PKT_SIZE; // align to packet boundary
-        let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
-
-        if (byte_pos as usize) < probe.len() {
-            let end = (window_end as usize).min(probe.len());
-            let slice = &probe[byte_pos as usize..end];
-            if let Some(pcr_secs) = find_pcr_in_window(slice, pcr_pid) {
-                points.push((pcr_secs, align_to_sync(slice, byte_pos)));
-            }
-        } else {
-            remote_positions.push((byte_pos, window_end));
-        }
-    }
-
-    if !remote_positions.is_empty() {
-        let fetch_futures: Vec<_> = remote_positions
-            .iter()
-            .map(|&(byte_pos, window_end)| fetcher.fetch(byte_pos, window_end))
-            .collect();
-        let chunks = try_join_all(fetch_futures).await.map_err(Error::fetch)?;
-
-        for (chunk, &(byte_pos, _)) in chunks.iter().zip(remote_positions.iter()) {
-            if let Some(pcr_secs) = find_pcr_in_window(chunk, pcr_pid) {
-                points.push((pcr_secs, align_to_sync(chunk, byte_pos)));
-            }
-        }
-    }
+    // Phase 1 (in-probe) and Phase 2 (remote, concurrent) are handled by collect_pcr_points.
+    let points = collect_pcr_points(probe, total, pcr_pid, fetcher).await?;
 
     if points.is_empty() {
         return Err(Error::parse("no PCR timestamps found during TS binary search"));
     }
 
-    // Deduplicate by PCR time (~100 ms granularity), then sort by byte offset.
-    points.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    points.dedup_by_key(|p| (p.0 * PCR_DEDUP_SCALE) as u64);
-    points.sort_unstable_by_key(|p| p.1);
-
     // Pre-compute average inter-point duration for the last segment's end estimate.
     let avg_pcr_step = if points.len() >= 2 {
-        (points[points.len() - 1].0 - points[0].0) / (points.len() - 1) as f64
+        (points[points.len() - 1].secs - points[0].secs) / (points.len() - 1) as f64
     } else {
         0.0
     };
 
     let mut segments = Vec::with_capacity(points.len());
     for i in 0..points.len() {
-        let (start_secs, byte_offset) = points[i];
+        let start_secs = points[i].secs;
+        let byte_offset = points[i].byte_pos;
         let (end_secs, next_byte) = if i + 1 < points.len() {
-            points[i + 1]
+            (points[i + 1].secs, points[i + 1].byte_pos)
         } else {
             (start_secs + avg_pcr_step, total)
         };
@@ -134,6 +99,69 @@ where
         init_end_byte: 0, // TS has no separate init segment
         inner: Inner::Segments(segments),
     })
+}
+
+/// A sampled PCR timestamp with its aligned byte position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PcrPoint {
+    secs: f64,
+    byte_pos: u64,
+}
+
+/// Collects, deduplicates, and sorts [`PcrPoint`] samples across the stream.
+///
+/// Phase 1 reads positions that fall within `probe` synchronously.
+/// Phase 2 fetches all out-of-probe positions concurrently via `try_join_all`.
+async fn collect_pcr_points<F: RangeFetcher>(
+    probe: &[u8],
+    total: u64,
+    pcr_pid: u16,
+    fetcher: &F,
+) -> Result<Vec<PcrPoint>> {
+    let mut points: Vec<PcrPoint> = Vec::new();
+    let mut remote_positions: Vec<(u64, u64)> = Vec::new();
+
+    for i in 0..SEEK_POINTS {
+        let byte_pos = (i.saturating_mul(total) / SEEK_POINTS) / PKT_SIZE * PKT_SIZE;
+        let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
+
+        if (byte_pos as usize) < probe.len() {
+            let end = (window_end as usize).min(probe.len());
+            let slice = &probe[byte_pos as usize..end];
+            if let Some(pcr_secs) = find_pcr_in_window(slice, pcr_pid) {
+                points.push(PcrPoint {
+                    secs: pcr_secs,
+                    byte_pos: align_to_sync(slice, byte_pos),
+                });
+            }
+        } else {
+            remote_positions.push((byte_pos, window_end));
+        }
+    }
+
+    if !remote_positions.is_empty() {
+        let fetch_futures: Vec<_> = remote_positions
+            .iter()
+            .map(|&(byte_pos, window_end)| fetcher.fetch(byte_pos, window_end))
+            .collect();
+        let chunks = try_join_all(fetch_futures).await.map_err(Error::fetch)?;
+
+        for (chunk, &(byte_pos, _)) in chunks.iter().zip(remote_positions.iter()) {
+            if let Some(pcr_secs) = find_pcr_in_window(chunk, pcr_pid) {
+                points.push(PcrPoint {
+                    secs: pcr_secs,
+                    byte_pos: align_to_sync(chunk, byte_pos),
+                });
+            }
+        }
+    }
+
+    // Deduplicate by PCR time (~100 ms granularity), then sort by byte offset.
+    points.sort_unstable_by(|a, b| a.secs.partial_cmp(&b.secs).unwrap_or(std::cmp::Ordering::Equal));
+    points.dedup_by_key(|p| (p.secs * PCR_DEDUP_SCALE) as u64);
+    points.sort_unstable_by_key(|p| p.byte_pos);
+
+    Ok(points)
 }
 
 /// Reads the PAT from `data` to find the PMT PID, then reads the PMT to find the PCR PID.

@@ -702,6 +702,38 @@ fn parse_stss(payload: &[u8]) -> Vec<u32> {
     samples
 }
 
+/// Accumulates variable-size `stsz` entries into a per-chunk byte total.
+fn accumulate_variable_chunk_sizes(
+    payload: &[u8],
+    stsc: &[StscEntry],
+    chunk_count: usize,
+    sample_count: usize,
+) -> Vec<u64> {
+    let data_start = STSZ_MIN;
+    let available = (payload.len() - data_start) / STSZ_VAR_ENTRY_SIZE;
+    let entry_count = sample_count.min(available);
+
+    let sample_sizes: Vec<u64> = (0..entry_count)
+        .map(|i| {
+            let off = data_start + i * STSZ_VAR_ENTRY_SIZE;
+            u32::from_be_bytes(payload[off..off + 4].try_into().unwrap()) as u64
+        })
+        .collect();
+
+    let mut sizes = vec![0u64; chunk_count];
+    let mut sample_idx = 0usize;
+    for chunk_1based in 1..=chunk_count {
+        let spc = samples_per_chunk_for(stsc, chunk_1based as u32) as usize;
+        for _ in 0..spc {
+            if sample_idx < sample_sizes.len() {
+                sizes[chunk_1based - 1] += sample_sizes[sample_idx];
+                sample_idx += 1;
+            }
+        }
+    }
+    sizes
+}
+
 /// Computes the total byte size for each chunk from the `stsz` box.
 ///
 /// Returns a `Vec<u64>` of length `chunk_count` where `[i]` is the byte total
@@ -720,32 +752,7 @@ fn parse_stsz_chunk_sizes(payload: &[u8], stsc: &[StscEntry], chunk_count: usize
             .map(|c| samples_per_chunk_for(stsc, c as u32) as u64 * fixed_size as u64)
             .collect()
     } else {
-        // Variable sizes: read all entries and sum per chunk.
-        let data_start = STSZ_MIN;
-        let available = (payload.len() - data_start) / STSZ_VAR_ENTRY_SIZE;
-        let entry_count = sample_count.min(available);
-
-        // Pre-read all sample sizes.
-        let sample_sizes: Vec<u64> = (0..entry_count)
-            .map(|i| {
-                let off = data_start + i * STSZ_VAR_ENTRY_SIZE;
-                u32::from_be_bytes(payload[off..off + 4].try_into().unwrap()) as u64
-            })
-            .collect();
-
-        // Accumulate per chunk.
-        let mut sizes = vec![0u64; chunk_count];
-        let mut sample_idx = 0usize;
-        for chunk_1based in 1..=chunk_count {
-            let spc = samples_per_chunk_for(stsc, chunk_1based as u32) as usize;
-            for _ in 0..spc {
-                if sample_idx < sample_sizes.len() {
-                    sizes[chunk_1based - 1] += sample_sizes[sample_idx];
-                    sample_idx += 1;
-                }
-            }
-        }
-        sizes
+        accumulate_variable_chunk_sizes(payload, stsc, chunk_count, sample_count)
     }
 }
 
@@ -787,6 +794,31 @@ fn total_samples_from_stts(stts: &[SttsEntry]) -> u64 {
     stts.iter().map(|e| e.count as u64).sum()
 }
 
+/// Precomputed run data for one `stsc` entry.
+#[derive(Debug, Clone, Copy)]
+struct StscRunInfo {
+    /// Samples per chunk for this run.
+    samples_per_chunk: u32,
+    /// Total samples covered by this run.
+    samples_in_run: u32,
+}
+
+/// Computes [`StscRunInfo`] for entry `i` given the total `chunk_count`.
+fn stsc_run_info(stsc: &[StscEntry], i: usize, chunk_count: usize) -> StscRunInfo {
+    let next_first_chunk = if i + 1 < stsc.len() {
+        stsc[i + 1].first_chunk
+    } else {
+        chunk_count as u32 + 1
+    };
+    let spc = stsc[i].samples_per_chunk;
+    let chunks_in_run = next_first_chunk.saturating_sub(stsc[i].first_chunk);
+    let samples_in_run = (chunks_in_run as u64).saturating_mul(spc as u64) as u32;
+    StscRunInfo {
+        samples_per_chunk: spc,
+        samples_in_run,
+    }
+}
+
 /// Maps a 1-based sample number to a 0-based chunk index using the `stsc` table.
 ///
 /// Returns `None` if `stsc` or `chunk_offsets` are empty.
@@ -797,19 +829,11 @@ fn sample_to_chunk_idx(stsc: &[StscEntry], chunk_offsets: &[u64], sample_num: u3
     let chunk_count = chunk_offsets.len();
     let mut sample_cursor: u32 = 1; // first sample of current chunk
     for i in 0..stsc.len() {
-        let next_first_chunk = if i + 1 < stsc.len() {
-            stsc[i + 1].first_chunk
-        } else {
-            chunk_count as u32 + 1
-        };
-        let spc = stsc[i].samples_per_chunk;
-        let chunks_in_run = next_first_chunk.saturating_sub(stsc[i].first_chunk);
-        let samples_in_run = (chunks_in_run as u64).saturating_mul(spc as u64);
-
-        let run_end_sample = sample_cursor.saturating_add(samples_in_run as u32);
+        let run = stsc_run_info(stsc, i, chunk_count);
+        let run_end_sample = sample_cursor.saturating_add(run.samples_in_run);
         if sample_num < run_end_sample {
             // sample is in this run
-            let offset_into_run = (sample_num - sample_cursor) / spc;
+            let offset_into_run = (sample_num - sample_cursor) / run.samples_per_chunk;
             let chunk_1based = stsc[i].first_chunk + offset_into_run;
             return Some(chunk_1based.saturating_sub(1) as usize);
         }
@@ -889,6 +913,19 @@ fn compute_segment_byte_size(tables: &MoovTables, chunk_idx: usize, next_chunk_i
     }
 }
 
+/// Fills in `end_secs` for each segment from the next segment's `start_secs`.
+///
+/// The last segment receives `total_secs` as its end time.
+fn fixup_segment_end_times(segments: &mut [SegmentEntry], total_secs: f64) {
+    if let Some(last) = segments.last_mut() {
+        last.end_secs = total_secs;
+    }
+    for i in (0..segments.len().saturating_sub(1)).rev() {
+        let next_start = segments[i + 1].start_secs;
+        segments[i].end_secs = next_start;
+    }
+}
+
 /// Mode 1: keyframe-based segments using the `stss` sync-sample table.
 fn build_keyframe_segments(
     tables: &MoovTables,
@@ -923,15 +960,7 @@ fn build_keyframe_segments(
         });
     }
 
-    // Fix up end_secs from next segment's start_secs.
-    if let Some(last) = segments.last_mut() {
-        last.end_secs = total_secs;
-    }
-    for i in (0..segments.len().saturating_sub(1)).rev() {
-        let next_start = segments[i + 1].start_secs;
-        segments[i].end_secs = next_start;
-    }
-
+    fixup_segment_end_times(&mut segments, total_secs);
     segments
 }
 
@@ -954,13 +983,6 @@ fn build_chunk_segments(tables: &MoovTables, timescale: f64, total_secs: f64) ->
         });
     }
 
-    if let Some(last) = segments.last_mut() {
-        last.end_secs = total_secs;
-    }
-    for i in (0..segments.len().saturating_sub(1)).rev() {
-        let next_start = segments[i + 1].start_secs;
-        segments[i].end_secs = next_start;
-    }
-
+    fixup_segment_end_times(&mut segments, total_secs);
     segments
 }

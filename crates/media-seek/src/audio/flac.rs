@@ -155,6 +155,46 @@ fn parse_seektable_block(block: &[u8]) -> Vec<(u64, u64, u16)> {
     points
 }
 
+/// The next-segment boundary resolved for a single SEEKTABLE entry.
+#[derive(Debug)]
+struct NextPointBounds {
+    next_sample: u64,
+    next_byte_offset: u64,
+}
+
+/// Determines the next seek-point boundary for entry `i` in `points`.
+///
+/// Returns `None` when there is exactly one seek point and `total_samples` is
+/// unknown — the caller should fall back to a linear index in that case.
+fn next_point_bounds(
+    points: &[(u64, u64, u16)],
+    i: usize,
+    total_samples: u64,
+    audio_start: u64,
+    total_size: Option<u64>,
+    byte_offset: u64,
+) -> Option<NextPointBounds> {
+    if i + 1 < points.len() {
+        return Some(NextPointBounds {
+            next_sample: points[i + 1].0,
+            next_byte_offset: audio_start + points[i + 1].1,
+        });
+    }
+    let last_sample = if total_samples > 0 {
+        total_samples
+    } else if i > 0 {
+        let prev_sample = points[i - 1].0;
+        let gap = points[i].0.saturating_sub(prev_sample);
+        points[i].0.saturating_add(gap)
+    } else {
+        return None; // Single seek point, unknown total — caller falls back to linear.
+    };
+    Some(NextPointBounds {
+        next_sample: last_sample,
+        next_byte_offset: total_size.unwrap_or(byte_offset),
+    })
+}
+
 /// Builds a segmented `ContainerIndex` from SEEKTABLE seek points.
 ///
 /// Falls back to a linear index when only a single seek point exists and
@@ -172,31 +212,20 @@ fn build_seektable_segments(
         let byte_offset = audio_start + stream_off;
         let start_secs = sample_num as f64 / sample_rate as f64;
 
-        let (next_sample, next_off) = if i + 1 < points.len() {
-            (points[i + 1].0, audio_start + points[i + 1].1)
-        } else {
-            let last_sample = if total_samples > 0 {
-                total_samples
-            } else if i > 0 {
-                let prev_sample = points[i - 1].0;
-                let gap = sample_num.saturating_sub(prev_sample);
-                sample_num.saturating_add(gap)
-            } else {
-                // Single seek point, unknown total — cannot estimate duration.
-                tracing::debug!("✅ FLAC index parsed (mode=linear-fallback, single-seekpoint)");
-                return Ok(ContainerIndex {
-                    init_end_byte: audio_start.saturating_sub(1),
-                    inner: Inner::Linear {
-                        byte_rate: FALLBACK_BYTE_RATE,
-                        block_align: 1,
-                    },
-                });
-            };
-            (last_sample, total_size.unwrap_or(byte_offset))
+        let Some(bounds) = next_point_bounds(points, i, total_samples, audio_start, total_size, byte_offset) else {
+            // Single seek point, unknown total — cannot estimate duration.
+            tracing::debug!("✅ FLAC index parsed (mode=linear-fallback, single-seekpoint)");
+            return Ok(ContainerIndex {
+                init_end_byte: audio_start.saturating_sub(1),
+                inner: Inner::Linear {
+                    byte_rate: FALLBACK_BYTE_RATE,
+                    block_align: 1,
+                },
+            });
         };
 
-        let end_secs = next_sample as f64 / sample_rate as f64;
-        let byte_size = next_off.saturating_sub(byte_offset);
+        let end_secs = bounds.next_sample as f64 / sample_rate as f64;
+        let byte_size = bounds.next_byte_offset.saturating_sub(byte_offset);
         segments.push(SegmentEntry {
             start_secs,
             end_secs,

@@ -145,6 +145,29 @@ pub(crate) fn parse_wav(probe: &[u8]) -> Result<ContainerIndex> {
     })
 }
 
+/// Fields extracted from a WAV `fmt ` chunk payload.
+#[derive(Debug)]
+struct WavFmtFields {
+    channels: u16,
+    sample_rate: u32,
+    byte_rate: f64,
+    block_align: u64,
+    bits_per_sample: u16,
+}
+
+/// Reads the five key fields from a `fmt ` chunk payload starting at `offset` in `probe`.
+///
+/// Assumes `probe[offset..]` is at least `WAV_FMT_MIN_SIZE` bytes.
+fn parse_fmt_chunk(probe: &[u8], offset: usize) -> WavFmtFields {
+    WavFmtFields {
+        channels: u16::from_le_bytes(probe[offset + 2..offset + 4].try_into().unwrap()),
+        sample_rate: u32::from_le_bytes(probe[offset + 4..offset + 8].try_into().unwrap()),
+        byte_rate: u32::from_le_bytes(probe[offset + 8..offset + 12].try_into().unwrap()) as f64,
+        block_align: u16::from_le_bytes(probe[offset + 12..offset + 14].try_into().unwrap()) as u64,
+        bits_per_sample: u16::from_le_bytes(probe[offset + 14..offset + 16].try_into().unwrap()),
+    }
+}
+
 /// Scans WAV chunks starting at byte 12 (after the RIFF/RF64/BW64 + WAVE header).
 ///
 /// Returns the parsed fields from the `fmt ` chunk and the byte offset of the `data` chunk.
@@ -192,11 +215,12 @@ fn scan_wav_chunks(probe: &[u8]) -> Result<WavChunkResult> {
             // 4  byte_rate   (nAvgBytesPerSec) — authoritative for all formats
             // 2  block_align (nBlockAlign)      — authoritative for all formats
             // 2  bits_per_sample
-            channels = u16::from_le_bytes(probe[pos + 2..pos + 4].try_into().unwrap());
-            sample_rate = u32::from_le_bytes(probe[pos + 4..pos + 8].try_into().unwrap());
-            byte_rate = u32::from_le_bytes(probe[pos + 8..pos + 12].try_into().unwrap()) as f64;
-            block_align = u16::from_le_bytes(probe[pos + 12..pos + 14].try_into().unwrap()) as u64;
-            bits_per_sample = u16::from_le_bytes(probe[pos + 14..pos + 16].try_into().unwrap());
+            let fmt = parse_fmt_chunk(probe, pos);
+            channels = fmt.channels;
+            sample_rate = fmt.sample_rate;
+            byte_rate = fmt.byte_rate;
+            block_align = fmt.block_align;
+            bits_per_sample = fmt.bits_per_sample;
             fmt_found = true;
         } else if chunk_id == b"data" {
             data_offset = pos as u64; // first byte of the audio data
