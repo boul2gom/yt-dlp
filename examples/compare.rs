@@ -8,7 +8,7 @@
 //! # Usage
 //!
 //! ```bash
-//! cargo bench --bench compare --features profiling -- <URL> [--runs <N>]
+//! cargo run --example compare --features profiling -- <URL> [--runs <N>]
 //! ```
 //!
 //! ## Options
@@ -21,14 +21,26 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use console::style;
+use console::{Term, style};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use tracing_subscriber::EnvFilter;
 use yt_dlp::download::SpeedProfile;
 use yt_dlp::executor::Executor;
 use yt_dlp::model::Video;
 use yt_dlp::model::format::FormatType;
 use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use yt_dlp::{Downloader, VideoSelection};
+
+// Default number of download repetitions per scenario.
+const DEFAULT_RUNS: usize = 3;
+// Spinner animation tick interval in milliseconds.
+const SPINNER_TICK_MILLIS: u64 = 80;
+// Timeout for each raw yt-dlp download run, in seconds.
+const RAW_DOWNLOAD_TIMEOUT_SECS: u64 = 300;
+// Timeout for the initial info-json dump, in seconds.
+const INFO_JSON_TIMEOUT_SECS: u64 = 120;
+// Number of measurements per scenario: raw + Conservative + Balanced + Aggressive.
+const PROFILES_PER_SCENARIO: usize = 4;
 
 struct Args {
     url: String,
@@ -40,7 +52,7 @@ struct Args {
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
     let mut url: Option<String> = None;
-    let mut runs = 3usize;
+    let mut runs = DEFAULT_RUNS;
     let mut cookies: Option<String> = None;
     let mut cookies_from_browser: Option<String> = None;
 
@@ -338,10 +350,14 @@ async fn raw_download(args: RawDownloadArgs<'_>) -> Vec<Duration> {
         ]);
 
         let start = Instant::now();
-        Executor::new(args.yt_dlp_bin, cmd_args, Duration::from_secs(300))
-            .execute()
-            .await
-            .expect("raw yt-dlp download failed");
+        Executor::new(
+            args.yt_dlp_bin,
+            cmd_args,
+            Duration::from_secs(RAW_DOWNLOAD_TIMEOUT_SECS),
+        )
+        .execute()
+        .await
+        .expect("raw yt-dlp download failed");
         let elapsed = start.elapsed();
         samples.push(elapsed);
 
@@ -479,7 +495,7 @@ async fn build_downloader_with_profile(
 }
 
 fn print_header(url: &str, runs: usize, video_title: &str) {
-    let term_width = console::Term::stdout().size().1 as usize;
+    let term_width = Term::stdout().size().1 as usize;
     let width = term_width.min(70);
     let line = "─".repeat(width);
 
@@ -536,7 +552,7 @@ fn print_scenario_result(label: &str, raw_avg: Duration, cons: Duration, bal: Du
 }
 
 fn print_styled_table(section: &Section, rows: &[RowResult]) {
-    let term_width = console::Term::stdout().size().1 as usize;
+    let term_width = Term::stdout().size().1 as usize;
     let width = term_width.min(90);
     let sep = "─".repeat(width);
 
@@ -582,7 +598,7 @@ fn print_markdown_tables(sections: &[(&Section, Vec<RowResult>)]) {
         "  {}",
         style("📋 Markdown tables (copy-paste into README)").bold().green()
     );
-    let term_width = console::Term::stdout().size().1 as usize;
+    let term_width = Term::stdout().size().1 as usize;
     let sep = "─".repeat(term_width.min(70));
     println!("  {}", style(&sep).dim());
     println!();
@@ -607,7 +623,7 @@ fn print_markdown_tables(sections: &[(&Section, Vec<RowResult>)]) {
 }
 
 fn print_summary(all_rows: &[&RowResult], total_elapsed: Duration) {
-    let term_width = console::Term::stdout().size().1 as usize;
+    let term_width = Term::stdout().size().1 as usize;
     let sep = "─".repeat(term_width.min(70));
 
     println!();
@@ -648,10 +664,7 @@ async fn main() {
     let args = parse_args();
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
         .init();
 
     let libs_dir = PathBuf::from("profiling-libs");
@@ -674,7 +687,7 @@ async fn main() {
 
     let setup_spinner = mp.add(ProgressBar::new_spinner());
     setup_spinner.set_style(spinner_style());
-    setup_spinner.enable_steady_tick(Duration::from_millis(80));
+    setup_spinner.enable_steady_tick(Duration::from_millis(SPINNER_TICK_MILLIS));
     setup_spinner.set_message("🔧 Setting up downloaders...");
 
     let dl_conservative = build_downloader_with_profile(
@@ -710,7 +723,7 @@ async fn main() {
 
     let meta_spinner = mp.add(ProgressBar::new_spinner());
     meta_spinner.set_style(spinner_style());
-    meta_spinner.enable_steady_tick(Duration::from_millis(80));
+    meta_spinner.enable_steady_tick(Duration::from_millis(SPINNER_TICK_MILLIS));
     meta_spinner.set_message("📡 Fetching video metadata...");
 
     let video = dl_balanced
@@ -732,7 +745,7 @@ async fn main() {
     if let Some(ref b) = args.cookies_from_browser {
         dump_args.push(format!("--cookies-from-browser={}", b));
     }
-    let dump_output = Executor::new(&yt_dlp_bin, dump_args, Duration::from_secs(120))
+    let dump_output = Executor::new(&yt_dlp_bin, dump_args, Duration::from_secs(INFO_JSON_TIMEOUT_SECS))
         .execute()
         .await
         .expect("failed to dump json with yt-dlp");
@@ -747,7 +760,7 @@ async fn main() {
 
     let sections = build_sections();
     let total_scenarios: usize = sections.iter().map(|s| s.scenarios.len()).sum();
-    let total_measurements = total_scenarios * 4; // raw + 3 profiles
+    let total_measurements = total_scenarios * PROFILES_PER_SCENARIO;
     let mut global_idx = 0usize;
     let mut all_section_results: Vec<(&Section, Vec<RowResult>)> = Vec::new();
     let global_start = Instant::now();
@@ -761,7 +774,7 @@ async fn main() {
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "🏁"])
         .progress_chars("━━╸"),
     );
-    overall_pb.enable_steady_tick(Duration::from_millis(80));
+    overall_pb.enable_steady_tick(Duration::from_millis(SPINNER_TICK_MILLIS));
 
     for section in &sections {
         print_section_header(section.emoji, section.title);
@@ -772,11 +785,11 @@ async fn main() {
             global_idx += 1;
             let slug = scenario.label.to_lowercase().replace(' ', "-").replace(['(', ')'], "");
 
-            // Per-scenario progress bar (4 measurements × runs)
-            let total_runs = (args.runs * 4) as u64;
+            // Per-scenario progress bar (PROFILES_PER_SCENARIO measurements × runs)
+            let total_runs = (args.runs * PROFILES_PER_SCENARIO) as u64;
             let scenario_pb = mp.add(ProgressBar::new(total_runs));
             scenario_pb.set_style(progress_style());
-            scenario_pb.enable_steady_tick(Duration::from_millis(80));
+            scenario_pb.enable_steady_tick(Duration::from_millis(SPINNER_TICK_MILLIS));
             scenario_pb.set_message(format!("⏳ [{}/{}] {}", global_idx, total_scenarios, scenario.label));
 
             // 1) Raw yt-dlp

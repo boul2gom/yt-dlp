@@ -141,7 +141,6 @@ cfg-if = "1.0.4"
 tracing = "0.1.44"
 
 [dev-dependencies]
-criterion = { version = "0.8.2", features = ["html_reports", "async_tokio"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indicatif = "0.18.4"
 console = "0.16.2"
@@ -153,17 +152,13 @@ assert_matches = "1.5"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4"
 
-[[bench]]
-name = "benchmarks"
-harness = false
+# ==================== Examples ====================
 
-[[bench]]
+[[example]]
 name = "compare"
-harness = false
 
-[[bench]]
+[[example]]
 name = "profiling"
-harness = false
 
 # ==================== Test Harnesses ====================
 

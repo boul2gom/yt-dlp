@@ -8,6 +8,8 @@
 use std::future::Future;
 use std::path::PathBuf;
 
+#[cfg(persistent_cache)]
+use crate::cache::config::{CacheConfig, PersistentBackendKind};
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
@@ -317,8 +319,8 @@ pub trait FileBackend: Send + Sync + std::fmt::Debug {
 
 /// Enum dispatch for persistent video backends.
 ///
-/// Exactly one variant is compiled, determined by the enabled persistent feature.
-/// The compile_error in `cache/mod.rs` ensures at most one persistent backend.
+/// All features' variants are included when their respective feature is enabled.
+/// The active backend is selected at construction time via `PersistentBackendKind::resolve`.
 #[cfg(persistent_cache)]
 #[derive(Debug)]
 pub enum PersistentVideoBackend {
@@ -358,35 +360,28 @@ pub enum PersistentFileBackend {
 
 #[cfg(persistent_cache)]
 impl PersistentVideoBackend {
-    /// Creates the persistent video backend based on the enabled feature.
+    /// Creates the persistent video backend for the selected kind.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory for file-based backends
-    /// * `redis_url` - Connection URL for Redis backend
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
     /// * `ttl` - Time-to-live in seconds
     ///
     /// # Errors
     ///
-    /// Returns an error if backend initialization fails.
-    pub async fn new(
-        cache_dir: PathBuf,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        #[cfg(feature = "cache-json")]
-        {
-            Ok(Self::Json(JsonVideoCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redb")]
-        {
-            Ok(Self::Redb(RedbVideoCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redis")]
-        {
-            let _ = cache_dir;
-            let url = redis_url.unwrap_or("redis://127.0.0.1/");
-            Ok(Self::Redis(RedisVideoCache::new(url, ttl).await?))
+    /// Returns `Error::AmbiguousCacheBackend` if `kind` is `None` and multiple backends are compiled in.
+    /// Returns an error if the selected backend fails to initialize.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        match PersistentBackendKind::resolve(config.persistent_backend)? {
+            #[cfg(feature = "cache-json")]
+            PersistentBackendKind::Json => Ok(Self::Json(JsonVideoCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redb")]
+            PersistentBackendKind::Redb => Ok(Self::Redb(RedbVideoCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redis")]
+            PersistentBackendKind::Redis => {
+                let url = config.redis_url.as_deref().unwrap_or("redis://127.0.0.1/");
+                Ok(Self::Redis(RedisVideoCache::new(url, ttl).await?))
+            }
         }
     }
 }
@@ -453,35 +448,28 @@ impl VideoBackend for PersistentVideoBackend {
 
 #[cfg(persistent_cache)]
 impl PersistentPlaylistBackend {
-    /// Creates the persistent playlist backend based on the enabled feature.
+    /// Creates the persistent playlist backend for the selected kind.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory for file-based backends
-    /// * `redis_url` - Connection URL for Redis backend
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
     /// * `ttl` - Time-to-live in seconds
     ///
     /// # Errors
     ///
-    /// Returns an error if backend initialization fails.
-    pub async fn new(
-        cache_dir: PathBuf,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        #[cfg(feature = "cache-json")]
-        {
-            Ok(Self::Json(JsonPlaylistCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redb")]
-        {
-            Ok(Self::Redb(RedbPlaylistCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redis")]
-        {
-            let _ = cache_dir;
-            let url = redis_url.unwrap_or("redis://127.0.0.1/");
-            Ok(Self::Redis(RedisPlaylistCache::new(url, ttl).await?))
+    /// Returns `Error::AmbiguousCacheBackend` if `kind` is `None` and multiple backends are compiled in.
+    /// Returns an error if the selected backend fails to initialize.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        match PersistentBackendKind::resolve(config.persistent_backend)? {
+            #[cfg(feature = "cache-json")]
+            PersistentBackendKind::Json => Ok(Self::Json(JsonPlaylistCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redb")]
+            PersistentBackendKind::Redb => Ok(Self::Redb(RedbPlaylistCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redis")]
+            PersistentBackendKind::Redis => {
+                let url = config.redis_url.as_deref().unwrap_or("redis://127.0.0.1/");
+                Ok(Self::Redis(RedisPlaylistCache::new(url, ttl).await?))
+            }
         }
     }
 }
@@ -559,34 +547,30 @@ impl PlaylistBackend for PersistentPlaylistBackend {
 
 #[cfg(persistent_cache)]
 impl PersistentFileBackend {
-    /// Creates the persistent file backend based on the enabled feature.
+    /// Creates the persistent file backend for the selected kind.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory for file-based backends
-    /// * `redis_url` - Connection URL for Redis backend
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
     /// * `ttl` - Time-to-live in seconds
     ///
     /// # Errors
     ///
-    /// Returns an error if backend initialization fails.
-    pub async fn new(
-        cache_dir: PathBuf,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        #[cfg(feature = "cache-json")]
-        {
-            Ok(Self::Json(JsonFileCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redb")]
-        {
-            Ok(Self::Redb(RedbFileCache::new(cache_dir, ttl).await?))
-        }
-        #[cfg(feature = "cache-redis")]
-        {
-            let url = redis_url.unwrap_or("redis://127.0.0.1/");
-            Ok(Self::Redis(RedisFileCache::new(url, cache_dir, ttl).await?))
+    /// Returns `Error::AmbiguousCacheBackend` if `kind` is `None` and multiple backends are compiled in.
+    /// Returns an error if the selected backend fails to initialize.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        match PersistentBackendKind::resolve(config.persistent_backend)? {
+            #[cfg(feature = "cache-json")]
+            PersistentBackendKind::Json => Ok(Self::Json(JsonFileCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redb")]
+            PersistentBackendKind::Redb => Ok(Self::Redb(RedbFileCache::new(config.cache_dir.clone(), ttl).await?)),
+            #[cfg(feature = "cache-redis")]
+            PersistentBackendKind::Redis => {
+                let url = config.redis_url.as_deref().unwrap_or("redis://127.0.0.1/");
+                Ok(Self::Redis(
+                    RedisFileCache::new(url, config.cache_dir.clone(), ttl).await?,
+                ))
+            }
         }
     }
 }

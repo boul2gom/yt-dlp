@@ -11,6 +11,8 @@
 
 // Core types
 // Cache types (if enabled)
+#[cfg(persistent_cache)]
+pub use crate::cache::PersistentBackendKind;
 #[cfg(cache)]
 pub use crate::cache::{CacheConfig, CacheLayer, DownloadCache, VideoCache};
 // Client types (new architecture)

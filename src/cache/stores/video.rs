@@ -3,8 +3,6 @@
 //! Provides `CachedVideo`, `CachedFile`, `CachedThumbnail` data structures and the
 //! `VideoCache` wrapper that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
 
 use crate::cache::FormatPreferences;
@@ -13,6 +11,7 @@ use crate::cache::backend::PersistentVideoBackend;
 use crate::cache::backend::VideoBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaVideoCache;
+use crate::cache::config::CacheConfig;
 use crate::error::Result;
 use crate::model::{Video, utils};
 use crate::utils::current_timestamp;
@@ -224,8 +223,7 @@ impl VideoCache {
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory where cache data will be stored.
-    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
     /// * `ttl` - Time-to-live for cache entries in seconds (optional).
     ///
     /// # Returns
@@ -234,25 +232,15 @@ impl VideoCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if backend initialization fails.
-    pub async fn new(
-        cache_dir: PathBuf,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        tracing::debug!(cache_dir = ?cache_dir, ttl = ?ttl, "⚙️ Creating video cache");
+    /// Returns an error if backend initialization fails or the backend is ambiguous.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        tracing::debug!(cache_dir = ?config.cache_dir, ttl = ?ttl, "⚙️ Creating video cache");
 
         Ok(Self {
             #[cfg(feature = "cache-memory")]
-            memory: MokaVideoCache::new(cache_dir.clone(), ttl).await?,
+            memory: MokaVideoCache::new(config.cache_dir.clone(), ttl).await?,
             #[cfg(persistent_cache)]
-            persistent: PersistentVideoBackend::new(
-                cache_dir,
-                #[cfg(feature = "cache-redis")]
-                redis_url,
-                ttl,
-            )
-            .await?,
+            persistent: PersistentVideoBackend::new(config, ttl).await?,
         })
     }
 

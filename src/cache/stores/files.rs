@@ -15,6 +15,7 @@ use crate::cache::backend::FileBackend;
 use crate::cache::backend::PersistentFileBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaFileCache;
+use crate::cache::config::CacheConfig;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedType};
 use crate::error::Result;
 use crate::model::format::Format;
@@ -57,15 +58,12 @@ pub struct DownloadCache {
 }
 
 impl DownloadCache {
-    /// Default TTL: 7 days
-    const DEFAULT_TTL: u64 = 7 * 24 * 60 * 60;
-
     /// Create a new DownloadCache with default TTL.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory where cache data will be stored.
-    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
+    /// * `ttl` - Time-to-live for cache entries in seconds (optional).
     ///
     /// # Returns
     ///
@@ -73,28 +71,15 @@ impl DownloadCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if the backend initialization fails.
-    pub async fn new(
-        cache_dir: impl Into<PathBuf>,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl: Option<u64>,
-    ) -> Result<Self> {
-        let cache_dir = cache_dir.into();
-        let ttl_secs = ttl.unwrap_or(Self::DEFAULT_TTL);
-
-        tracing::debug!(cache_dir = ?cache_dir, ttl = ttl_secs, "⚙️ Creating download cache");
+    /// Returns an error if the backend initialization fails or the backend is ambiguous.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        tracing::debug!(cache_dir = ?config.cache_dir, ttl = ?ttl, "⚙️ Creating download cache");
 
         Ok(Self {
             #[cfg(feature = "cache-memory")]
-            memory: MokaFileCache::new(cache_dir.clone(), Some(ttl_secs)).await?,
+            memory: MokaFileCache::new(config.cache_dir.clone(), ttl).await?,
             #[cfg(persistent_cache)]
-            persistent: PersistentFileBackend::new(
-                cache_dir,
-                #[cfg(feature = "cache-redis")]
-                redis_url,
-                Some(ttl_secs),
-            )
-            .await?,
+            persistent: PersistentFileBackend::new(config, ttl).await?,
         })
     }
 

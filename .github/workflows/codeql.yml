@@ -45,8 +45,8 @@ jobs:
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-prebuild-${{ runner.os }}-
+          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-full-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -57,7 +57,7 @@ jobs:
           languages: rust
 
       - name: 🛠️ Build workspace
-        run: cargo build --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"
+        run: cargo build --workspace --all-features
 
       - name: 🔒 Perform CodeQL Analysis
         uses: github/codeql-action/analyze@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6

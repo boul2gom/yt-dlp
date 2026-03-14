@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # ─────────────────────────────────────────────────────────────────────────────
-# find_duplicates.py — Scan a directory for duplicated blocks of code.
+# find-duplicates.py — Scan a directory for duplicated blocks of code.
 #                      Helps identify areas for refactoring.
 #
 # Usage:
 #   ./scripts/find-duplicates.py [--window-size 15] [--dir src]
 # ─────────────────────────────────────────────────────────────────────────────
 
-import os
 import argparse
+import os
 from collections import defaultdict
 
 
+# ── Helper functions ──────────────────────────────────────────────────────────
+
 def get_files(root_dir):
+    """Recursively yield paths to all .rs files under root_dir."""
     for dirpath, _, filenames in os.walk(root_dir):
         for f in filenames:
             if f.endswith('.rs'):
@@ -33,6 +36,7 @@ def normalize_lines(file_path):
 
 
 def get_blocks(file_path, window_size=15):
+    """Yield (block, location) tuples for all sliding windows in the file."""
     normalized = normalize_lines(file_path)
 
     for i in range(len(normalized) - window_size + 1):
@@ -40,6 +44,8 @@ def get_blocks(file_path, window_size=15):
         start_line = normalized[i][0]
         yield block, (file_path, start_line)
 
+
+# ── Duplicate detection ───────────────────────────────────────────────────────
 
 def is_genuine_duplicate(loc_a, loc_b):
     """Check if two locations represent a genuine duplicate (different files or far apart)."""
@@ -71,6 +77,8 @@ def find_duplicate_pairs(duplicate_blocks):
 
     return pairs
 
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Scan a directory for duplicated blocks of code.")

@@ -250,6 +250,16 @@ pub enum Error {
     #[error("Cache entry expired for {key}")]
     CacheExpired { key: String },
 
+    /// Multiple persistent cache backends are compiled in but none was selected.
+    ///
+    /// Set `CacheConfig::persistent_backend` explicitly when more than one of
+    /// `cache-json`, `cache-redb`, or `cache-redis` features are active.
+    #[cfg(persistent_cache)]
+    #[error(
+        "ambiguous persistent cache backend: {count} backends compiled in, set `persistent_backend` in CacheConfig"
+    )]
+    AmbiguousCacheBackend { count: usize },
+
     /// A checksum verification failed after downloading.
     #[error("Checksum mismatch for {path}: expected {expected}, got {actual}")]
     ChecksumMismatch {
@@ -764,6 +774,21 @@ impl Error {
         let key_str = key.into();
         tracing::debug!(key = key_str, "🔍 Cache entry expired");
         Self::CacheExpired { key: key_str }
+    }
+
+    /// Create an ambiguous cache backend error.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of persistent backends compiled in
+    ///
+    /// # Returns
+    ///
+    /// An Error::AmbiguousCacheBackend variant
+    #[cfg(persistent_cache)]
+    pub fn ambiguous_cache_backend(count: usize) -> Self {
+        tracing::error!(count, "🔍 Ambiguous persistent cache backend");
+        Self::AmbiguousCacheBackend { count }
     }
 }
 

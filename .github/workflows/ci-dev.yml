@@ -78,6 +78,33 @@ jobs:
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
 
+  sonarcloud-analysis:
+    name: 🔍 SonarCloud analysis
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 🔍 Scan with SonarCloud
+        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
   dependency-review:
     name: 📦 Dependency review
     if: github.event_name == 'pull_request'
@@ -97,7 +124,7 @@ jobs:
 
       - name: 📦 Review dependencies
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
-        
+
   check-spell:
     name: 📝 Check spelling
     runs-on: ubuntu-latest
@@ -143,177 +170,15 @@ jobs:
       - name: 💄 Check formatting
         run: cargo +nightly fmt --all -- --check
 
-  prebuild:
-    name: "🔥 Prebuild dependencies"
+  build-and-test:
+    name: 🦀 Build & Test
     runs-on: ubuntu-latest
     needs: [check-spell]
     env:
       CLICOLOR: 1
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: "prebuild"
-          cache-targets: false
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-
-      - name: 🔥 Compile all dependencies
-        run: cargo build --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
-
-      - name: 📦 Save compiled target directory
-        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-        with:
-          path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-
-  build-and-test:
-    name: 🦀 Build & Test (${{ matrix.name }})
-    runs-on: ubuntu-latest
-    needs: [check-spell, prebuild]
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: default
-            shared_key: "default"
-            cargo_features: ""
-            run_integration: true
-          - name: full-json
-            shared_key: "full-json"
-            cargo_features: "--features cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
-            run_integration: true
-          - name: full-redb
-            shared_key: "full-redb"
-            cargo_features: "--features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording,live-streaming"
-            run_integration: true
-          - name: full-redis
-            shared_key: "full-redis"
-            cargo_features: "--features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming"
-            run_integration: false
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-          disable-telemetry: ${{ matrix.name != 'default' }}
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-        with:
-          disable_annotations: ${{ matrix.name != 'default' }}
-
-      - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: ${{ matrix.shared_key }}
-          cache-targets: false
-
-      - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-        with:
-          path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-prebuild-${{ runner.os }}-
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-        with:
-          components: clippy
-
-      - name: 🦀 Clippy
-        run: cargo clippy --workspace ${{ matrix.cargo_features }} -- -D warnings
-
-      - name: 🧪 Run unit tests
-        run: cargo test --test unit ${{ matrix.cargo_features }}
-
-      - name: 🔗 Run integration tests
-        if: matrix.run_integration
-        run: cargo test --test integration ${{ matrix.cargo_features }}
-
-  doc-tests:
-    name: 📚 Test docs
-    needs: [prebuild]
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: "full-json"
-          cache-targets: false
-
-      - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-        with:
-          path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-prebuild-${{ runner.os }}-
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-
-      - name: 📚 Run doc tests
-        run: cargo test --doc --workspace --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
-
-  integration-tests-redis:
-    name: 🔗 Integration tests (cache-redis)
-    needs: [prebuild]
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
+      REDIS_URL: redis://localhost:6379
     permissions:
       contents: read
     services:
@@ -345,27 +210,33 @@ jobs:
       - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          shared-key: "full-redis"
+          shared-key: "full"
           cache-targets: false
 
       - name: 📦 Restore compiled dependencies
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-prebuild-${{ runner.os }}-
+          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-full-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          components: clippy
 
-      - name: 🔗 Run integration tests (cache-redis)
-        env:
-          REDIS_URL: redis://localhost:6379
-        run: cargo test --test integration --features "cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming"
+      - name: 🦀 Clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
 
-  e2e-tests:
-    name: 🚀 E2E tests
-    needs: [build-and-test, doc-tests, integration-tests-redis]
+      - name: 🧪 Run unit tests
+        run: cargo test --test unit --all-features
+
+      - name: 🔗 Run integration tests
+        run: cargo test --test integration --all-features
+
+  doc-tests:
+    name: 📚 Test docs
+    needs: [check-spell]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -392,15 +263,60 @@ jobs:
       - name: 📦 Cache Rust registry
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          shared-key: "full-json"
+          shared-key: "full"
           cache-targets: false
 
       - name: 📦 Restore compiled dependencies
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: target/
-          key: target-prebuild-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-prebuild-${{ runner.os }}-
+          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-full-${{ runner.os }}-
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: 📚 Run doc tests
+        run: cargo test --doc --workspace --all-features
+
+  e2e-tests:
+    name: 🚀 E2E tests
+    needs: [build-and-test, doc-tests]
+    runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    permissions:
+      contents: read
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+          disable-telemetry: true
+
+      - name: 📁 Check out the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+        with:
+          disable_annotations: true
+
+      - name: 📦 Cache Rust registry
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: "full"
+          cache-targets: false
+
+      - name: 📦 Restore compiled dependencies
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: target/
+          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-full-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -415,7 +331,7 @@ jobs:
           echo "/opt/ffmpeg" >> $GITHUB_PATH
 
       - name: 🚀 Run E2E tests
-        run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
+        run: cargo test --test e2e --all-features -- --test-threads=1
 
   analysis:
     name: 🔍 Static analysis
@@ -465,7 +381,7 @@ jobs:
         with:
           egress-policy: audit
           disable-telemetry: true
-          
+
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -500,9 +416,9 @@ jobs:
       - name: 📊 Generate coverage (unit + integration + e2e)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
-          cargo llvm-cov --no-report --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"
-          cargo llvm-cov --no-report --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
+          cargo llvm-cov --no-report --test unit --all-features
+          cargo llvm-cov --no-report --test integration --all-features
+          cargo llvm-cov --no-report --test e2e --all-features -- --test-threads=1
           cargo llvm-cov report --lcov --output-path lcov.info
 
       - name: 📦 Upload coverage to Codecov

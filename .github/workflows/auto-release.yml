@@ -5,39 +5,15 @@ on:
     - cron: '0 0 * * 1'
   workflow_dispatch:
     inputs:
-      force_release:
-        description: 'Force the release even if no updates are found'
-        type: boolean
-        default: false
-      target:
-        description: 'Which crate(s) to release'
+      force_major:
+        description: 'Force a major version bump for the chosen crate (patch/minor are otherwise determined by semver-checks)'
         required: false
         type: choice
         options:
-          - both
-          - media-seek
+          - none
           - yt-dlp
-        default: 'both'
-      release_type:
-        description: 'Version bump level for yt-dlp (Ignored if target is "media-seek"). Auto = detect via semver-checks'
-        required: false
-        type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
-        default: 'auto'
-      release_type_ms:
-        description: 'Version bump level for media-seek (Ignored if target is "yt-dlp"). Auto = detect via semver-checks'
-        required: false
-        type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
-        default: 'auto'
+          - media-seek
+        default: 'none'
 
 jobs:
   check_updates:
@@ -47,9 +23,9 @@ jobs:
       contents: read
       actions: read
     outputs:
-      one_has: ${{ steps.check_commits.outputs.one_has }}
-      has_updates: ${{ steps.check_commits.outputs.has_updates }}
-      has_ms_updates: ${{ steps.check_commits.outputs.has_ms_updates }}
+      one_has:        ${{ steps.check_commits.outputs.one_has }}
+      has_updates:    ${{ steps.check_commits.outputs.main_has }}
+      has_ms_updates: ${{ fromJSON(steps.check_commits.outputs.sub_results)['media-seek'] }}
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
@@ -57,129 +33,14 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 📁 Check out the repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 100
-
-      - name: 🔍 Check for unreleased commits (per crate)
+      - name: ✅ Check unreleased commits
         id: check_commits
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: boul2gom/actions/unreleased-commits@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
         with:
-          script: |
-            const releases = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 1
-            });
-
-            let last_tag_date = new Date(0);
-            try {
-              const tags = await github.rest.repos.listTags({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 1
-              });
-
-              if (tags.data.length > 0) {
-                const last_tag = tags.data[0];
-                const tag_commit = await github.rest.repos.getCommit({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: last_tag.commit.sha
-                });
-                last_tag_date = new Date(tag_commit.data.commit.committer.date);
-                console.log(`🏷️ Last tag found: ${last_tag.name}`);
-                console.log(`🏷️ Last tag date: ${last_tag_date.toISOString()}`);
-              } else {
-                console.log('No tags found');
-              }
-            } catch (error) {
-              console.log('Error while fetching tags:', error.message);
-            }
-
-            const last_release = releases.data[0];
-            const last_release_date = last_release ? new Date(last_release.created_at) : new Date(0);
-            const reference_date = new Date(Math.max(last_release_date.getTime(), last_tag_date.getTime()));
-
-            console.log(`📅 Reference date: ${reference_date.toISOString()}`);
-
-            const commits = await github.rest.repos.listCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              since: reference_date.toISOString()
-            });
-
-            // Exclude GitHub Actions workflow bumps and formatting commits — they should not trigger a release
-            const relevant_commits = commits.data.filter(c =>
-              !c.commit.message.includes('[Github Actions]') &&
-              !c.commit.message.includes('Format code with Cargo formatter [skip ci]')
-            );
-
-            if (relevant_commits.length === 0) {
-              console.log('✨ No unreleased updates found');
-              core.setOutput('one_has', 'false');
-              core.setOutput('has_updates', 'false');
-              core.setOutput('has_ms_updates', 'false');
-              return;
-            }
-
-            // Classify each commit by the files it touched
-            let has_updates = false;
-            let has_ms_updates = false;
-
-            for (const commit of relevant_commits) {
-              const message = commit.commit.message.split('\n')[0];
-              try {
-                const detail = await github.rest.repos.getCommit({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: commit.sha
-                });
-                const files = (detail.data.files || []).map(f => f.filename);
-                const touches_ms = files.some(f => f.startsWith('crates/media-seek/'));
-                const touches_ytdlp = files.some(f => !f.startsWith('crates/media-seek/'));
-
-                if (touches_ms) {
-                  console.log(`📦 [media-seek] ${message}`);
-                  has_ms_updates = true;
-                }
-                if (touches_ytdlp) {
-                  console.log(`📦 [yt-dlp]     ${message}`);
-                  has_updates = true;
-                }
-              } catch (error) {
-                // If file details are unavailable, assume both crates are affected
-                console.log(`⚠️ Could not fetch files for ${commit.sha}: ${error.message} — assuming both`);
-                has_updates = true;
-                has_ms_updates = true;
-              }
-
-              if (has_updates && has_ms_updates) break;
-            }
-
-            // Override with force_release input
-            if ('${{ github.event.inputs.force_release }}' === 'true') {
-              console.log('🚀 Force release enabled — overriding commit analysis results');
-              has_updates = true;
-              has_ms_updates = true;
-            }
-
-            // Apply target filter (ignored during cron jobs since target will be empty)
-            const target = '${{ github.event.inputs.target }}';
-            if (target === 'media-seek') {
-              console.log('🎯 Target is media-seek only — ignoring yt-dlp');
-              has_updates = false;
-            } else if (target === 'yt-dlp') {
-              console.log('🎯 Target is yt-dlp only — ignoring media-seek');
-              has_ms_updates = false;
-            }
-
-            console.log(`🎯 Final status -> yt-dlp updates: ${has_updates} | media-seek updates: ${has_ms_updates}`);
-
-            core.setOutput('one_has', (has_updates || has_ms_updates).toString());
-            core.setOutput('has_updates', has_updates.toString());
-            core.setOutput('has_ms_updates', has_ms_updates.toString());
+          token: ${{ secrets.GITHUB_TOKEN }}
+          exclude_patterns: "[Github Actions],[skip ci]"
+          sub_projects: |
+            media-seek:crates/media-seek/
 
   check_status:
     name: ✅ Check Github CI - Development status
@@ -195,21 +56,11 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔍 Check if last CI run was successful
+      - name: ✅ Check CI status
         id: check_ci
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: boul2gom/actions/ci-status@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
         with:
-          script: |
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "ci-dev.yml",
-              branch: "develop",
-              per_page: 1
-            });
-            
-            const is_success = runs.data.workflow_runs.length > 0 && runs.data.workflow_runs[0].conclusion === "success";
-            core.setOutput("ci_success", is_success ? "true" : "false");
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   semver_gate:
     name: 🔖 Semver compatibility gate
@@ -246,8 +97,7 @@ jobs:
         uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
         with:
           package: yt-dlp
-          feature-group: only-explicit-features
-          features: cache-memory,hooks,webhooks,statistics,live-recording,hickory-dns,rustls,profiling
+          feature-group: all-features
 
       - name: 🚀 Check Semver compatibility (media-seek)
         id: semver_ms
@@ -262,13 +112,10 @@ jobs:
         id: resolve
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         run: |
-          EXPLICIT_TYPE="${{ github.event.inputs.release_type }}"
-          SEMVER_OUTCOME="${{ steps.semver.outcome }}"
-
-          if [[ "$EXPLICIT_TYPE" != "" && "$EXPLICIT_TYPE" != "auto" ]]; then
-            echo "📌 Explicit release type: $EXPLICIT_TYPE"
-            echo "resolved_type=$EXPLICIT_TYPE" >> $GITHUB_OUTPUT
-          elif [[ "$SEMVER_OUTCOME" == "success" ]]; then
+          if [[ "${{ github.event.inputs.force_major }}" == "yt-dlp" ]]; then
+            echo "📌 Forced major release for yt-dlp"
+            echo "resolved_type=major" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.semver.outcome }}" == "success" ]]; then
             echo "✅ No breaking changes detected — releasing as patch"
             echo "resolved_type=patch" >> $GITHUB_OUTPUT
           else
@@ -280,13 +127,10 @@ jobs:
         id: resolve_ms
         if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
         run: |
-          EXPLICIT_TYPE="${{ github.event.inputs.release_type_ms }}"
-          SEMVER_OUTCOME="${{ steps.semver_ms.outcome }}"
-
-          if [[ "$EXPLICIT_TYPE" != "" && "$EXPLICIT_TYPE" != "auto" ]]; then
-            echo "📌 Explicit release type: $EXPLICIT_TYPE"
-            echo "resolved_type=$EXPLICIT_TYPE" >> $GITHUB_OUTPUT
-          elif [[ "$SEMVER_OUTCOME" == "success" ]]; then
+          if [[ "${{ github.event.inputs.force_major }}" == "media-seek" ]]; then
+            echo "📌 Forced major release for media-seek"
+            echo "resolved_type=major" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.semver_ms.outcome }}" == "success" ]]; then
             echo "✅ No breaking changes detected — releasing media-seek as patch"
             echo "resolved_type=patch" >> $GITHUB_OUTPUT
           else
@@ -320,7 +164,7 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0 # Changed to 0 to fetch all history for changelog generation
+          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📦 Cache Rust toolchain
@@ -370,155 +214,15 @@ jobs:
           VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "yt-dlp") | .version')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: 📝 Generate releases notes
+      - name: 📝 Generate release notes
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: generate_release_notes
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: boul2gom/actions/release-notes@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
         with:
-          script: |
-            const releases = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 1
-            });
-
-            let last_tag_date = new Date(0);
-            try {
-              const tags = await github.rest.repos.listTags({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 2
-              });
-
-              if (tags.data.length > 1) {
-                const previous_tag = tags.data[1];
-                const tag_commit = await github.rest.repos.getCommit({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: previous_tag.commit.sha
-                });
-                last_tag_date = new Date(tag_commit.data.commit.committer.date);
-                console.log(`🏷️ Previous tag found: ${previous_tag.name}`);
-                console.log(`🏷️ Previous tag date: ${last_tag_date.toISOString()}`);
-              } else {
-                console.log('No previous tag found');
-              }
-            } catch (error) {
-              console.log('Error while fetching tags:', error.message);
-            }
-
-            const last_release = releases.data[0];
-            const last_release_date = last_release ? new Date(last_release.created_at) : new Date(0);
-            const reference_date = new Date(Math.max(last_release_date.getTime(), last_tag_date.getTime()));
-
-            console.log(`📅 Reference date: ${reference_date.toISOString()}`);
-            console.log(`  - Last release: ${last_release_date.toISOString()}`);
-            console.log(`  - Previous tag: ${last_tag_date.toISOString()}`);
-
-            console.log('🔍 Fetching commits since previous tag/release...');
-            const commits = await github.rest.repos.listCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              since: reference_date.toISOString()
-            });
-
-            let release_notes = `## 🚀 Release v${{ steps.get_version.outputs.version }}\n\n`;
-
-            const categories = {
-              features: [],
-              bug_fixes: [],
-              refactors: [],
-              dependencies: []
-            };
-
-            for (const commit of commits.data) {
-              const message = commit.commit.message.split('\n')[0];
-              
-              if (message.startsWith('🔖') || message.match(/v\d+\.\d+\.\d+(-[a-z0-9.]+)?$/)) {
-                console.log(`Skipping pre-release commit: ${message}`);
-                continue;
-              }
-
-              if (message.includes('Format code with Cargo formatter [skip ci]')) {
-                console.log(`Skipping formatting commit: ${message}`);
-                continue;
-              }
-
-              if (message.includes('Update crate version dropdown in bug report [skip ci]')) {
-                console.log(`Skipping version dropdown update commit: ${message}`);
-                continue;
-              }
-
-              // Use local git command instead of API to avoid rate limiting and speed up process
-              try {
-                const execSync = require('child_process').execSync;
-                const filesOutput = execSync(`git diff-tree --no-commit-id --name-only -r ${commit.sha}`).toString().trim();
-                const files = filesOutput ? filesOutput.split('\n') : [];
-                
-                const only_media_seek = files.length > 0 && files.every(f => f.startsWith('crates/media-seek/'));
-                if (only_media_seek) {
-                  console.log(`Skipping media-seek-only commit: ${message}`);
-                  continue;
-                }
-              } catch (error) {
-                console.log(`Error checking local files for ${commit.sha}: ${error.message}`);
-              }
-
-              const author = commit.author ? commit.author.login : commit.commit.author.name;
-              const sha = commit.sha.substring(0, 7);
-              const pr_match = message.match(/\(#(\d+)\)/);
-              const pr_number = pr_match ? pr_match[1] : null;
-              
-              const commit_entry = `${message} - by @${author}${pr_number ? ` in #${pr_number}` : ''} (${sha})`;
-
-              const deps_tags = ["bump", "update", "dependencies", "dependency", "cargo.lock", "pinning", "📌", "🔌"]
-              const bug_tags = ["fix", "bug", "error", "patch", "hotfix", "🐛", "🚑"]
-              const refactor_tags = ["refactor", "format", "lint", "cleanup", "rename", "restructure", "💄", "🎨"]
-              
-              const message_lower = message.toLowerCase();
-              if (deps_tags.some(tag => message_lower.includes(tag))) {
-                categories.dependencies.push(commit_entry);
-              } else if (bug_tags.some(tag => message_lower.includes(tag))) {
-                categories.bug_fixes.push(commit_entry);
-              } else if (refactor_tags.some(tag => message_lower.includes(tag))) {
-                categories.refactors.push(commit_entry);
-              } else {
-                categories.features.push(commit_entry);
-              }
-            }
-
-            if (categories.features.length > 0) {
-              release_notes += `✨ Features\n`;
-              categories.features.forEach(entry => {
-                release_notes += `- ${entry}\n`;
-              });
-              release_notes += '\n';
-            }
-
-            if (categories.bug_fixes.length > 0) {
-              release_notes += `🐛 Bug Fixes\n`;
-              categories.bug_fixes.forEach(entry => {
-                release_notes += `- ${entry}\n`;
-              });
-              release_notes += '\n';
-            }
-
-            if (categories.refactors.length > 0) {
-              release_notes += `💄 Refactors\n`;
-              categories.refactors.forEach(entry => {
-                release_notes += `- ${entry}\n`;
-              });
-              release_notes += '\n';
-            }
-
-            if (categories.dependencies.length > 0) {
-              release_notes += `📦 Dependencies Updates\n`;
-              categories.dependencies.forEach(entry => {
-                release_notes += `- ${entry}\n`;
-              });
-            }
-            
-            core.setOutput('release_notes', release_notes);
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ steps.get_version.outputs.version }}
+          sub_projects: |
+            media-seek:crates/media-seek/
 
       - name: 📝 Create GitHub Release
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
@@ -530,3 +234,31 @@ jobs:
           draft: false
           prerelease: false
           body: ${{ steps.generate_release_notes.outputs.release_notes }}
+
+  update_version_dropdown:
+    name: 🤖 Update version dropdown in bug report
+    needs: [check_updates, create_release]
+    if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+
+      - name: 🤖 Update version dropdown
+        uses: boul2gom/actions/versions-dropdown@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg_passphrase: ${{ secrets.GPG_PASSPHRASE }}

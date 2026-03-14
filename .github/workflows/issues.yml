@@ -10,12 +10,6 @@ on:
     types: [opened, synchronize]
   schedule:
     - cron: '0 0 * * *'
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to label (leave empty to run stale management instead)"
-        required: false
-        type: number
 
 permissions:
   contents: read
@@ -25,6 +19,8 @@ jobs:
     if: github.event_name != 'push' && github.event_name != 'schedule'
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
     runs-on: ubuntu-latest
     name: "🏷️ Label issues and PRs"
 
@@ -41,303 +37,30 @@ jobs:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_KEY }}
 
-      - name: 🏷️ Analyze and apply labels
+      - name: 🏷️ Label issues and PRs
         id: labeler
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: boul2gom/actions/label-pr-issue@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            let is_pr, number, title, body, pr_head_ref, pr_author, author;
-
-            if (context.eventName === 'workflow_dispatch') {
-              is_pr = true;
-              number = parseInt(context.payload.inputs.pr_number, 10);
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: number,
-              });
-              title = pr.title || '';
-              body = pr.body || '';
-              pr_head_ref = pr.head.ref || '';
-              pr_author = pr.user.login;
-              author = pr_author;
-            } else {
-              is_pr = !!context.payload.pull_request;
-              number = is_pr ? context.payload.pull_request.number : context.payload.issue.number;
-              title = (is_pr ? context.payload.pull_request.title : context.payload.issue.title) || '';
-              body = (is_pr ? context.payload.pull_request.body : context.payload.issue.body) || '';
-              pr_head_ref = is_pr ? (context.payload.pull_request.head.ref || '') : '';
-              pr_author = is_pr ? context.payload.pull_request.user.login : null;
-              author = is_pr ? pr_author : (context.payload.issue ? context.payload.issue.user.login : null);
+          token: ${{ steps.app-token.outputs.token }}
+          path_mappings: |
+            {
+              "src/cache/":         ["cache"],
+              "src/download/":      ["download"],
+              "src/events/":        ["events"],
+              "src/extractor/":     ["extractor"],
+              "src/metadata/":      ["metadata"],
+              "crates/media-seek/": ["media-seek"]
             }
-            const text = `${title}\n${body}`.toLowerCase();
-
-            // ═══════════════════════════════════════════════════════════
-            // 📤 Expose data for the comment step (set early so early
-            //    returns don't prevent the welcome-comment step from running)
-            // ═══════════════════════════════════════════════════════════
-            const is_bot = author && (author.endsWith('[bot]') || author === 'dependabot' || author === 'renovate');
-            core.setOutput('is_new', (context.payload.action === 'opened' && !is_bot) ? 'true' : 'false');
-            core.setOutput('is_pr', is_pr ? 'true' : 'false');
-            core.setOutput('issue_number', String(number));
-            core.setOutput('labels_applied', 'false');
-
-            // ═══════════════════════════════════════════════════════════
-            // 📋 Global configuration maps
-            // ═══════════════════════════════════════════════════════════
-            const emoji_map = {
-              '🐛': 'bug',
-              '✨': 'enhancement',
-              '📦': 'dependencies',
-              '🔌': 'github_actions',
-              '💄': 'refactor',
-              '🎨': 'refactor',
-              '📚': 'documentation',
-              '⚡': 'performance',
-              '💥': 'breaking_change',
-              '🦀': 'rust',
-              '🔒': 'security',
-            };
-
-            // Reverse emoji_map: label → first matching emoji
-            const label_emoji = Object.entries(emoji_map).reduce((acc, [emoji, label]) => {
-              if (!acc[label]) acc[label] = emoji;
-              return acc;
-            }, {
-              'cache': '🔍', 'download': '📥', 'events': '🔔',
-              'extractor': '📡', 'metadata': '🏷️', 'media-seek': '⚙️',
-            });
-
-            const label_config = {
-              'cache':           { color: '0e8a16', description: 'Changes to the caching system' },
-              'download':        { color: '1d76db', description: 'Changes to the download pipeline' },
-              'events':          { color: 'fbca04', description: 'Changes to hooks, webhooks, or event bus' },
-              'extractor':       { color: 'd93f0b', description: 'Changes to video extractors' },
-              'metadata':        { color: 'c5def5', description: 'Changes to metadata processing' },
-              'media-seek':      { color: '7b68ee', description: 'Changes to the media-seek container parsing crate' },
-              'breaking_change': { color: 'b60205', description: 'PR introduces breaking API changes' },
-              'performance':     { color: '006b75', description: 'Performance improvements or benchmarks' },
-              'refactor':        { color: 'a2eeef', description: 'Code restructuring without behavior changes' },
-              'security':        { color: 'e4e669', description: 'Security-related changes or vulnerability fixes' },
-            };
-
-            // ═══════════════════════════════════════════════════════════
-            // 🤖 Skip bot PRs (Dependabot handles its own labels)
-            // ═══════════════════════════════════════════════════════════
-            if (is_pr && context.eventName !== 'workflow_dispatch' && pr_author) {
-              if (pr_author.endsWith('[bot]') || pr_author === 'dependabot' || pr_author === 'renovate') {
-                console.log(`🤖 Skipping bot PR from ${pr_author}`);
-                return;
-              }
+          label_definitions: |
+            {
+              "cache":      {"color": "bfd4f2", "description": "Related to the cache layer"},
+              "download":   {"color": "bfd4f2", "description": "Related to the download engine"},
+              "events":     {"color": "bfd4f2", "description": "Related to the event system"},
+              "extractor":  {"color": "bfd4f2", "description": "Related to video extractors"},
+              "metadata":   {"color": "bfd4f2", "description": "Related to metadata writing"},
+              "media-seek": {"color": "c5def5", "description": "Related to the media-seek crate"},
+              "live":       {"color": "bfd4f2", "description": "Related to live recording or streaming"}
             }
-
-            const labels_to_add = new Set();
-
-            // ═══════════════════════════════════════════════════════════
-            // 📁 File-path based labeling (PRs only)
-            // ═══════════════════════════════════════════════════════════
-            if (is_pr) {
-              const files = await github.paginate(github.rest.pulls.listFiles, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: number,
-                per_page: 100
-              });
-
-              const paths = files.map(f => f.filename);
-
-              // Module labels — matched against src/ subdirectories
-              const module_map = {
-                'cache':      /^src\/cache\//,
-                'download':   /^src\/download\//,
-                'events':     /^src\/events\//,
-                'extractor':  /^src\/extractor\//,
-                'metadata':   /^src\/metadata\//,
-                'media-seek': /^crates\/media-seek\//,
-              };
-
-              for (const [label, pattern] of Object.entries(module_map)) {
-                if (paths.some(p => pattern.test(p))) {
-                  labels_to_add.add(label);
-                }
-              }
-
-              // Structural labels — matched against file extensions and paths
-              if (paths.some(p => p.endsWith('.rs') || p === 'build.rs')) {
-                labels_to_add.add('rust');
-              }
-              if (paths.some(p => p.startsWith('.github/workflows/'))) {
-                labels_to_add.add('github_actions');
-              }
-              if (paths.some(p => p.endsWith('.md') || p.startsWith('docs/'))) {
-                labels_to_add.add('documentation');
-              }
-              if (paths.some(p => p === 'Cargo.toml' || p === 'Cargo.lock')) {
-                labels_to_add.add('dependencies');
-              }
-              if (paths.some(p => p.startsWith('benches/'))) {
-                labels_to_add.add('performance');
-              }
-
-              // ═════════════════════════════════════════════════════════
-              // 🌿 Branch name analysis (PRs only)
-              // ═════════════════════════════════════════════════════════
-              const branch = pr_head_ref.toLowerCase();
-              const branch_map = [
-                { prefixes: ['fix/', 'bugfix/', 'hotfix/'], label: 'bug' },
-                { prefixes: ['feat/', 'feature/'],          label: 'enhancement' },
-                { prefixes: ['refactor/'],                  label: 'refactor' },
-                { prefixes: ['docs/', 'doc/'],              label: 'documentation' },
-                { prefixes: ['perf/'],                      label: 'performance' },
-              ];
-              for (const { prefixes, label } of branch_map) {
-                if (prefixes.some(p => branch.startsWith(p))) {
-                  labels_to_add.add(label);
-                }
-              }
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            // 🎨 Emoji-prefix based labeling (primary — title only)
-            // ═══════════════════════════════════════════════════════════
-            for (const [emoji, label] of Object.entries(emoji_map)) {
-              if (title.includes(emoji)) {
-                labels_to_add.add(label);
-              }
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            // 💬 Conventional commit prefixes (title only)
-            // ═══════════════════════════════════════════════════════════
-            const conventional_map = [
-              { pattern: /^fix(\(.+\))?!?:\s/i,      label: 'bug' },
-              { pattern: /^feat(\(.+\))?!?:\s/i,     label: 'enhancement' },
-              { pattern: /^docs?(\(.+\))?!?:\s/i,    label: 'documentation' },
-              { pattern: /^perf(\(.+\))?!?:\s/i,     label: 'performance' },
-              { pattern: /^ci(\(.+\))?!?:\s/i,       label: 'github_actions' },
-              { pattern: /^refactor(\(.+\))?!?:\s/i, label: 'refactor' },
-            ];
-
-            for (const { pattern, label } of conventional_map) {
-              if (pattern.test(title)) {
-                labels_to_add.add(label);
-              }
-            }
-
-            // Conventional commits with `!` indicate breaking changes (e.g. `feat!:`, `fix(cache)!:`)
-            if (/^\w+(\(.+\))?!:\s/.test(title)) {
-              labels_to_add.add('breaking_change');
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            // 🔍 Keyword-based labeling (fallback — title only)
-            // Body is intentionally excluded: PR bodies often mention words
-            // like "security", "bug reports", "dependencies" in a context
-            // that does not warrant the label (e.g. bot-generated PRs).
-            // ═══════════════════════════════════════════════════════════
-            const keyword_map = [
-              // /\bbug\b/ removed — too noisy ("bug reports", "debug", etc.)
-              { label: 'bug',             patterns: [/\bcrash/, /\bpanic/, /\bbroken\b/, /\bregression\b/] },
-              // /\bsupport\b/ and /\bimplement/ removed — match email addresses and generic verbs
-              { label: 'enhancement',     patterns: [/\bfeat(ure)?\b/, /\bnew\s+api\b/] },
-              { label: 'breaking_change', patterns: [/\bbreaking[ -]?change\b/, /\bBREAKING\b/] },
-              { label: 'performance',     patterns: [/\bperf(ormance)?\b/, /\bbench/, /\boptim/, /\bspeed\b/] },
-              { label: 'documentation',   patterns: [/\breadme\b/, /\btypo\b/, /\bspelling\b/] },
-              // /\bdep(endenc(y|ies))?\b/ and /\bupgrade\b/ removed — appear in any CI body
-              // /\bbump\b/ kept: it is the canonical Dependabot/Renovate format
-              { label: 'dependencies',    patterns: [/\bbump\b/] },
-              { label: 'refactor',        patterns: [/\brefactor/, /\brestructure/, /\bcleanup\b/] },
-              // /\bsecurity\b/ and /\bunsafe\b/ removed — too broad (CI tools, Rust unsafe blocks)
-              { label: 'security',        patterns: [/\bvulnerabilit/, /\bcve\b/, /\bexploit/, /\badvisory\b/] },
-            ];
-
-            for (const { label, patterns } of keyword_map) {
-              if (!labels_to_add.has(label) && patterns.some(p => p.test(title))) {
-                labels_to_add.add(label);
-              }
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            // 🏷️ Apply labels (skip already-present ones)
-            // ═══════════════════════════════════════════════════════════
-            if (labels_to_add.size === 0) {
-              console.log('🏷️ No labels to apply');
-              return;
-            }
-
-            const current_labels_response = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-            });
-            const current_labels = new Set(current_labels_response.data.map(l => l.name));
-            const new_labels = [...labels_to_add].filter(l => !current_labels.has(l));
-
-            if (new_labels.length === 0) {
-              console.log('🏷️ All labels already present, nothing to do');
-              return;
-            }
-
-            // Auto-create missing labels if they don't exist yet
-            for (const label of new_labels) {
-              if (label_config[label]) {
-                try {
-                  await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label });
-                } catch (e) {
-                  if (e.status === 404) {
-                    await github.rest.issues.createLabel({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      name: label,
-                      color: label_config[label].color,
-                      description: label_config[label].description,
-                    });
-                    console.log(`🏷️ Created missing label: ${label}`);
-                  }
-                }
-              }
-            }
-
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-              labels: new_labels,
-            });
-
-            core.setOutput('labels_applied', 'true');
-            console.log(`🏷️ Applied labels: ${new_labels.join(', ')}`);
-
-      - name: 💬 Post welcome comment
-        if: steps.labeler.outputs.is_new == 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const is_pr = ${{ steps.labeler.outputs.is_pr }};
-            const issue_number = ${{ steps.labeler.outputs.issue_number }};
-            const labels_applied = '${{ steps.labeler.outputs.labels_applied }}' === 'true';
-
-            const GREETING = 'Hi there! 👋';
-            const LABELS_SENTENCE = is_pr
-              ? 'I have automatically applied some labels to categorize this pull request.'
-              : 'I have automatically applied some labels to categorize this issue.';
-            const CLOSING = is_pr
-              ? 'Your pull request will be reviewed by a maintainer as soon as possible. Thanks for your contribution!'
-              : 'Your issue will be reviewed by a maintainer as soon as possible. Thanks for opening it!';
-
-            const parts = [GREETING];
-            if (labels_applied) parts.push(LABELS_SENTENCE);
-            parts.push(CLOSING);
-            const body = parts.join('\n');
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              body,
-            });
 
   fix-notifier:
     if: github.event_name == 'push'
@@ -360,45 +83,13 @@ jobs:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_KEY }}
 
-      - name: 🔔 Comment on fixed issues
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+      - name: 🐛 Notify fixed issues
+        uses: boul2gom/actions/fix-notifier@bc5b9d6474411b1596f27866c72f933080551234 # v1.0.1
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const pattern = /\(to solve #(\d+)\)/gi;
-            const commits = context.payload.commits || [];
-            let found_any = false;
-
-            for (const commit of commits) {
-              const sha = commit.id.substring(0, 7);
-              let match;
-              while ((match = pattern.exec(commit.message)) !== null) {
-                found_any = true;
-                const issue_number = parseInt(match[1], 10);
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number,
-                  body: `Hey ! Thanks for your report. It should have been fixed in ${sha}, and will be released next week. Tell me if the issue persists.`,
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number,
-                  state: 'closed',
-                  state_reason: 'completed',
-                });
-                console.log(`🔔 Commented on issue #${issue_number} with fix SHA ${sha} and closed it`);
-              }
-              pattern.lastIndex = 0;
-            }
-
-            if (!found_any) {
-              console.log("🔕 No fixed issues found to comment on.");
-            }
+          token: ${{ steps.app-token.outputs.token }}
 
   manage-stale:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule'
     name: "🧹 Mark stale issues and PRs"
     runs-on: ubuntu-latest
 

@@ -1,13 +1,19 @@
+#[cfg(persistent_cache)]
+use yt_dlp::cache::PersistentBackendKind;
+#[cfg(persistent_cache)]
 use yt_dlp::cache::{CacheConfig, CacheLayer};
 
 // ---------------------------------------------------------------------------
 // CacheLayer construction from config
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "cache-json")]
 #[tokio::test]
 async fn cache_layer_from_config() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let builder = CacheConfig::builder().cache_dir(dir.path().to_path_buf());
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
 
     let layer = CacheLayer::from_config(&config).await.expect("from_config failed");
 
@@ -37,7 +43,9 @@ async fn l1_miss_promotes_from_l2() {
     // should still be found from L2 and promoted back to L1.
     // In practice we test the happy path: put through the layer, get back.
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let builder = CacheConfig::builder().cache_dir(dir.path().to_path_buf());
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
 
     let layer = CacheLayer::from_config(&config).await.expect("from_config failed");
 
@@ -60,7 +68,9 @@ async fn l1_miss_promotes_from_l2() {
 #[tokio::test]
 async fn l1_miss_promotes_from_l2_redb() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let builder = CacheConfig::builder().cache_dir(dir.path().to_path_buf());
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Redb));
+    let config = builder.build();
 
     let layer = CacheLayer::from_config(&config).await.expect("from_config failed");
 
@@ -82,10 +92,13 @@ async fn l1_miss_promotes_from_l2_redb() {
 // Clean
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "cache-json")]
 #[tokio::test]
 async fn clean_all_caches() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let builder = CacheConfig::builder().cache_dir(dir.path().to_path_buf());
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
 
     let layer = CacheLayer::from_config(&config).await.expect("from_config failed");
     layer.clean().await.expect("clean failed");
@@ -95,10 +108,13 @@ async fn clean_all_caches() {
 // Playlist via layer
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "cache-json")]
 #[tokio::test]
 async fn playlist_cache_via_layer() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let builder = CacheConfig::builder().cache_dir(dir.path().to_path_buf());
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
 
     let layer = CacheLayer::from_config(&config).await.expect("from_config failed");
 

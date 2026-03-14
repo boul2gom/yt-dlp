@@ -3,8 +3,6 @@
 //! Provides the `CachedPlaylist` data structure and the `PlaylistCache` wrapper
 //! that orchestrates L1 (Moka) and L2 (persistent) lookups.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
 
 #[cfg(persistent_cache)]
@@ -12,6 +10,7 @@ use crate::cache::backend::PersistentPlaylistBackend;
 use crate::cache::backend::PlaylistBackend;
 #[cfg(feature = "cache-memory")]
 use crate::cache::backend::memory::MokaPlaylistCache;
+use crate::cache::config::CacheConfig;
 use crate::error::Result;
 use crate::model::playlist::Playlist;
 use crate::utils::current_timestamp;
@@ -78,43 +77,12 @@ pub struct PlaylistCache {
 }
 
 impl PlaylistCache {
-    /// Default TTL: 6 hours
-    const DEFAULT_TTL: u64 = 6 * 60 * 60;
-
-    /// Create a new PlaylistCache with default TTL.
-    ///
-    /// # Arguments
-    ///
-    /// * `cache_dir` - Directory where cache data will be stored.
-    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
-    ///
-    /// # Returns
-    ///
-    /// A new `PlaylistCache` instance with default TTL (6 hours).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the backend initialization fails.
-    pub async fn new(
-        cache_dir: impl Into<PathBuf>,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-    ) -> Result<Self> {
-        Self::with_ttl(
-            cache_dir,
-            #[cfg(feature = "cache-redis")]
-            redis_url,
-            Self::DEFAULT_TTL,
-        )
-        .await
-    }
-
     /// Create a new PlaylistCache with custom TTL.
     ///
     /// # Arguments
     ///
-    /// * `cache_dir` - Directory where cache data will be stored.
-    /// * `redis_url` - Connection URL for Redis backend (only when `cache-redis` is enabled).
-    /// * `ttl_seconds` - Time-to-live for cache entries in seconds.
+    /// * `config` - The cache configuration specifying directories, TTLs, and backend settings.
+    /// * `ttl` - Time-to-live for cache entries in seconds (optional).
     ///
     /// # Returns
     ///
@@ -122,27 +90,15 @@ impl PlaylistCache {
     ///
     /// # Errors
     ///
-    /// Returns an error if the backend initialization fails.
-    pub async fn with_ttl(
-        cache_dir: impl Into<PathBuf>,
-        #[cfg(feature = "cache-redis")] redis_url: Option<&str>,
-        ttl_seconds: u64,
-    ) -> Result<Self> {
-        let cache_dir = cache_dir.into();
-
-        tracing::debug!(cache_dir = ?cache_dir, ttl_seconds = ttl_seconds, "⚙️ Creating playlist cache");
+    /// Returns an error if the backend initialization fails or the backend is ambiguous.
+    pub async fn new(config: &CacheConfig, ttl: Option<u64>) -> Result<Self> {
+        tracing::debug!(cache_dir = ?config.cache_dir, ttl = ?ttl, "⚙️ Creating playlist cache");
 
         Ok(Self {
             #[cfg(feature = "cache-memory")]
-            memory: MokaPlaylistCache::new(cache_dir.clone(), Some(ttl_seconds)).await?,
+            memory: MokaPlaylistCache::new(config.cache_dir.clone(), ttl).await?,
             #[cfg(persistent_cache)]
-            persistent: PersistentPlaylistBackend::new(
-                cache_dir,
-                #[cfg(feature = "cache-redis")]
-                redis_url,
-                Some(ttl_seconds),
-            )
-            .await?,
+            persistent: PersistentPlaylistBackend::new(config, ttl).await?,
         })
     }
 

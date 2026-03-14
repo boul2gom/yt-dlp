@@ -123,10 +123,11 @@ video info, downloaded files, and playlists. The architecture uses an optional L
 | `cache-redb` | Embedded redb | ✅ Yes | Single-file, pure-Rust, ACID transactions |
 | `cache-redis` | Redis | ✅ Yes | Distributed, native TTL via `SETEX` |
 
-At most **one persistent backend** may be enabled at a time. `build.rs` enforces this with a
-`compile_error!` if multiple persistent features (`cache-json`, `cache-redb`, `cache-redis`)
-are active simultaneously. The `cache-memory` feature (Moka L1) can be combined with any persistent
-backend for a tiered L1 + L2 setup.
+Multiple persistent backends can be compiled in simultaneously. When exactly one is enabled, it is
+selected automatically. When several are enabled, `CacheConfig::persistent_backend` must be set
+explicitly; otherwise `CacheLayer::from_config` returns an `Error::AmbiguousCacheBackend` at runtime.
+The `cache-memory` feature (Moka L1) can always be combined with any persistent backend for a
+tiered L1 + L2 setup.
 
 **Default (in-memory Moka)** — no persistence, TTL-based eviction, useful for short-lived processes:
 ```toml
@@ -156,6 +157,20 @@ yt-dlp = { version = "2.6.0", features = ["cache-redis"] }
 ```toml
 [dependencies]
 yt-dlp = { version = "2.6.0", features = ["cache-memory", "cache-redb"] }
+```
+
+**Multiple backends compiled in** — select one at runtime via `CacheConfig::persistent_backend`:
+```toml
+[dependencies]
+yt-dlp = { version = "2.6.0", features = ["cache-memory", "cache-json", "cache-redb"] }
+```
+```rust,ignore
+use yt_dlp::prelude::*;
+
+let config = CacheConfig::builder()
+    .cache_dir("cache")
+    .persistent_backend(PersistentBackendKind::Redb) // required when multiple compiled in
+    .build();
 ```
 
 #### CDN URL expiry and cache invalidation

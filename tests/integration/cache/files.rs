@@ -42,9 +42,15 @@ async fn calculate_file_hash_different_contents() {
 #[tokio::test]
 async fn put_file_and_get_by_hash() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let src = dir.path().join("video.mp4");
     tokio::fs::write(&src, b"fake mp4 content").await.expect("write failed");
@@ -69,9 +75,15 @@ async fn put_file_and_get_by_hash() {
 #[tokio::test]
 async fn put_file_miss_returns_none() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let result = cache.get_by_hash("no_such_hash_xyz").await.expect("get_by_hash failed");
     assert!(result.is_none());
@@ -84,9 +96,15 @@ async fn put_file_miss_returns_none() {
 #[tokio::test]
 async fn put_file_and_get_by_video_and_format() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let src = dir.path().join("video_vf.mp4");
     tokio::fs::write(&src, b"fake mp4 content for vf test")
@@ -113,9 +131,15 @@ async fn put_file_and_get_by_video_and_format() {
 #[tokio::test]
 async fn get_by_video_and_format_miss_returns_none() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let result = cache
         .get_by_video_and_format("no_video", "no_format")
@@ -131,9 +155,15 @@ async fn get_by_video_and_format_miss_returns_none() {
 #[tokio::test]
 async fn put_thumbnail_and_get_by_video_id() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let thumb = dir.path().join("thumb.jpg");
     tokio::fs::write(&thumb, &[0xFF, 0xD8, 0xFF, 0xE0])
@@ -155,9 +185,15 @@ async fn put_thumbnail_and_get_by_video_id() {
 #[tokio::test]
 async fn thumbnail_miss_returns_none() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let result = cache
         .get_thumbnail_by_video_id("nonexistent_video_id")
@@ -173,9 +209,15 @@ async fn thumbnail_miss_returns_none() {
 #[tokio::test]
 async fn put_subtitle_and_get_by_language() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let sub = dir.path().join("sub_en.srt");
     tokio::fs::write(&sub, b"1\n00:00:01,000 --> 00:00:04,000\nHello\n")
@@ -198,9 +240,15 @@ async fn put_subtitle_and_get_by_language() {
 #[tokio::test]
 async fn subtitle_wrong_language_returns_none() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let sub = dir.path().join("sub_de.srt");
     tokio::fs::write(&sub, b"1\n00:00:01,000 --> 00:00:04,000\nHallo\n")
@@ -227,9 +275,15 @@ async fn subtitle_wrong_language_returns_none() {
 #[tokio::test]
 async fn remove_clears_entry() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let src = dir.path().join("to_remove.mp4");
     tokio::fs::write(&src, b"content to remove").await.expect("write");
@@ -255,9 +309,15 @@ async fn remove_clears_entry() {
 #[tokio::test]
 async fn clean_does_not_error() {
     let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = DownloadCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache creation failed");
+    let cache = DownloadCache::new(
+        &yt_dlp::cache::config::CacheConfig::builder()
+            .cache_dir(dir.path().to_path_buf())
+            .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+            .build(),
+        None,
+    )
+    .await
+    .expect("cache creation failed");
 
     let src = dir.path().join("clean_test.mp4");
     tokio::fs::write(&src, b"content for clean test").await.expect("write");

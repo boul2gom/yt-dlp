@@ -1,4 +1,6 @@
 use yt_dlp::DownloadStatus;
+#[cfg(feature = "cache-json")]
+use yt_dlp::cache::PersistentBackendKind;
 
 use crate::common::assertions::assert_file_exists;
 use crate::common::fixtures;
@@ -20,9 +22,10 @@ async fn cache_layer_activates_after_setup() {
     let cache_dir = tmp.path().join("cache");
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    let config = yt_dlp::cache::CacheConfig::builder()
-        .cache_dir(cache_dir.clone())
-        .build();
+    let builder = yt_dlp::cache::CacheConfig::builder().cache_dir(cache_dir.clone());
+    #[cfg(feature = "cache-json")]
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
     downloader.set_cache(config).await.expect("Cache setup should succeed");
 
     // Verify cache is now active
@@ -40,9 +43,10 @@ async fn repeated_manager_download_with_cache() {
     let cache_dir = tmp.path().join("cache");
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    let config = yt_dlp::cache::CacheConfig::builder()
-        .cache_dir(cache_dir.clone())
-        .build();
+    let builder = yt_dlp::cache::CacheConfig::builder().cache_dir(cache_dir.clone());
+    #[cfg(feature = "cache-json")]
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
     downloader.set_cache(config).await.expect("Cache setup should succeed");
 
     // First download
@@ -81,7 +85,10 @@ async fn manager_download_works_with_cache_enabled() {
     let cache_dir = tmp.path().join("cache");
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    let config = yt_dlp::cache::CacheConfig::builder().cache_dir(cache_dir).build();
+    let builder = yt_dlp::cache::CacheConfig::builder().cache_dir(cache_dir);
+    #[cfg(feature = "cache-json")]
+    let builder = builder.persistent_backend(Some(PersistentBackendKind::Json));
+    let config = builder.build();
     downloader.set_cache(config).await.expect("Cache setup should succeed");
 
     let url = format!("{}/media/small.bin", server.uri());

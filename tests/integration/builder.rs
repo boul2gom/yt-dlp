@@ -211,14 +211,19 @@ async fn build_with_proxy() {
 // with_cache_config (feature: cache)
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "cache-memory", feature = "cache-json", feature = "cache-redb"))]
+#[cfg(persistent_cache)]
 #[tokio::test]
 async fn build_with_cache() {
     let dir = tempfile::tempdir().expect("tempdir failed");
     let cache_dir = dir.path().join("cache");
 
     let downloader = DownloaderBuilder::new(fake_libraries(), dir.path())
-        .with_cache(&cache_dir)
+        .with_cache_config(
+            yt_dlp::cache::config::CacheConfig::builder()
+                .cache_dir(cache_dir.clone())
+                .persistent_backend(Some(yt_dlp::cache::PersistentBackendKind::Json))
+                .build(),
+        )
         .build()
         .await
         .expect("build failed");

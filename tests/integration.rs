@@ -36,7 +36,7 @@ mod cache_redb;
 #[path = "integration/cache/redis.rs"]
 mod cache_redis;
 
-#[cfg(any(feature = "cache-memory", feature = "cache-json", feature = "cache-redb"))]
+#[cfg(persistent_cache)]
 #[path = "integration/cache/layer.rs"]
 mod cache_layer;
 

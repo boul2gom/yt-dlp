@@ -40,16 +40,14 @@ Every PR must pass these commands:
 # Lint each feature in isolation (workspace-wide, covers both yt-dlp and media-seek)
 cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
 
-# Lint tiered cache combinations (L1 Moka + L2 persistent)
-cargo clippy --workspace --features cache-memory,cache-json -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redb -- -D warnings
-cargo clippy --workspace --features cache-memory,cache-redis -- -D warnings
+# Lint all features combined (all backends in a single pass)
+cargo clippy --workspace --all-features -- -D warnings
 
 # Check formatting (requires nightly)
 cargo +nightly fmt --all -- --check
 
 # Run all doc-tests (workspace-wide)
-cargo test --doc --workspace
+cargo test --doc --workspace --all-features
 
 # Check dependencies (licenses, advisories, bans)
 cargo deny check
@@ -228,9 +226,9 @@ There are **no `#[cfg(test)]` modules** in `src/`. No tests live in `tests/commo
 
 | Harness | Command | Scope |
 |---------|---------|-------|
-| Unit | `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` | Pure logic, no I/O, no network |
-| Integration | `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording"` | wiremock servers, tempdir I/O, async flows |
-| E2E | `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- --test-threads=1` | Full download pipeline with wiremock |
+| Unit | `cargo test --test unit --all-features` | Pure logic, no I/O, no network |
+| Integration | `cargo test --test integration --all-features` | wiremock servers, tempdir I/O, async flows |
+| E2E | `cargo test --test e2e --all-features -- --test-threads=1` | Full download pipeline with wiremock |
 | Doctests | `cargo test --doc --workspace` | Code examples in rustdoc |
 
 **Directory conventions** — test directories mirror `src/` module hierarchy:
@@ -663,7 +661,19 @@ and it is invisible in `Cargo.toml`. Use `#[cfg(cache)]` to guard code that requ
 
 ### Backend selection
 
-`build.rs` emits `persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled, and `multiple_persistent_backends` if more than one is active (which triggers a `compile_error!`). At most one persistent backend may be enabled at a time.
+`build.rs` emits `persistent_cache` when any of `cache-json`, `cache-redb`, or `cache-redis` is enabled. Multiple persistent features may be active simultaneously — the `multiple_persistent_backends` cfg and its associated `compile_error!` have been removed.
+
+When exactly one persistent feature is compiled in, `CacheConfig::persistent_backend` is auto-deduced and may be left as `None`. When more than one is compiled in, `persistent_backend` **must** be set explicitly to a `PersistentBackendKind` variant; leaving it `None` causes `CacheLayer::from_config` to return `Error::AmbiguousCacheBackend` at runtime.
+
+```rust
+use yt_dlp::prelude::*;
+
+// Multiple backends compiled in — pick one at runtime:
+let config = CacheConfig::builder()
+    .cache_dir("cache")
+    .persistent_backend(PersistentBackendKind::Redb) // required when multiple compiled in
+    .build();
+```
 
 ### Conditional compilation patterns
 
@@ -682,6 +692,10 @@ pub mod json;
 #[cfg(feature = "hooks")]
 pub(crate) hook_registry: Option<events::HookRegistry>,
 ```
+
+### ❌ Forbidden patterns
+
+- **Never use `#[cfg(...)]` on function parameters.** It makes function signatures unreadable and call sites overly complex. If a parameter is feature-dependent, either feature-gate the entire function, or use a config struct / builder pattern where the specific field is feature-gated.
 
 ---
 
@@ -895,8 +909,8 @@ Use `⚙️` for internal operations and `✅` for success — same as the main 
 cargo clippy -p media-seek -- -D warnings
 
 # Run media-seek unit + integration tests
-cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- media_seek
-cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording" -- media_seek
+cargo test --test unit --all-features -- media_seek
+cargo test --test integration --all-features -- media_seek
 
 # Doc-tests (both crates)
 cargo test --doc --workspace
@@ -908,14 +922,12 @@ cargo test --doc --workspace
 
 Before submitting your PR, make sure:
 
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redb,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
-- [ ] 🔍 `cargo clippy --workspace --features cache-memory,cache-redis,hooks,webhooks,statistics,live-recording,live-streaming -- -D warnings` — zero warnings
+- [ ] 🔍 `cargo clippy --workspace --all-features -- -D warnings` — zero warnings
 - [ ] 💄 `cargo +nightly fmt --all -- --check` — properly formatted
-- [ ] 🧪 `cargo test --test unit --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"` — all unit tests pass
-- [ ] 🧪 `cargo test --test integration --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming"` — all integration tests pass
-- [ ] 🧪 `cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1` — all E2E tests pass
-- [ ] 🧪 `cargo test --doc --workspace` — all doc-tests pass
+- [ ] 🧪 `cargo test --test unit --all-features` — all unit tests pass
+- [ ] 🧪 `cargo test --test integration --all-features` — all integration tests pass
+- [ ] 🧪 `cargo test --test e2e --all-features -- --test-threads=1` — all E2E tests pass
+- [ ] 🧪 `cargo test --doc --workspace --all-features` — all doc-tests pass
 - [ ] 🔐 `cargo deny check` — no dependency issues
 - [ ] 🧹 `cargo machete` — no unused dependencies
 - [ ] 📝 All new public items have rustdoc following the template

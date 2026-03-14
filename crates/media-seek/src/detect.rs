@@ -191,7 +191,11 @@ fn detect_adts(probe: &[u8]) -> Option<Format> {
     if probe.len() > frame_length + 1 {
         let is_next_sync = probe[frame_length] == 0xFF;
         let is_next_adts = (probe[frame_length + 1] & ADTS_SYNC_SECOND_BYTE_MASK) == ADTS_SYNC_SECOND_BYTE_PATTERN;
-        if is_next_sync && is_next_adts { Some(Format::Adts) } else { None }
+        if is_next_sync && is_next_adts {
+            Some(Format::Adts)
+        } else {
+            None
+        }
     } else {
         Some(Format::Adts)
     }
@@ -206,7 +210,11 @@ fn detect_mpeg_audio(probe: &[u8]) -> Option<Format> {
     let is_layer3 = masked == MPEG_SYNC_PATTERN_L3;
     let is_layer2 = masked == MPEG_SYNC_PATTERN_L2;
     let is_layer1 = masked == MPEG_SYNC_PATTERN_L1;
-    if is_layer3 || is_layer2 || is_layer1 { Some(Format::Mp3) } else { None }
+    if is_layer3 || is_layer2 || is_layer1 {
+        Some(Format::Mp3)
+    } else {
+        None
+    }
 }
 
 /// Detects a RIFF container and discriminates WAV vs AVI via the 4-byte subtype at offset 8.

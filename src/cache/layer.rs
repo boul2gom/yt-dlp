@@ -41,29 +41,9 @@ impl CacheLayer {
     pub async fn from_config(config: &CacheConfig) -> Result<Self> {
         tracing::debug!(config = %config, "⚙️ Building cache layer from config");
 
-        let videos = VideoCache::new(
-            config.cache_dir.clone(),
-            #[cfg(feature = "cache-redis")]
-            config.redis_url.as_deref(),
-            config.video_ttl,
-        )
-        .await?;
-
-        let downloads = DownloadCache::new(
-            config.cache_dir.clone(),
-            #[cfg(feature = "cache-redis")]
-            config.redis_url.as_deref(),
-            config.download_ttl,
-        )
-        .await?;
-
-        let playlists = PlaylistCache::with_ttl(
-            config.cache_dir.clone(),
-            #[cfg(feature = "cache-redis")]
-            config.redis_url.as_deref(),
-            config.playlist_ttl.unwrap_or(6 * 60 * 60),
-        )
-        .await?;
+        let videos = VideoCache::new(config, config.video_ttl).await?;
+        let downloads = DownloadCache::new(config, config.download_ttl).await?;
+        let playlists = PlaylistCache::new(config, config.playlist_ttl).await?;
 
         tracing::debug!("✅ Cache layer initialized");
 

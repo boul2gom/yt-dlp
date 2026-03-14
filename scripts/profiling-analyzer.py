@@ -4,24 +4,26 @@
 #                         to identify memory and CPU bottlenecks.
 #
 # Usage:
-#   ./scripts/profiling-analyzer.py
+#   ./scripts/profiling-analyzer.py [--dhat-file <path>] [--samply-file <path>]
 # ─────────────────────────────────────────────────────────────────────────────
 
-import json
-import gzip
-import os
 import argparse
+import gzip
+import json
+import os
 
-# Alloc frames to hide in DHAT stack traces
+# Alloc frames to hide in DHAT stack traces.
 ALLOC_NOISE = ("alloc::", "dhat::")
 
+
+# ── Symbol helpers ────────────────────────────────────────────────────────────
 
 def clean_symbol(name):
     """Strip the Rust hash suffix (::h...) from a symbol name."""
     return name.split("::h")[0]
 
 
-# ── DHAT Analysis ────────────────────────────────────────────────────────────
+# ── DHAT Analysis ─────────────────────────────────────────────────────────────
 
 def resolve_allocator_stack(pp, frames):
     """Resolve the stack trace for a single allocation point, filtering noise."""
@@ -37,7 +39,7 @@ def resolve_allocator_stack(pp, frames):
 
 def print_top_allocators(pps, frames, total_bytes, limit=10):
     """Print the top N allocators sorted by total bytes."""
-    print("Top 10 Allocators (by total bytes):")
+    print(f"Top {limit} Allocators (by total bytes):")
 
     for pp in pps[:limit]:
         tb = pp.get('tb', 0)
@@ -52,6 +54,7 @@ def print_top_allocators(pps, frames, total_bytes, limit=10):
 
 
 def analyze_dhat(dhat_path="dhat-heap.json"):
+    """Parse dhat-heap.json and print the top allocators by total bytes."""
     print("╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ DHAT MEMORY ANALYSIS                                                       │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
@@ -78,7 +81,7 @@ def analyze_dhat(dhat_path="dhat-heap.json"):
         print(f"Error analyzing DHAT: {e}")
 
 
-# ── Samply Analysis ──────────────────────────────────────────────────────────
+# ── Samply Analysis ───────────────────────────────────────────────────────────
 
 def build_thread_tables(thread):
     """Extract the lookup tables needed for stack resolution from a thread."""
@@ -172,6 +175,7 @@ def analyze_thread(thread):
 
 
 def analyze_samply(samply_path="profile.json.gz"):
+    """Parse profile.json.gz and print per-thread CPU profiles."""
     print("\n╭────────────────────────────────────────────────────────────────────────────╮")
     print("│ SAMPLY CPU ANALYSIS                                                        │")
     print("╰────────────────────────────────────────────────────────────────────────────╯")
@@ -191,7 +195,7 @@ def analyze_samply(samply_path="profile.json.gz"):
         print(f"Error analyzing profile.json.gz: {e}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(

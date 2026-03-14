@@ -8,35 +8,35 @@
 //! ## CPU profiling with flamegraph
 //! ```bash
 //! cargo install flamegraph
-//! cargo flamegraph --bench profiling --features profiling --release -- <URL>
+//! cargo flamegraph --example profiling --features profiling --release -- <URL>
 //! # Opens target/flamegraph.svg
 //! ```
 //!
 //! ## CPU profiling with samply (macOS/Linux)
 //! ```bash
 //! cargo install samply
-//! cargo build --bench profiling --features profiling --release
-//! samply record ./target/release/deps/profiling-* <URL>
+//! cargo build --example profiling --features profiling --release
+//! samply record ./target/release/examples/profiling <URL>
 //! # Opens Firefox profiler automatically
 //! ```
 //!
 //! ## Heap profiling with dhat-rs
 //! ```bash
-//! cargo bench --bench profiling --features profiling -- <URL>
+//! cargo run --example profiling --features profiling -- <URL>
 //! # Writes dhat-heap.json in the current directory
 //! # Open at: https://nnethercote.github.io/dh_view/dh_view.html
 //! ```
 //!
 //! ## Heap profiling with heaptrack (Linux only)
 //! ```bash
-//! cargo build --bench profiling --release
-//! heaptrack ./target/release/deps/profiling-* <URL>
+//! cargo build --example profiling --release
+//! heaptrack ./target/release/examples/profiling <URL>
 //! heaptrack --analyze heaptrack.profiling.*
 //! ```
 //!
 //! ## To run all scenarios
 //! ```bash
-//! cargo bench --bench profiling --features profiling -- <URL>
+//! cargo run --example profiling --features profiling -- <URL>
 //! ```
 
 #[cfg(feature = "profiling")]
@@ -46,15 +46,27 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use tracing_subscriber::EnvFilter;
 use yt_dlp::download::{AudioCodec, PostProcessConfig, VideoCodec};
 use yt_dlp::events::{DownloadEvent, EventBus};
 use yt_dlp::model::Video;
 use yt_dlp::model::selector::{AudioCodecPreference, AudioQuality, VideoCodecPreference, VideoQuality};
 use yt_dlp::utils::validation::{sanitize_filename, sanitize_path, validate_youtube_url};
-use yt_dlp::{Downloader, VideoSelection};
+use yt_dlp::{DownloadPriority, Downloader, VideoSelection};
 
-// Default short public YouTube video used when no URL is provided
+// Default short public YouTube video used when no URL is provided.
 const DEFAULT_VIDEO_URL: &str = "https://www.youtube.com/watch?v=gXtp6C-3JKo";
+// Number of format-selection iterations for the CPU-bound scenario.
+const FORMAT_SELECTION_ITERS: usize = 10_000;
+// Number of event-bus iterations (two loops of this count each).
+const EVENT_BUS_ITERS: usize = 10_000;
+// Number of URL-validation iterations for the validation scenario.
+const VALIDATION_ITERS: usize = 10_000;
+// Number of statistics snapshot iterations.
+#[cfg(feature = "statistics")]
+const STATISTICS_ITERS: usize = 1_000;
+// Number of cache put+get cycle iterations.
+const CACHE_OPS_ITERS: usize = 500;
 
 struct ScenarioResult {
     name: String,
@@ -178,9 +190,8 @@ async fn run_metadata_warm(downloader: &Downloader, url: &str, n: usize) -> Scen
 }
 
 fn run_format_selection(video: &Video) -> ScenarioResult {
-    const N: usize = 10_000;
     let start = Instant::now();
-    for _ in 0..N {
+    for _ in 0..FORMAT_SELECTION_ITERS {
         let _ = video.best_video_format();
         let _ = video.best_audio_format();
         let _ = video.worst_video_format();
@@ -190,7 +201,7 @@ fn run_format_selection(video: &Video) -> ScenarioResult {
     }
     ScenarioResult {
         name: "format_selection".to_string(),
-        iterations: N,
+        iterations: FORMAT_SELECTION_ITERS,
         total: start.elapsed(),
     }
 }
@@ -213,7 +224,6 @@ async fn run_download_video(downloader: &Downloader, url: &str) -> ScenarioResul
 }
 
 async fn run_download_audio(downloader: &Downloader, url: &str) -> ScenarioResult {
-    use yt_dlp::model::selector::AudioCodecPreference;
     let start = Instant::now();
     let video = downloader.fetch_video_infos(url).await.unwrap();
     downloader
@@ -294,16 +304,13 @@ async fn run_postprocess(downloader: &Downloader, url: &str) -> ScenarioResult {
 }
 
 fn run_event_bus() -> ScenarioResult {
-    use yt_dlp::download::DownloadPriority;
-
-    const N: usize = 10_000;
     let bus = EventBus::with_default_capacity();
     let mut rx = bus.subscribe();
 
     let start = Instant::now();
 
     // Loop 1: DownloadQueued events — realistic allocation cost (String + PathBuf per event)
-    for i in 0..N {
+    for i in 0..EVENT_BUS_ITERS {
         let event = DownloadEvent::DownloadQueued {
             download_id: i as u64,
             url: "https://example.com".to_string(),
@@ -317,13 +324,13 @@ fn run_event_bus() -> ScenarioResult {
 
     // Loop 2: DownloadProgress events — all-numeric fields, zero extra allocations;
     // isolates pure channel throughput from event construction cost
-    for i in 0..N {
+    for i in 0..EVENT_BUS_ITERS {
         let event = DownloadEvent::DownloadProgress {
             download_id: i as u64,
             downloaded_bytes: (i as u64) * 1024,
-            total_bytes: N as u64 * 1024,
+            total_bytes: EVENT_BUS_ITERS as u64 * 1024,
             speed_bytes_per_sec: 1_000_000.0,
-            eta_seconds: Some((N - i) as u64),
+            eta_seconds: Some((EVENT_BUS_ITERS - i) as u64),
         };
         bus.emit(event);
         while rx.try_recv().is_ok() {}
@@ -331,37 +338,34 @@ fn run_event_bus() -> ScenarioResult {
 
     ScenarioResult {
         name: "event_bus".to_string(),
-        iterations: N * 2,
+        iterations: EVENT_BUS_ITERS * 2,
         total: start.elapsed(),
     }
 }
 
 #[cfg(feature = "statistics")]
 async fn run_statistics(downloader: &Downloader) -> ScenarioResult {
-    const N: usize = 1_000;
     let start = Instant::now();
-    for _ in 0..N {
+    for _ in 0..STATISTICS_ITERS {
         let _snapshot = downloader.statistics().snapshot().await;
     }
     ScenarioResult {
         name: "statistics".to_string(),
-        iterations: N,
+        iterations: STATISTICS_ITERS,
         total: start.elapsed(),
     }
 }
 
 #[cfg(cache)]
 async fn run_cache_ops(real_video: &Video) -> ScenarioResult {
-    use yt_dlp::cache::VideoCache;
+    use yt_dlp::cache::{CacheConfig, VideoCache};
 
-    const N: usize = 500;
     let dir = tempfile::TempDir::new().expect("tempdir failed");
-    let cache = VideoCache::new(dir.path().to_path_buf(), None)
-        .await
-        .expect("cache init failed");
+    let config = CacheConfig::builder().cache_dir(dir.path().to_path_buf()).build();
+    let cache = VideoCache::new(&config, None).await.expect("cache init failed");
 
     let start = Instant::now();
-    for i in 0..N {
+    for i in 0..CACHE_OPS_ITERS {
         let mut video = real_video.clone();
         video.id = format!("bench-{}", i);
         let url = format!("https://example.com/bench-{}", i);
@@ -370,7 +374,7 @@ async fn run_cache_ops(real_video: &Video) -> ScenarioResult {
     }
     ScenarioResult {
         name: "cache_ops".to_string(),
-        iterations: N,
+        iterations: CACHE_OPS_ITERS,
         total: start.elapsed(),
     }
 }
@@ -433,8 +437,7 @@ async fn run_cpu_scenarios(run_scenario: impl Fn(&str) -> bool, real_video: &Vid
             "not-a-url",
         ];
         let start = Instant::now();
-        const N: usize = 10_000;
-        for _ in 0..N {
+        for _ in 0..VALIDATION_ITERS {
             for url in &inputs {
                 let _ = validate_youtube_url(url);
             }
@@ -443,7 +446,7 @@ async fn run_cpu_scenarios(run_scenario: impl Fn(&str) -> bool, real_video: &Vid
         }
         results.push(ScenarioResult {
             name: "validation".to_string(),
-            iterations: N,
+            iterations: VALIDATION_ITERS,
             total: start.elapsed(),
         });
     }
@@ -551,10 +554,7 @@ async fn main() {
 
     let level = if args.verbose { "debug" } else { "warn" };
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level)))
         .init();
 
     let libs = PathBuf::from("profiling-libs");
