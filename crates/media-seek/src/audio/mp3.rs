@@ -37,6 +37,9 @@ const ID3V2_FOOTER_FLAG: u8 = 0x10;
 /// Size of an ID3v1 trailing tag in bytes.
 const ID3V1_TAG_SIZE: usize = 128;
 
+/// Magic bytes at the start of an ID3v2 tag (always "ID3").
+pub(crate) const ID3V2_MAGIC: &[u8; 3] = b"ID3";
+
 /// Magic bytes identifying an ID3v1 trailing tag.
 const ID3V1_MAGIC: &[u8; 3] = b"TAG";
 
@@ -182,36 +185,10 @@ pub(crate) async fn parse<F: RangeFetcher>(
     let audio_size = compute_audio_size(probe, total_size, frame_start, id3v1_fetched);
 
     // Xing/VBRI headers are exclusive to Layer III.
-    if header.layer == LAYER_III {
-        let xing_offset = xing_header_offset(header.mpeg_version, header.channels);
-        if frame.len() >= xing_offset + 4 {
-            let tag = &frame[xing_offset..xing_offset + 4];
-            if tag == b"Xing" || tag == b"Info" {
-                let result = parse_xing(
-                    frame,
-                    xing_offset,
-                    header.sample_rate,
-                    header.mpeg_version,
-                    frame_start as u64,
-                    audio_size,
-                );
-                tracing::debug!("✅ MPEG audio index parsed (mode=xing)");
-                return result;
-            }
-        }
-
-        if frame.len() >= VBRI_OFFSET + 4 && &frame[VBRI_OFFSET..VBRI_OFFSET + 4] == b"VBRI" {
-            let result = parse_vbri(
-                frame,
-                VBRI_OFFSET,
-                header.sample_rate,
-                header.mpeg_version,
-                frame_start as u64,
-                header.bitrate_bps,
-            );
-            tracing::debug!("✅ MPEG audio index parsed (mode=vbri)");
-            return result;
-        }
+    if header.layer == LAYER_III
+        && let Some(idx) = try_parse_vbr_header(frame, &header, frame_start as u64, audio_size)?
+    {
+        return Ok(idx);
     }
 
     // CBR: use constant bitrate for a Linear index (all layers).
@@ -509,6 +486,78 @@ fn samples_per_frame(mpeg_version: u8, layer: u8) -> u64 {
     }
 }
 
+/// Reads the optional `total_frames` field from a Xing header.
+///
+/// Returns `(frames, bytes_consumed)`. When the flag is absent, frames is 0 and consumed is 0.
+fn read_xing_frames(frame: &[u8], off: usize, flags: u32) -> Result<(u32, usize)> {
+    if flags & XING_FLAG_FRAMES == 0 {
+        return Ok((0, 0));
+    }
+    if frame.len() < off + 4 {
+        return Err(Error::parse("Xing total_frames truncated"));
+    }
+    let frames = u32::from_be_bytes(frame[off..off + 4].try_into().unwrap());
+    Ok((frames, 4))
+}
+
+/// Reads the optional `total_bytes` field from a Xing header.
+///
+/// Returns `(bytes, bytes_consumed)`. When the flag is absent, uses `fallback` and consumed is 0.
+fn read_xing_bytes(frame: &[u8], off: usize, flags: u32, fallback: u64) -> Result<(u64, usize)> {
+    if flags & XING_FLAG_BYTES == 0 {
+        return Ok((fallback, 0));
+    }
+    if frame.len() < off + 4 {
+        return Err(Error::parse("Xing total_bytes truncated"));
+    }
+    let bytes = u32::from_be_bytes(frame[off..off + 4].try_into().unwrap()) as u64;
+    Ok((bytes, 4))
+}
+
+/// Reads the optional 100-entry TOC from a Xing header.
+///
+/// Returns `Ok(Some(toc))` when present, `Ok(None)` when flag is absent.
+fn read_xing_toc(frame: &[u8], off: usize, flags: u32) -> Result<Option<[u8; XING_TOC_ENTRIES]>> {
+    if flags & XING_FLAG_TOC == 0 {
+        return Ok(None);
+    }
+    if frame.len() < off + XING_TOC_ENTRIES {
+        return Err(Error::parse("Xing TOC truncated"));
+    }
+    let mut t = [0u8; XING_TOC_ENTRIES];
+    t.copy_from_slice(&frame[off..off + XING_TOC_ENTRIES]);
+    Ok(Some(t))
+}
+
+/// Builds a segmented `ContainerIndex` from a Xing TOC.
+fn build_toc_segments(
+    toc: [u8; XING_TOC_ENTRIES],
+    total_bytes: u64,
+    total_duration: f64,
+    frame_start_byte: u64,
+) -> Vec<SegmentEntry> {
+    let mut segments = Vec::with_capacity(XING_TOC_ENTRIES);
+    for i in 0..XING_TOC_ENTRIES {
+        let pct = toc[i] as f64 / XING_TOC_SCALE;
+        let byte_offset = frame_start_byte + (pct * total_bytes as f64) as u64;
+        let start_secs = i as f64 * total_duration / XING_TOC_ENTRIES as f64;
+        let end_secs = (i + 1) as f64 * total_duration / XING_TOC_ENTRIES as f64;
+        let next_pct = if i + 1 < XING_TOC_ENTRIES {
+            toc[i + 1] as f64 / XING_TOC_SCALE
+        } else {
+            1.0
+        };
+        let next_byte = frame_start_byte + (next_pct * total_bytes as f64) as u64;
+        segments.push(SegmentEntry {
+            start_secs,
+            end_secs,
+            byte_offset,
+            byte_size: next_byte.saturating_sub(byte_offset),
+        });
+    }
+    segments
+}
+
 /// Parses a Xing/Info VBR header and constructs a segmented [`ContainerIndex`].
 ///
 /// `audio_size` is the usable audio byte count (actual file size minus ID3v1 and
@@ -528,42 +577,13 @@ fn parse_xing(
     let flags = u32::from_be_bytes(frame[x + 4..x + 8].try_into().unwrap());
 
     let mut off = x + 8;
+    let (total_frames, consumed) = read_xing_frames(frame, off, flags)?;
+    off += consumed;
+    let (total_bytes, consumed) = read_xing_bytes(frame, off, flags, audio_size)?;
+    off += consumed;
+    let toc = read_xing_toc(frame, off, flags)?;
 
-    let total_frames = if flags & XING_FLAG_FRAMES != 0 {
-        if frame.len() < off + 4 {
-            return Err(Error::parse("Xing total_frames truncated"));
-        }
-        let f = u32::from_be_bytes(frame[off..off + 4].try_into().unwrap());
-        off += 4;
-        f
-    } else {
-        0
-    };
-
-    let total_bytes = if flags & XING_FLAG_BYTES != 0 {
-        if frame.len() < off + 4 {
-            return Err(Error::parse("Xing total_bytes truncated"));
-        }
-        let b = u32::from_be_bytes(frame[off..off + 4].try_into().unwrap()) as u64;
-        off += 4;
-        b
-    } else {
-        // Fallback: use actual file size (ID3v1-corrected), not probe.len().
-        audio_size
-    };
-
-    let toc: Option<[u8; XING_TOC_ENTRIES]> = if flags & XING_FLAG_TOC != 0 {
-        if frame.len() < off + XING_TOC_ENTRIES {
-            return Err(Error::parse("Xing TOC truncated"));
-        }
-        let mut t = [0u8; XING_TOC_ENTRIES];
-        t.copy_from_slice(&frame[off..off + XING_TOC_ENTRIES]);
-        Some(t)
-    } else {
-        None
-    };
-
-    // BUG FIX: when total_frames == 0 we cannot compute duration from frames.
+    // When total_frames == 0 we cannot compute duration from frames.
     if total_frames == 0 {
         return Ok(ContainerIndex {
             init_end_byte: frame_start_byte,
@@ -578,28 +598,9 @@ fn parse_xing(
     let total_duration = total_frames as f64 * spf as f64 / sample_rate as f64;
 
     if let Some(toc) = toc {
-        let mut segments = Vec::with_capacity(XING_TOC_ENTRIES);
-        for i in 0..XING_TOC_ENTRIES {
-            let pct = toc[i] as f64 / XING_TOC_SCALE;
-            let byte_offset = frame_start_byte + (pct * total_bytes as f64) as u64;
-            let start_secs = i as f64 * total_duration / XING_TOC_ENTRIES as f64;
-            let end_secs = (i + 1) as f64 * total_duration / XING_TOC_ENTRIES as f64;
-            let next_pct = if i + 1 < XING_TOC_ENTRIES {
-                toc[i + 1] as f64 / XING_TOC_SCALE
-            } else {
-                1.0
-            };
-            let next_byte = frame_start_byte + (next_pct * total_bytes as f64) as u64;
-            segments.push(SegmentEntry {
-                start_secs,
-                end_secs,
-                byte_offset,
-                byte_size: next_byte.saturating_sub(byte_offset),
-            });
-        }
         return Ok(ContainerIndex {
             init_end_byte: frame_start_byte,
-            inner: Inner::Segments(segments),
+            inner: Inner::Segments(build_toc_segments(toc, total_bytes, total_duration, frame_start_byte)),
         });
     }
 
@@ -611,6 +612,55 @@ fn parse_xing(
             block_align: 1,
         },
     })
+}
+
+/// Checks for Xing/Info or VBRI VBR headers in a Layer III frame and parses them if found.
+///
+/// Returns `Ok(Some(index))` when a VBR header is found and parsed, `Ok(None)` when absent.
+fn try_parse_vbr_header(
+    frame: &[u8],
+    header: &FrameHeader,
+    frame_start_byte: u64,
+    audio_size: u64,
+) -> Result<Option<ContainerIndex>> {
+    let xing_offset = xing_header_offset(header.mpeg_version, header.channels);
+    if frame.len() >= xing_offset + 4 {
+        let tag = &frame[xing_offset..xing_offset + 4];
+        if tag == b"Xing" || tag == b"Info" {
+            tracing::debug!("✅ MPEG audio index parsed (mode=xing)");
+            return parse_xing(
+                frame,
+                xing_offset,
+                header.sample_rate,
+                header.mpeg_version,
+                frame_start_byte,
+                audio_size,
+            )
+            .map(Some);
+        }
+    }
+    if frame.len() >= VBRI_OFFSET + 4 && &frame[VBRI_OFFSET..VBRI_OFFSET + 4] == b"VBRI" {
+        tracing::debug!("✅ MPEG audio index parsed (mode=vbri)");
+        return parse_vbri(
+            frame,
+            VBRI_OFFSET,
+            header.sample_rate,
+            header.mpeg_version,
+            frame_start_byte,
+            header.bitrate_bps,
+        )
+        .map(Some);
+    }
+    Ok(None)
+}
+
+/// Assembles a big-endian multi-byte integer value from `entry_bytes` bytes at `data[off..]`.
+fn assemble_entry_value(data: &[u8], off: usize, entry_bytes: usize) -> u64 {
+    let mut val = 0u64;
+    for j in 0..entry_bytes {
+        val = (val << 8) | data[off + j] as u64;
+    }
+    val
 }
 
 /// Parses a VBRI VBR header and constructs a segmented [`ContainerIndex`].
@@ -661,11 +711,7 @@ fn parse_vbri(
     let mut byte_cursor = frame_start_byte;
     for i in 0..table_size {
         let off = table_start + i * entry_bytes;
-        let mut entry_val = 0u64;
-        for j in 0..entry_bytes {
-            entry_val = (entry_val << 8) | frame[off + j] as u64;
-        }
-        let chunk_bytes = entry_val * table_scale;
+        let chunk_bytes = assemble_entry_value(frame, off, entry_bytes) * table_scale;
         let start_secs = i as f64 * frames_per_entry as f64 * spf as f64 / sample_rate as f64;
         let end_secs = (i + 1) as f64 * frames_per_entry as f64 * spf as f64 / sample_rate as f64;
         segments.push(SegmentEntry {

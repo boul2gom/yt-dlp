@@ -101,39 +101,14 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
     let mut in_note_block = false;
 
     for line in lines {
-        let trimmed = line.trim();
-
-        // NOTE and STYLE blocks can span multiple lines until the next blank line
-        if trimmed.starts_with("NOTE") || trimmed.starts_with("STYLE") {
-            in_note_block = true;
-            continue;
-        }
-
-        if in_note_block {
-            if trimmed.is_empty() {
-                in_note_block = false;
-            }
-            continue;
-        }
-
-        if trimmed.contains(" --> ") {
-            // Only replace dots in the timestamp portions, not in position/alignment metadata
-            let converted_timestamp = convert_vtt_timestamp_line(trimmed);
-            current_subtitle.push(converted_timestamp);
-            in_subtitle = true;
-        } else if trimmed.is_empty() {
-            flush_subtitle(
-                &mut srt_output,
-                &mut subtitle_index,
-                &mut current_subtitle,
-                &mut in_subtitle,
-            );
-        } else if in_subtitle {
-            let cleaned_text = remove_vtt_tags(trimmed);
-            if !cleaned_text.is_empty() {
-                current_subtitle.push(cleaned_text);
-            }
-        }
+        process_vtt_line(
+            line.trim(),
+            &mut in_note_block,
+            &mut in_subtitle,
+            &mut current_subtitle,
+            &mut srt_output,
+            &mut subtitle_index,
+        );
     }
 
     // Handle last subtitle if present
@@ -145,6 +120,48 @@ fn vtt_to_srt(vtt_content: &str) -> Result<String> {
     );
 
     Ok(srt_output)
+}
+
+/// Processes a single trimmed VTT line, updating all mutable state and output.
+///
+/// # Arguments
+///
+/// * `trimmed` - The trimmed line content.
+/// * `in_note_block` - Tracks whether we are inside a NOTE/STYLE block.
+/// * `in_subtitle` - Tracks whether we are inside a subtitle cue.
+/// * `current_subtitle` - Accumulates lines for the current cue.
+/// * `srt_output` - The SRT output buffer being built.
+/// * `subtitle_index` - Counter for SRT sequence numbers.
+fn process_vtt_line(
+    trimmed: &str,
+    in_note_block: &mut bool,
+    in_subtitle: &mut bool,
+    current_subtitle: &mut Vec<String>,
+    srt_output: &mut String,
+    subtitle_index: &mut usize,
+) {
+    if trimmed.starts_with("NOTE") || trimmed.starts_with("STYLE") {
+        *in_note_block = true;
+        return;
+    }
+    if *in_note_block {
+        if trimmed.is_empty() {
+            *in_note_block = false;
+        }
+        return;
+    }
+    if trimmed.contains(" --> ") {
+        let converted_timestamp = convert_vtt_timestamp_line(trimmed);
+        current_subtitle.push(converted_timestamp);
+        *in_subtitle = true;
+    } else if trimmed.is_empty() {
+        flush_subtitle(srt_output, subtitle_index, current_subtitle, in_subtitle);
+    } else if *in_subtitle {
+        let cleaned_text = remove_vtt_tags(trimmed);
+        if !cleaned_text.is_empty() {
+            current_subtitle.push(cleaned_text);
+        }
+    }
 }
 
 fn flush_subtitle(output: &mut String, index: &mut usize, subtitle: &mut Vec<String>, in_subtitle: &mut bool) {
@@ -161,6 +178,33 @@ fn flush_subtitle(output: &mut String, index: &mut usize, subtitle: &mut Vec<Str
     *index += 1;
     subtitle.clear();
     *in_subtitle = false;
+}
+
+/// Processes an SRT timestamp line and the subtitle text lines that follow it.
+///
+/// Converts the timestamp from SRT format (`HH:MM:SS,mmm`) to VTT format
+/// (`HH:MM:SS.mmm`), then appends all subsequent text lines until an empty line
+/// is encountered.  Advances `i` past all consumed lines.
+///
+/// # Arguments
+///
+/// * `lines` - All SRT lines as a slice.
+/// * `i` - Current line index (pointing at the timestamp line); updated in-place.
+/// * `vtt_output` - The VTT output buffer being built.
+fn process_srt_timestamp_block(lines: &[&str], i: &mut usize, vtt_output: &mut String) {
+    let converted_timestamp = lines[*i].trim().replace(',', ".");
+    vtt_output.push_str(&format!("{}\n", converted_timestamp));
+    *i += 1;
+
+    while *i < lines.len() {
+        let text_line = lines[*i].trim();
+        if text_line.is_empty() {
+            vtt_output.push('\n');
+            break;
+        }
+        vtt_output.push_str(&format!("{}\n", text_line));
+        *i += 1;
+    }
 }
 
 /// Convert SRT (SubRip) format to VTT (WebVTT) format.
@@ -188,21 +232,7 @@ fn srt_to_vtt(srt_content: &str) -> Result<String> {
 
         // Check if this is a timestamp line
         if line.contains(" --> ") {
-            // Convert SRT timestamp format (HH:MM:SS,mmm) to VTT format (HH:MM:SS.mmm)
-            let converted_timestamp = line.replace(',', ".");
-            vtt_output.push_str(&format!("{}\n", converted_timestamp));
-            i += 1;
-
-            // Add subtitle text lines until we hit an empty line
-            while i < lines.len() {
-                let text_line = lines[i].trim();
-                if text_line.is_empty() {
-                    vtt_output.push('\n');
-                    break;
-                }
-                vtt_output.push_str(&format!("{}\n", text_line));
-                i += 1;
-            }
+            process_srt_timestamp_block(&lines, &mut i, &mut vtt_output);
         }
 
         i += 1;

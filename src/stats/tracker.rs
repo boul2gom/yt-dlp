@@ -11,6 +11,7 @@ use super::snapshot::{
     ActiveDownloadSnapshot, DownloadOutcomeSnapshot, DownloadSnapshot, DownloadStats, FetchStats, GlobalSnapshot,
     PlaylistStats, PostProcessStats,
 };
+use crate::download::DownloadPriority;
 use crate::events::{DownloadEvent, EventBus};
 
 /// Subscribes to the event bus and maintains running statistics about all download
@@ -171,6 +172,51 @@ async fn run_event_loop(inner: Arc<RwLock<StatsInner>>, mut rx: tokio::sync::bro
     tracing::debug!("📊 Statistics tracker event loop terminated");
 }
 
+/// Resolved fields extracted from an in-progress download record.
+///
+/// Produced by [`resolve_in_progress_record`] to avoid repeating the same
+/// `match record { Some(r) => ..., None => ... }` pattern in every terminal arm.
+struct ResolvedRecord {
+    url: String,
+    priority: DownloadPriority,
+    queue_wait: Option<Duration>,
+    peak_speed: f64,
+    elapsed: Option<Duration>,
+}
+
+/// Extracts timing and identity fields from an optional in-progress record.
+///
+/// Returns a fully-populated [`ResolvedRecord`] with zero-valued defaults when
+/// `record` is `None` (i.e. the download was not tracked — e.g. it was queued
+/// before the tracker started).
+///
+/// # Arguments
+///
+/// * `record` - The removed in-progress entry, or `None` if not found.
+///
+/// # Returns
+///
+/// A [`ResolvedRecord`] with `url`, `priority`, `queue_wait`, `peak_speed`,
+/// and `elapsed` populated from the record, or defaulted to empty/`None`/`0.0`.
+fn resolve_in_progress_record(record: Option<InProgressDownload>) -> ResolvedRecord {
+    match record {
+        Some(r) => ResolvedRecord {
+            queue_wait: r.started_at.map(|s| s.duration_since(r.queued_at)),
+            elapsed: r.started_at.map(|s| s.elapsed()),
+            peak_speed: r.peak_speed,
+            url: r.url,
+            priority: r.priority,
+        },
+        None => ResolvedRecord {
+            url: String::new(),
+            priority: DownloadPriority::Normal,
+            queue_wait: None,
+            peak_speed: 0.0,
+            elapsed: None,
+        },
+    }
+}
+
 /// Applies a single event to the mutable state. No I/O or `.await` inside.
 fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
     match event {
@@ -243,24 +289,17 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             state.total_bytes += total_bytes;
             state.total_download_duration += *duration;
 
-            let record = state.in_progress.remove(download_id);
-            let (url, priority, queue_wait, peak_speed) = match record {
-                Some(r) => {
-                    let wait = r.started_at.map(|s| s.duration_since(r.queued_at));
-                    (r.url, r.priority, wait, r.peak_speed)
-                }
-                None => (String::new(), crate::download::DownloadPriority::Normal, None, 0.0),
-            };
+            let rec = resolve_in_progress_record(state.in_progress.remove(download_id));
 
             state.push_history(CompletedDownload {
                 download_id: *download_id,
-                url,
-                priority,
+                url: rec.url,
+                priority: rec.priority,
                 outcome: DownloadOutcome::Completed,
                 bytes: *total_bytes,
                 duration: Some(*duration),
-                queue_wait,
-                peak_speed,
+                queue_wait: rec.queue_wait,
+                peak_speed: rec.peak_speed,
                 retry_count: 0,
             });
 
@@ -280,31 +319,17 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
             state.failed += 1;
             state.total_retries += *retry_count as u64;
 
-            let record = state.in_progress.remove(download_id);
-            let (url, priority, queue_wait, peak_speed, duration) = match record {
-                Some(r) => {
-                    let wait = r.started_at.map(|s| s.duration_since(r.queued_at));
-                    let dur = r.started_at.map(|s| s.elapsed());
-                    (r.url, r.priority, wait, r.peak_speed, dur)
-                }
-                None => (
-                    String::new(),
-                    crate::download::DownloadPriority::Normal,
-                    None,
-                    0.0,
-                    None,
-                ),
-            };
+            let rec = resolve_in_progress_record(state.in_progress.remove(download_id));
 
             state.push_history(CompletedDownload {
                 download_id: *download_id,
-                url,
-                priority,
+                url: rec.url,
+                priority: rec.priority,
                 outcome: DownloadOutcome::Failed,
                 bytes: 0,
-                duration,
-                queue_wait,
-                peak_speed,
+                duration: rec.elapsed,
+                queue_wait: rec.queue_wait,
+                peak_speed: rec.peak_speed,
                 retry_count: *retry_count,
             });
 
@@ -321,23 +346,16 @@ fn handle_event(state: &mut StatsInner, event: &DownloadEvent) {
                 state.queued -= 1;
             }
 
-            let record = state.in_progress.remove(download_id);
-            let (url, priority, queue_wait) = match record {
-                Some(r) => {
-                    let wait = r.started_at.map(|s| s.duration_since(r.queued_at));
-                    (r.url, r.priority, wait)
-                }
-                None => (String::new(), crate::download::DownloadPriority::Normal, None),
-            };
+            let rec = resolve_in_progress_record(state.in_progress.remove(download_id));
 
             state.push_history(CompletedDownload {
                 download_id: *download_id,
-                url,
-                priority,
+                url: rec.url,
+                priority: rec.priority,
                 outcome: DownloadOutcome::Canceled,
                 bytes: 0,
                 duration: None,
-                queue_wait,
+                queue_wait: rec.queue_wait,
                 peak_speed: 0.0,
                 retry_count: 0,
             });

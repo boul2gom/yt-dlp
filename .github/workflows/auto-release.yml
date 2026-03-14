@@ -39,9 +39,6 @@ on:
           - major
         default: 'auto'
 
-permissions:
-  contents: read
-
 jobs:
   check_updates:
     name: ✅ Check update commits
@@ -113,9 +110,10 @@ jobs:
               since: reference_date.toISOString()
             });
 
-            // Exclude GitHub Actions workflow bumps — they should not trigger a release
+            // Exclude GitHub Actions workflow bumps and formatting commits — they should not trigger a release
             const relevant_commits = commits.data.filter(c =>
-              !c.commit.message.includes('[Github Actions]')
+              !c.commit.message.includes('[Github Actions]') &&
+              !c.commit.message.includes('Format code with Cargo formatter [skip ci]')
             );
 
             if (relevant_commits.length === 0) {
@@ -334,7 +332,9 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: 📌 Install cargo-release
-        run: cargo install cargo-release
+        uses: taiki-e/install-action@7fa572463ed6f88f64fd37a4f8ca146df751432d # cargo-release
+        with:
+          tool: cargo-release
 
       - name: 🔐 Import GPG Key and setup Git
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0

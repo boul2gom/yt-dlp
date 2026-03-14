@@ -7,7 +7,7 @@
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
-const FLAC_MARKER: &[u8; 4] = b"fLaC";
+pub(crate) const FLAC_MARKER: &[u8; 4] = b"fLaC";
 const BLOCK_TYPE_STREAMINFO: u8 = 0;
 const BLOCK_TYPE_SEEKTABLE: u8 = 3;
 const SEEKTABLE_PLACEHOLDER: u64 = u64::MAX;
@@ -43,7 +43,7 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
     let mut pos = 4usize;
     let mut sample_rate: u32 = 0;
     let mut total_samples: u64 = 0;
-    let mut seek_points: Option<Vec<(u64, u64, u16)>> = None; // (sample_number, stream_offset, frame_samples)
+    let mut seek_points: Option<Vec<(u64, u64, u16)>> = None;
     let mut audio_start: u64 = 4;
 
     loop {
@@ -58,43 +58,23 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
 
         let block_end = pos + block_len;
         if block_end > probe.len() {
-            // Truncated block body — record audio_start if this is the last block,
-            // then advance pos so the loop exits on the next header check.
             if is_last {
                 audio_start = block_end as u64;
             }
-            pos = block_end; // exceeds probe.len(); loop exits on next iteration
+            pos = block_end;
             continue;
         }
 
         match block_type {
             BLOCK_TYPE_STREAMINFO => {
                 if block_len >= STREAMINFO_MIN_SIZE {
-                    let sr_word = u32::from_be_bytes(probe[pos + 10..pos + 14].try_into().unwrap());
-                    sample_rate = sr_word >> 12;
-                    // bits [35:0] of bytes 13-17 encode total_samples (36 bits)
-                    // byte 13 has low 4 bits of sr, then bits 35-32 of total_samples in bits 3-0
-                    let ts_hi = (probe[pos + 13] & 0x0F) as u64;
-                    let ts_lo = u32::from_be_bytes(probe[pos + 14..pos + 18].try_into().unwrap()) as u64;
-                    total_samples = (ts_hi << 32) | ts_lo;
+                    let (sr, ts) = parse_streaminfo_block(&probe[pos..pos + block_len]);
+                    sample_rate = sr;
+                    total_samples = ts;
                 }
             }
             BLOCK_TYPE_SEEKTABLE => {
-                let n = block_len / SEEK_POINT_SIZE;
-                let mut points = Vec::with_capacity(n);
-                for i in 0..n {
-                    let off = pos + i * SEEK_POINT_SIZE;
-                    if off + SEEK_POINT_SIZE > probe.len() {
-                        break;
-                    }
-                    let sample_num = u64::from_be_bytes(probe[off..off + 8].try_into().unwrap());
-                    let stream_off = u64::from_be_bytes(probe[off + 8..off + 16].try_into().unwrap());
-                    let frame_samples = u16::from_be_bytes(probe[off + 16..off + 18].try_into().unwrap());
-                    if sample_num != SEEKTABLE_PLACEHOLDER {
-                        points.push((sample_num, stream_off, frame_samples));
-                    }
-                }
-                seek_points = Some(points);
+                seek_points = Some(parse_seektable_block(&probe[pos..block_end]));
             }
             _ => {}
         }
@@ -111,56 +91,10 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
     }
 
     if let Some(points) = seek_points.filter(|p| !p.is_empty()) {
-        let mut segments = Vec::with_capacity(points.len());
-        for i in 0..points.len() {
-            let (sample_num, stream_off, _) = points[i];
-            let byte_offset = audio_start + stream_off;
-            let start_secs = sample_num as f64 / sample_rate as f64;
-            let (next_sample, next_off) = if i + 1 < points.len() {
-                (points[i + 1].0, audio_start + points[i + 1].1)
-            } else {
-                // Last segment: use total_samples if known, otherwise estimate from
-                // the previous segment's duration to avoid end_secs=0 inversion.
-                let last_sample = if total_samples > 0 {
-                    total_samples
-                } else if i > 0 {
-                    // Estimate: extend by the same interval as the previous seek point gap.
-                    // Use saturating arithmetic to guard against non-monotonic SEEKTABLE entries.
-                    let prev_sample = points[i - 1].0;
-                    let gap = sample_num.saturating_sub(prev_sample);
-                    sample_num.saturating_add(gap)
-                } else {
-                    // Single seek point with unknown total: cannot estimate duration reliably.
-                    // Fall back to a linear index using the fallback byte rate.
-                    tracing::debug!("✅ FLAC index parsed (mode=linear-fallback, single-seekpoint)");
-                    return Ok(ContainerIndex {
-                        init_end_byte: audio_start.saturating_sub(1),
-                        inner: Inner::Linear {
-                            byte_rate: FALLBACK_BYTE_RATE,
-                            block_align: 1,
-                        },
-                    });
-                };
-                (last_sample, total_size.unwrap_or(byte_offset))
-            };
-            let end_secs = next_sample as f64 / sample_rate as f64;
-            let byte_size = next_off.saturating_sub(byte_offset);
-            segments.push(SegmentEntry {
-                start_secs,
-                end_secs,
-                byte_offset,
-                byte_size,
-            });
-        }
-        tracing::debug!("✅ FLAC index parsed (mode=seektable)");
-        return Ok(ContainerIndex {
-            init_end_byte: audio_start.saturating_sub(1),
-            inner: Inner::Segments(segments),
-        });
+        return build_seektable_segments(&points, audio_start, sample_rate, total_samples, total_size);
     }
 
-    // No SEEKTABLE — fall back to linear (FLAC is lossless CBR for a given encoding; this is
-    // an approximation based on the STREAMINFO total_samples and the actual file size when known).
+    // No SEEKTABLE — fall back to linear.
     let total_secs = if total_samples > 0 {
         total_samples as f64 / sample_rate as f64
     } else {
@@ -180,5 +114,100 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
             byte_rate,
             block_align: 1,
         },
+    })
+}
+
+// ==================== Internal helpers ====================
+
+/// Extracts `(sample_rate, total_samples)` from a STREAMINFO block body.
+fn parse_streaminfo_block(block: &[u8]) -> (u32, u64) {
+    if block.len() < STREAMINFO_MIN_SIZE {
+        return (0, 0);
+    }
+    let sr_word = u32::from_be_bytes(block[10..14].try_into().unwrap());
+    let sample_rate = sr_word >> 12;
+    // bits [35:0] of bytes 13-17 encode total_samples (36 bits).
+    // byte 13 has low 4 bits of sr, then bits 35-32 of total_samples in bits 3-0.
+    let ts_hi = (block[13] & 0x0F) as u64;
+    let ts_lo = u32::from_be_bytes(block[14..18].try_into().unwrap()) as u64;
+    let total_samples = (ts_hi << 32) | ts_lo;
+    (sample_rate, total_samples)
+}
+
+/// Parses a SEEKTABLE block body into a list of `(sample_number, stream_offset, frame_samples)`.
+///
+/// Placeholder entries (`sample_number == u64::MAX`) are skipped.
+fn parse_seektable_block(block: &[u8]) -> Vec<(u64, u64, u16)> {
+    let n = block.len() / SEEK_POINT_SIZE;
+    let mut points = Vec::with_capacity(n);
+    for i in 0..n {
+        let off = i * SEEK_POINT_SIZE;
+        if off + SEEK_POINT_SIZE > block.len() {
+            break;
+        }
+        let sample_num = u64::from_be_bytes(block[off..off + 8].try_into().unwrap());
+        let stream_off = u64::from_be_bytes(block[off + 8..off + 16].try_into().unwrap());
+        let frame_samples = u16::from_be_bytes(block[off + 16..off + 18].try_into().unwrap());
+        if sample_num != SEEKTABLE_PLACEHOLDER {
+            points.push((sample_num, stream_off, frame_samples));
+        }
+    }
+    points
+}
+
+/// Builds a segmented `ContainerIndex` from SEEKTABLE seek points.
+///
+/// Falls back to a linear index when only a single seek point exists and
+/// `total_samples` is unknown.
+fn build_seektable_segments(
+    points: &[(u64, u64, u16)],
+    audio_start: u64,
+    sample_rate: u32,
+    total_samples: u64,
+    total_size: Option<u64>,
+) -> Result<ContainerIndex> {
+    let mut segments = Vec::with_capacity(points.len());
+    for i in 0..points.len() {
+        let (sample_num, stream_off, _) = points[i];
+        let byte_offset = audio_start + stream_off;
+        let start_secs = sample_num as f64 / sample_rate as f64;
+
+        let (next_sample, next_off) = if i + 1 < points.len() {
+            (points[i + 1].0, audio_start + points[i + 1].1)
+        } else {
+            let last_sample = if total_samples > 0 {
+                total_samples
+            } else if i > 0 {
+                let prev_sample = points[i - 1].0;
+                let gap = sample_num.saturating_sub(prev_sample);
+                sample_num.saturating_add(gap)
+            } else {
+                // Single seek point, unknown total — cannot estimate duration.
+                tracing::debug!("✅ FLAC index parsed (mode=linear-fallback, single-seekpoint)");
+                return Ok(ContainerIndex {
+                    init_end_byte: audio_start.saturating_sub(1),
+                    inner: Inner::Linear {
+                        byte_rate: FALLBACK_BYTE_RATE,
+                        block_align: 1,
+                    },
+                });
+            };
+            (last_sample, total_size.unwrap_or(byte_offset))
+        };
+
+        let end_secs = next_sample as f64 / sample_rate as f64;
+        let byte_size = next_off.saturating_sub(byte_offset);
+        segments.push(SegmentEntry {
+            start_secs,
+            end_secs,
+            byte_offset,
+            byte_size,
+        });
+    }
+
+    tracing::debug!("✅ FLAC index parsed (mode=seektable)");
+    Ok(ContainerIndex {
+        init_end_byte: audio_start.saturating_sub(1),
+        inner: Inner::Segments(segments),
     })
 }

@@ -462,24 +462,31 @@ fn classify_trak(trak_payload: &[u8]) -> Option<[u8; 4]> {
         .ok()
 }
 
-/// Traverses `trak → mdia → {mdhd, minf → stbl}` and collects all seek tables.
-fn extract_stbl_tables(trak_payload: &[u8]) -> Result<MoovTables> {
-    let (mdia, _) = find_box(trak_payload, b"mdia").ok_or_else(|| Error::parse("no mdia box in trak"))?;
+/// Raw payload slices for each seek-relevant box found inside an `stbl` box.
+struct RawStblBoxes<'a> {
+    stts: Option<&'a [u8]>,
+    stco: Option<&'a [u8]>,
+    co64: Option<&'a [u8]>,
+    stsc: Option<&'a [u8]>,
+    stss: Option<&'a [u8]>,
+    stsz: Option<&'a [u8]>,
+}
 
-    let timescale = parse_mdhd(mdia)?;
-
-    let (minf, _) = find_box(mdia, b"minf").ok_or_else(|| Error::parse("no minf box in mdia"))?;
-
-    let (stbl, _) = find_box(minf, b"stbl").ok_or_else(|| Error::parse("no stbl box in minf"))?;
-
-    let mut stts: Vec<SttsEntry> = Vec::new();
-    let mut chunk_offsets: Vec<u64> = Vec::new();
-    let mut stsc: Vec<StscEntry> = Vec::new();
-    let mut stss: Vec<u32> = Vec::new();
-    // Accumulate raw stsz data for chunk-size computation after we have stsc.
-    let mut stsz_payload: Option<&[u8]> = None;
-
-    // Walk stbl children.
+/// Traverses the children of an `stbl` box and returns raw payload slices for each
+/// seek-relevant box type (`stts`, `stco`, `co64`, `stsc`, `stss`, `stsz`).
+///
+/// # Arguments
+///
+/// * `stbl` - The `stbl` box payload (immediately after the box header).
+fn walk_stbl_boxes(stbl: &[u8]) -> RawStblBoxes<'_> {
+    let mut raw = RawStblBoxes {
+        stts: None,
+        stco: None,
+        co64: None,
+        stsc: None,
+        stss: None,
+        stsz: None,
+    };
     let mut pos = 0usize;
     while pos + 8 <= stbl.len() {
         let size32 = u32::from_be_bytes(stbl[pos..pos + 4].try_into().unwrap()) as usize;
@@ -497,29 +504,50 @@ fn extract_stbl_tables(trak_payload: &[u8]) -> Result<MoovTables> {
             (8, size32)
         };
 
-        if pos + 8 <= stbl.len() {
-            let box_end = (pos + box_size).min(stbl.len());
-            let payload = &stbl[pos + header_len..box_end];
-            match &stbl[pos + 4..pos + 8] {
-                b"stts" => stts = parse_stts(payload),
-                b"stco" => {
-                    if chunk_offsets.is_empty() {
-                        chunk_offsets = parse_stco(payload);
-                    }
+        let box_end = (pos + box_size).min(stbl.len());
+        let payload = &stbl[pos + header_len..box_end];
+        match &stbl[pos + 4..pos + 8] {
+            b"stts" => raw.stts = Some(payload),
+            b"stco" => {
+                if raw.stco.is_none() {
+                    raw.stco = Some(payload);
                 }
-                b"co64" => {
-                    if chunk_offsets.is_empty() {
-                        chunk_offsets = parse_co64(payload);
-                    }
-                }
-                b"stsc" => stsc = parse_stsc(payload),
-                b"stss" => stss = parse_stss(payload),
-                b"stsz" => stsz_payload = Some(payload),
-                _ => {}
             }
+            b"co64" => {
+                if raw.co64.is_none() {
+                    raw.co64 = Some(payload);
+                }
+            }
+            b"stsc" => raw.stsc = Some(payload),
+            b"stss" => raw.stss = Some(payload),
+            b"stsz" => raw.stsz = Some(payload),
+            _ => {}
         }
         pos += box_size;
     }
+    raw
+}
+
+/// Traverses `trak → mdia → {mdhd, minf → stbl}` and collects all seek tables.
+fn extract_stbl_tables(trak_payload: &[u8]) -> Result<MoovTables> {
+    let (mdia, _) = find_box(trak_payload, b"mdia").ok_or_else(|| Error::parse("no mdia box in trak"))?;
+
+    let timescale = parse_mdhd(mdia)?;
+
+    let (minf, _) = find_box(mdia, b"minf").ok_or_else(|| Error::parse("no minf box in mdia"))?;
+
+    let (stbl, _) = find_box(minf, b"stbl").ok_or_else(|| Error::parse("no stbl box in minf"))?;
+
+    let raw = walk_stbl_boxes(stbl);
+
+    let stts = raw.stts.map(parse_stts).unwrap_or_default();
+    let chunk_offsets = raw
+        .stco
+        .map(parse_stco)
+        .or_else(|| raw.co64.map(parse_co64))
+        .unwrap_or_default();
+    let stsc = raw.stsc.map(parse_stsc).unwrap_or_default();
+    let stss = raw.stss.map(parse_stss).unwrap_or_default();
 
     if stts.is_empty() {
         return Err(Error::parse("no stts box found in stbl"));
@@ -529,7 +557,8 @@ fn extract_stbl_tables(trak_payload: &[u8]) -> Result<MoovTables> {
     }
 
     let chunk_count = chunk_offsets.len();
-    let chunk_sizes = stsz_payload
+    let chunk_sizes = raw
+        .stsz
         .map(|p| parse_stsz_chunk_sizes(p, &stsc, chunk_count))
         .unwrap_or_else(|| vec![0u64; chunk_count]);
 
@@ -747,7 +776,7 @@ fn cum_dur_at_sample(stts: &[SttsEntry], sample_num: u32) -> u64 {
             break;
         }
         let take = remaining.min(entry.count);
-        cum += take as u64 * entry.duration as u64;
+        cum = cum.saturating_add((take as u64).saturating_mul(entry.duration as u64));
         remaining -= take;
     }
     cum
@@ -775,7 +804,7 @@ fn sample_to_chunk_idx(stsc: &[StscEntry], chunk_offsets: &[u64], sample_num: u3
         };
         let spc = stsc[i].samples_per_chunk;
         let chunks_in_run = next_first_chunk.saturating_sub(stsc[i].first_chunk);
-        let samples_in_run = chunks_in_run as u64 * spc as u64;
+        let samples_in_run = (chunks_in_run as u64).saturating_mul(spc as u64);
 
         let run_end_sample = sample_cursor.saturating_add(samples_in_run as u32);
         if sample_num < run_end_sample {
@@ -838,6 +867,28 @@ fn build_segments(tables: &MoovTables) -> Vec<SegmentEntry> {
     }
 }
 
+/// Computes the byte size of a keyframe segment from `chunk_idx` to `next_chunk_idx`.
+///
+/// # Arguments
+///
+/// * `tables` - The collected moov seek tables.
+/// * `chunk_idx` - 0-based index of the first chunk in this segment.
+/// * `next_chunk_idx` - 0-based index of the first chunk of the next keyframe segment,
+///   or `None` when this is the last segment.
+fn compute_segment_byte_size(tables: &MoovTables, chunk_idx: usize, next_chunk_idx: Option<usize>) -> u64 {
+    match next_chunk_idx {
+        Some(nc) if nc > chunk_idx => tables.chunk_offsets[nc].saturating_sub(tables.chunk_offsets[chunk_idx]),
+        Some(_) => {
+            // Next keyframe is in the same chunk — use the chunk size.
+            tables.chunk_sizes.get(chunk_idx).copied().unwrap_or(0)
+        }
+        None => {
+            // Last keyframe segment: sum the remaining chunk sizes.
+            tables.chunk_sizes[chunk_idx..].iter().sum()
+        }
+    }
+}
+
 /// Mode 1: keyframe-based segments using the `stss` sync-sample table.
 fn build_keyframe_segments(
     tables: &MoovTables,
@@ -862,22 +913,7 @@ fn build_keyframe_segments(
             .get(ki + 1)
             .and_then(|&next_kf| sample_to_chunk_idx(&tables.stsc, &tables.chunk_offsets, next_kf));
 
-        let byte_size = match next_chunk_idx {
-            Some(nc) if nc > chunk_idx => tables.chunk_offsets[nc].saturating_sub(byte_offset),
-            Some(_) => {
-                // Next keyframe is in the same chunk — use the chunk size.
-                tables.chunk_sizes.get(chunk_idx).copied().unwrap_or(0)
-            }
-            None => {
-                // Last keyframe segment: extend to end of file estimate.
-                // Use the sum of remaining chunk sizes.
-                tables.chunk_offsets[chunk_idx..]
-                    .iter()
-                    .zip(tables.chunk_sizes[chunk_idx..].iter())
-                    .map(|(_, &sz)| sz)
-                    .sum()
-            }
-        };
+        let byte_size = compute_segment_byte_size(tables, chunk_idx, next_chunk_idx);
 
         segments.push(SegmentEntry {
             start_secs,

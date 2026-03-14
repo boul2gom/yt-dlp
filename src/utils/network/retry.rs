@@ -246,7 +246,10 @@ impl std::fmt::Display for RetryPolicy {
 /// True if the error is likely transient and worth retrying.
 pub fn is_http_error_retryable(error: &reqwest::Error) -> bool {
     // Retry on network/connection errors
-    if error.is_timeout() || error.is_connect() || error.is_request() {
+    let is_timeout = error.is_timeout();
+    let is_connect = error.is_connect();
+    let is_request = error.is_request();
+    if is_timeout || is_connect || is_request {
         return true;
     }
 

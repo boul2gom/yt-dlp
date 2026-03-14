@@ -143,20 +143,16 @@ impl LiveRecorder {
             seen_sequences.insert(seg.sequence);
         }
 
-        for seg in &initial.segments {
-            if self.core.cancellation_token.is_cancelled() {
-                break;
-            }
-
-            let fragment = self.core.fetch_fragment(seg, SegmentErrorMode::Recording).await?;
-            writer
-                .write_all(&fragment.data)
-                .await
-                .map_err(|e| Error::io_with_path("writing segment", output_path, e))?;
-            bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
-            segments_downloaded += 1;
-            seen_sequences.insert(seg.sequence);
-        }
+        let initial_refs: Vec<&hls::HlsSegment> = initial.segments.iter().collect();
+        self.write_segments(
+            &initial_refs,
+            writer,
+            output_path,
+            &bytes_written,
+            &mut segments_downloaded,
+            &mut seen_sequences,
+        )
+        .await?;
 
         writer
             .flush()
@@ -195,20 +191,15 @@ impl LiveRecorder {
                 .filter(|s| !seen_sequences.contains(&s.sequence))
                 .collect();
 
-            for seg in &new_segments {
-                if self.core.cancellation_token.is_cancelled() {
-                    break;
-                }
-
-                let fragment = self.core.fetch_fragment(seg, SegmentErrorMode::Recording).await?;
-                writer
-                    .write_all(&fragment.data)
-                    .await
-                    .map_err(|e| Error::io_with_path("writing segment", output_path, e))?;
-                bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
-                segments_downloaded += 1;
-                seen_sequences.insert(seg.sequence);
-            }
+            self.write_segments(
+                &new_segments,
+                writer,
+                output_path,
+                &bytes_written,
+                &mut segments_downloaded,
+                &mut seen_sequences,
+            )
+            .await?;
 
             writer
                 .flush()
@@ -267,6 +258,51 @@ impl LiveRecorder {
             segments_downloaded,
             stop_reason,
         })
+    }
+
+    /// Downloads and appends a slice of HLS segments to `writer`.
+    ///
+    /// Iterates over `segments` in order. Stops early (without error) if the
+    /// cancellation token is triggered. Each segment's byte count is added to
+    /// `bytes_written`, its sequence number inserted into `seen_sequences`, and
+    /// `segments_downloaded` is incremented.
+    ///
+    /// # Arguments
+    ///
+    /// * `segments` - Ordered segment references to download.
+    /// * `writer` - Buffered file writer to append segment data to.
+    /// * `output_path` - Used only for I/O error context.
+    /// * `bytes_written` - Running total of bytes written (updated atomically).
+    /// * `segments_downloaded` - Running segment count (incremented for each segment).
+    /// * `seen_sequences` - Set of sequence numbers already written (updated).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fetching a segment or writing to the file fails.
+    async fn write_segments(
+        &self,
+        segments: &[&hls::HlsSegment],
+        writer: &mut BufWriter<fs::File>,
+        output_path: &PathBuf,
+        bytes_written: &Arc<AtomicU64>,
+        segments_downloaded: &mut u64,
+        seen_sequences: &mut HashSet<u64>,
+    ) -> Result<()> {
+        for seg in segments {
+            if self.core.cancellation_token.is_cancelled() {
+                break;
+            }
+
+            let fragment = self.core.fetch_fragment(seg, SegmentErrorMode::Recording).await?;
+            writer
+                .write_all(&fragment.data)
+                .await
+                .map_err(|e| Error::io_with_path("writing segment", output_path, e))?;
+            bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
+            *segments_downloaded += 1;
+            seen_sequences.insert(seg.sequence);
+        }
+        Ok(())
     }
 }
 

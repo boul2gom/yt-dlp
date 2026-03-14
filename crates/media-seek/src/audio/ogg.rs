@@ -18,7 +18,7 @@ use crate::index::{ContainerIndex, Inner, SegmentEntry};
 // ==================== Constants ====================
 
 /// OGG page capture pattern.
-const OGG_CAPTURE: &[u8; 4] = b"OggS";
+pub(crate) const OGG_CAPTURE: &[u8; 4] = b"OggS";
 
 /// Minimum OGG page header size (bytes).
 const PAGE_HEADER_MIN: usize = 27;
@@ -62,40 +62,9 @@ where
 
     let total = total_size.ok_or_else(|| Error::parse("OGG binary search requires total_size"))?;
 
-    // Build a coarse index: sample up to SEEK_POINTS equally spaced byte positions and
-    // scan forward to find the next OGG page, reading its granule position.
-
-    let mut points: Vec<(u64, u64)> = Vec::new(); // (granule, byte_offset)
-    let mut fetch_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
-
-    // Always include the first page granule (filter u64::MAX which is the OGG convention for -1)
-    if let Some((granule, page_end)) = read_page_granule(probe, 0)
-        && granule != u64::MAX
-    {
-        points.push((granule, 0));
-        // Second page (comment header then first audio page)
-        if let Some((g2, _)) = read_page_granule(probe, page_end) {
-            let _ = g2; // comment header — skip
-        }
-    }
-
-    for i in 1..SEEK_POINTS {
-        let byte_pos = i * total / SEEK_POINTS;
-
-        if byte_pos < probe.len() as u64 {
-            // Position is already in the probe buffer — read directly without a fetch.
-            let slice = &probe[byte_pos as usize..];
-            if let Some(sync_off) = find_ogg_sync(slice)
-                && let Some((granule, _)) = read_page_granule(slice, sync_off)
-                && granule != u64::MAX
-            {
-                points.push((granule, byte_pos + sync_off as u64));
-            }
-        } else {
-            let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
-            fetch_positions.push((byte_pos, window_end));
-        }
-    }
+    let result = collect_probe_points(probe, total);
+    let mut points = result.points;
+    let fetch_positions = result.fetch_positions;
 
     // Fetch all out-of-probe seek-point windows in parallel.
     if !fetch_positions.is_empty() {
@@ -104,9 +73,7 @@ where
             let chunk = fetcher.fetch(start, end).await.map_err(Error::fetch)?;
             Ok::<_, Error>((start, chunk))
         });
-
         let results = try_join_all(fetches).await?;
-
         for (byte_pos, chunk) in results {
             if let Some(sync_off) = find_ogg_sync(&chunk)
                 && let Some((granule, _)) = read_page_granule(&chunk, sync_off)
@@ -121,14 +88,86 @@ where
         return Err(Error::parse("no OGG seek points found"));
     }
 
-    // Deduplicate by granule (same time position seen from different probes),
-    // then sort by byte offset for the final index.
-    // Secondary sort by offset ensures the smallest offset is kept for each unique granule
-    // when dedup_by_key drops one of two entries with matching granule but different offsets.
+    // Deduplicate by granule, then sort by byte offset for the final index.
     points.sort_unstable_by_key(|&(granule, off)| (granule, off));
     points.dedup_by_key(|&mut (granule, _)| granule);
     points.sort_unstable_by_key(|&(_, off)| off);
 
+    let segments = build_ogg_segments(&points, total, sample_rate);
+    tracing::debug!(points = segments.len(), "✅ OGG index built");
+
+    let init_end = if points.len() >= 2 {
+        points[1].1.saturating_sub(1)
+    } else {
+        points.first().map(|&(_, o)| o.saturating_sub(1)).unwrap_or(0)
+    };
+
+    Ok(ContainerIndex {
+        init_end_byte: init_end,
+        inner: Inner::Segments(segments),
+    })
+}
+
+// ==================== Internal helpers ====================
+
+/// Output of [`collect_probe_points`].
+struct OggProbeResult {
+    /// `(granule, byte_offset)` pairs found within the probe buffer.
+    points: Vec<(u64, u64)>,
+    /// `(start, end)` byte-range windows that must be fetched remotely.
+    fetch_positions: Vec<(u64, u64)>,
+}
+
+/// Collects seek points that are already resident in `probe` and returns the byte positions
+/// that need to be fetched for the remaining seek points.
+///
+/// # Arguments
+///
+/// * `probe` - Leading bytes of the OGG stream.
+/// * `total` - Total stream size in bytes.
+///
+/// # Returns
+///
+/// An [`OggProbeResult`] containing in-probe granule/offset pairs and the byte-range
+/// windows that must be fetched remotely.
+fn collect_probe_points(probe: &[u8], total: u64) -> OggProbeResult {
+    let mut points: Vec<(u64, u64)> = Vec::new();
+    let mut fetch_positions: Vec<(u64, u64)> = Vec::new();
+
+    // Always include the first page granule (filter u64::MAX which is the OGG convention for -1).
+    if let Some((granule, _)) = read_page_granule(probe, 0)
+        && granule != u64::MAX
+    {
+        points.push((granule, 0));
+    }
+
+    for i in 1..SEEK_POINTS {
+        let byte_pos = i * total / SEEK_POINTS;
+        if byte_pos < probe.len() as u64 {
+            let slice = &probe[byte_pos as usize..];
+            if let Some(sync_off) = find_ogg_sync(slice)
+                && let Some((granule, _)) = read_page_granule(slice, sync_off)
+                && granule != u64::MAX
+            {
+                points.push((granule, byte_pos + sync_off as u64));
+            }
+        } else {
+            let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
+            fetch_positions.push((byte_pos, window_end));
+        }
+    }
+
+    OggProbeResult {
+        points,
+        fetch_positions,
+    }
+}
+
+/// Builds a list of `SegmentEntry` values from sorted, deduplicated `(granule, byte_offset)` pairs.
+///
+/// The last segment's end granule is estimated from the previous inter-point gap when `total_samples`
+/// is unknown, so that `end_secs` is never equal to `start_secs`.
+fn build_ogg_segments(points: &[(u64, u64)], total: u64, sample_rate: u32) -> Vec<SegmentEntry> {
     let mut segments = Vec::with_capacity(points.len());
     for i in 0..points.len() {
         let (granule, byte_offset) = points[i];
@@ -136,8 +175,6 @@ where
         let (next_granule, next_byte) = if i + 1 < points.len() {
             points[i + 1]
         } else {
-            // Estimate end granule from the previous inter-point gap so the last
-            // segment has a meaningful duration instead of end_secs == start_secs.
             let step = if i > 0 {
                 granule.saturating_sub(points[i - 1].0)
             } else {
@@ -153,25 +190,8 @@ where
             byte_size: next_byte.saturating_sub(byte_offset),
         });
     }
-
-    tracing::debug!(points = segments.len(), "✅ OGG index built");
-
-    // The init segment must cover all header pages (identification + comment + setup).
-    // Find the byte offset of the first audio data page (the second seek point),
-    // or fall back to the first point's offset.
-    let init_end = if points.len() >= 2 {
-        points[1].1.saturating_sub(1)
-    } else {
-        points.first().map(|&(_, o)| o.saturating_sub(1)).unwrap_or(0)
-    };
-
-    Ok(ContainerIndex {
-        init_end_byte: init_end,
-        inner: Inner::Segments(segments),
-    })
+    segments
 }
-
-// ==================== Internal helpers ====================
 
 /// Reads the sample rate from the OGG identification page.
 ///

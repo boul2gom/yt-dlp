@@ -96,6 +96,53 @@ const SAMPLE_RATES: [u32; 16] = [
     96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0,
 ];
 
+/// Parsed fields from a single ADTS frame header.
+struct AdtsFrameHeader {
+    /// Total frame size in bytes (including the header itself).
+    frame_length: usize,
+    /// Sample rate in Hz decoded from the `sampling_frequency_index` field.
+    sample_rate: u32,
+}
+
+/// Parses one ADTS frame header starting at `data[pos]`.
+///
+/// Returns `None` if the sync word is missing, the data is too short, or the
+/// computed `frame_length` is smaller than the header itself.
+fn parse_adts_frame_header(data: &[u8], pos: usize) -> Option<AdtsFrameHeader> {
+    // Need at least 7 bytes for a minimal ADTS header.
+    if pos + 7 > data.len() {
+        return None;
+    }
+    // Sync word: 12 bits all-1 (0xFFF*).
+    if data[pos] != 0xFF || (data[pos + 1] & 0xF0) != 0xF0 {
+        return None;
+    }
+    // protection_absent (bit 0 of byte 1): 1 = no CRC (7-byte header), 0 = CRC (9-byte).
+    let header_size = if data[pos + 1] & 0x01 != 0 {
+        ADTS_HEADER_NO_CRC
+    } else {
+        ADTS_HEADER_WITH_CRC
+    };
+    if pos + header_size > data.len() {
+        return None;
+    }
+    // sampling_frequency_index: bits 5-2 of byte 2.
+    // Byte layout: byte2 = [profile:2][sf_idx:4][private:1][channel hi:1].
+    let sf_idx = ((data[pos + 2] >> 2) & 0x0F) as usize;
+    let sample_rate = SAMPLE_RATES[sf_idx];
+    // frame_length spans bytes 3-5:
+    // byte3[1:0] + byte4[7:0] + byte5[7:5] = 13 bits total.
+    let frame_length =
+        (((data[pos + 3] & 0x03) as usize) << 11) | ((data[pos + 4] as usize) << 3) | ((data[pos + 5] >> 5) as usize);
+    if frame_length < header_size {
+        return None;
+    }
+    Some(AdtsFrameHeader {
+        frame_length,
+        sample_rate,
+    })
+}
+
 /// Scans up to [`SCAN_FRAMES`] ADTS frames and returns an [`AdtsScanResult`].
 ///
 /// Returns `None` if no valid sync frame is found.
@@ -106,47 +153,18 @@ fn scan_frames(data: &[u8]) -> Option<AdtsScanResult> {
     let mut found_sample_rate = 0u32;
 
     while pos + 7 <= data.len() && frame_count < SCAN_FRAMES as u64 {
-        // Sync word: 12 bits all-1 (0xFFF*)
-        if data[pos] != 0xFF || (data[pos + 1] & 0xF0) != 0xF0 {
+        let Some(hdr) = parse_adts_frame_header(data, pos) else {
             pos += 1;
             continue;
-        }
-
-        // protection_absent (bit 0 of byte 1): 1 = no CRC (7-byte header), 0 = CRC (9-byte)
-        let protection_absent = data[pos + 1] & 0x01 != 0;
-        let header_size = if protection_absent {
-            ADTS_HEADER_NO_CRC
-        } else {
-            ADTS_HEADER_WITH_CRC
         };
-        if pos + header_size > data.len() {
-            break;
+
+        if hdr.sample_rate > 0 && found_sample_rate == 0 {
+            found_sample_rate = hdr.sample_rate;
         }
 
-        // sampling_frequency_index: bits 5-2 of byte 2
-        // Byte layout: byte2 = [profile:2][sf_idx:4][private:1][channel hi:1]
-        let sf_idx = ((data[pos + 2] >> 2) & 0x0F) as usize;
-        let sample_rate = SAMPLE_RATES[sf_idx];
-
-        // frame_length spans bytes 3-5:
-        // byte3[1:0] + byte4[7:0] + byte5[7:5] = 13 bits total
-        let frame_length = (((data[pos + 3] & 0x03) as usize) << 11)
-            | ((data[pos + 4] as usize) << 3)
-            | ((data[pos + 5] >> 5) as usize);
-
-        if frame_length < header_size {
-            pos += 1;
-            continue;
-        }
-
-        // Record sample rate from the first frame that has a valid one.
-        if sample_rate > 0 && found_sample_rate == 0 {
-            found_sample_rate = sample_rate;
-        }
-
-        total_bytes += frame_length as u64;
+        total_bytes += hdr.frame_length as u64;
         frame_count += 1;
-        pos += frame_length;
+        pos += hdr.frame_length;
     }
 
     if frame_count == 0 {

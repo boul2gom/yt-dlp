@@ -11,9 +11,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   scorecard-analysis:
     name: 🔍 Scorecard analysis
@@ -266,7 +263,7 @@ jobs:
 
   doc-tests:
     name: 📚 Test docs
-    needs: [build-and-test]
+    needs: [prebuild]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -311,7 +308,7 @@ jobs:
 
   integration-tests-redis:
     name: 🔗 Integration tests (cache-redis)
-    needs: [build-and-test]
+    needs: [prebuild]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -368,7 +365,7 @@ jobs:
 
   e2e-tests:
     name: 🚀 E2E tests
-    needs: [doc-tests, integration-tests-redis]
+    needs: [build-and-test, doc-tests, integration-tests-redis]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -408,17 +405,21 @@ jobs:
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      - name: 🛠️ Install ffmpeg
+      - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          curl -fsSL "https://github.com/boul2gom/ffmpeg-builds/releases/latest/download/ffmpeg-linux-x64.zip" -o /tmp/ffmpeg.zip
+          mkdir -p /opt/ffmpeg
+          unzip -j /tmp/ffmpeg.zip ffmpeg -d /opt/ffmpeg
+          chmod +x /opt/ffmpeg/ffmpeg
+          rm /tmp/ffmpeg.zip
+          echo "/opt/ffmpeg" >> $GITHUB_PATH
 
       - name: 🚀 Run E2E tests
         run: cargo test --test e2e --features "cache-memory,cache-json,hooks,webhooks,statistics,live-recording,live-streaming" -- --test-threads=1
 
   analysis:
     name: 🔍 Static analysis
-    needs: [e2e-tests]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
@@ -487,10 +488,14 @@ jobs:
       - name: 📦 Install cargo-llvm-cov
         uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
 
-      - name: 🛠️ Install ffmpeg
+      - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          curl -fsSL "https://github.com/boul2gom/ffmpeg-builds/releases/latest/download/ffmpeg-linux-x64.zip" -o /tmp/ffmpeg.zip
+          mkdir -p /opt/ffmpeg
+          unzip -j /tmp/ffmpeg.zip ffmpeg -d /opt/ffmpeg
+          chmod +x /opt/ffmpeg/ffmpeg
+          rm /tmp/ffmpeg.zip
+          echo "/opt/ffmpeg" >> $GITHUB_PATH
 
       - name: 📊 Generate coverage (unit + integration + e2e)
         run: |

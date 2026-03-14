@@ -10,14 +10,16 @@ use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
-/// MPEG-TS packet size in bytes.
+/// MPEG-TS packet size in bytes (as u64 for range arithmetic).
 const PKT_SIZE: u64 = 188;
+/// MPEG-TS packet size in bytes (as usize for slice indexing in detect).
+pub(crate) const TS_PKT_SIZE: usize = 188;
 /// Number of seek points to build in the binary search.
 const SEEK_POINTS: u64 = 64;
 /// Bytes to fetch per binary search probe (must be >= PKT_SIZE, ideally several packets).
 const PROBE_WINDOW: u64 = 4096;
-/// TS sync byte.
-const TS_SYNC: u8 = 0x47;
+/// TS sync byte — first byte of every 188-byte packet.
+pub(crate) const TS_SYNC: u8 = 0x47;
 /// PAT PID in MPEG-TS.
 const PAT_PID: u16 = 0x0000;
 /// PCR flag bit in the adaptation field flags byte.
@@ -67,7 +69,7 @@ where
     let mut remote_positions: Vec<(u64, u64)> = Vec::new(); // (byte_pos, window_end)
 
     for i in 0..SEEK_POINTS {
-        let byte_pos = (i * total / SEEK_POINTS) / PKT_SIZE * PKT_SIZE; // align to packet boundary
+        let byte_pos = (i.saturating_mul(total) / SEEK_POINTS) / PKT_SIZE * PKT_SIZE; // align to packet boundary
         let window_end = (byte_pos + PROBE_WINDOW).min(total).saturating_sub(1);
 
         if (byte_pos as usize) < probe.len() {
@@ -188,36 +190,49 @@ fn read_pat(data: &[u8]) -> Option<u16> {
         if pid != PAT_PID {
             continue;
         }
-        // PAT packet — skip adaptation field and point to payload
         let payload_start = pat_payload_start(pkt)?;
         let payload = &pkt[payload_start..];
-        // PAT payload: pointer_field (1) + table_id (1) + section_length (2 masked) + ...
-        // After section header (8 bytes), programs are 4 bytes each: program_number(2) + PMT_PID(2 masked)
-        if payload.len() < 13 {
-            continue;
-        }
-        let pointer = payload[0] as usize;
-        let off = 1 + pointer + 8; // skip pointer + PAT table header (8 bytes)
-        if off + 4 > payload.len() {
-            continue;
-        }
-        let prog_num = u16::from_be_bytes(payload[off..off + 2].try_into().ok()?);
-        if prog_num == 0 {
-            // NIT entry — skip and try next program entry
-            if off + 8 > payload.len() {
-                continue;
-            }
-            let next_prog = u16::from_be_bytes(payload[off + 4..off + 6].try_into().ok()?);
-            if next_prog == 0 {
-                continue;
-            }
-            let pmt_pid = (((payload[off + 6] & 0x1F) as u16) << 8) | payload[off + 7] as u16;
+        if let Some(pmt_pid) = extract_pmt_pid_from_pat_payload(payload) {
             return Some(pmt_pid);
         }
-        let pmt_pid = (((payload[off + 2] & 0x1F) as u16) << 8) | payload[off + 3] as u16;
-        return Some(pmt_pid);
     }
     None
+}
+
+/// Extracts the PMT PID from a PAT section payload.
+///
+/// Handles the NIT special case (program_number == 0) by skipping the NIT
+/// entry and returning the PID from the next program entry.
+///
+/// # Arguments
+///
+/// * `payload` - PAT payload bytes starting at the pointer field.
+fn extract_pmt_pid_from_pat_payload(payload: &[u8]) -> Option<u16> {
+    // PAT payload: pointer_field (1) + table_id (1) + section_length (2 masked) + ...
+    // After section header (8 bytes), programs are 4 bytes each: program_number(2) + PMT_PID(2 masked)
+    if payload.len() < 13 {
+        return None;
+    }
+    let pointer = payload[0] as usize;
+    let off = 1 + pointer + 8; // skip pointer + PAT table header (8 bytes)
+    if off + 4 > payload.len() {
+        return None;
+    }
+    let prog_num = u16::from_be_bytes(payload[off..off + 2].try_into().ok()?);
+    if prog_num == 0 {
+        // NIT entry — skip and read the next program entry
+        if off + 8 > payload.len() {
+            return None;
+        }
+        let next_prog = u16::from_be_bytes(payload[off + 4..off + 6].try_into().ok()?);
+        if next_prog == 0 {
+            return None;
+        }
+        let pmt_pid = (((payload[off + 6] & 0x1F) as u16) << 8) | payload[off + 7] as u16;
+        return Some(pmt_pid);
+    }
+    let pmt_pid = (((payload[off + 2] & 0x1F) as u16) << 8) | payload[off + 3] as u16;
+    Some(pmt_pid)
 }
 
 /// Returns the byte offset of the PAT/PMT payload within a TS packet.

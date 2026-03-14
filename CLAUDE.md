@@ -377,6 +377,28 @@ Channels and Concurrency
 - `tokio::sync::oneshot` for one-time communication between tasks.
 - Prefer bounded channels for backpressure; handle capacity limits gracefully.
 
+Conditional Logic
+- **No more than two raw conditions directly in an `if` (or `while`) guard.** When three or more sub-expressions are combined with `&&` or `||`, each sub-expression must first be bound to a short, descriptively-named `let` boolean before the guard.
+- Boolean variable names must be short and intent-revealing: `is_year`, `is_endlist`, `is_timeout`, etc.
+- Combining pre-named booleans with `&&`/`||` inside the guard is allowed.
+
+```rust
+// ✅ single condition — OK
+if probe.len() < 4 { … }
+
+// ✅ two raw conditions combined — OK
+if e.starts_with("HTTP 4") && !e.starts_with("HTTP 429") { … }
+
+// ✅ named booleans combined — OK (required when ≥ 3 conditions)
+let is_timeout = error.is_timeout();
+let is_connect = error.is_connect();
+let is_request = error.is_request();
+if is_timeout || is_connect || is_request { … }
+
+// ❌ three or more raw expressions inline — NOT OK
+if error.is_timeout() || error.is_connect() || error.is_request() { … }
+```
+
 Event System
 
 Architecture in `src/events/`:

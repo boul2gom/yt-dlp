@@ -12,8 +12,20 @@ use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
+/// AVI sub-type identifier at offset 8 of a RIFF container.
+pub(crate) const AVI_SUBTYPE: &[u8; 4] = b"AVI ";
 /// Window fetched from the tail of the file to find the `idx1` chunk.
 const TAIL_WINDOW: u64 = 65536;
+
+/// Classification of a single `idx1` entry by its chunk ID.
+enum EntryKind {
+    /// Video frame (chunk_id ends in `dc` or `db`).
+    Video,
+    /// Audio block (chunk_id ends in `wb`).
+    Audio,
+    /// Unrecognised chunk type — ignored when building the index.
+    Other,
+}
 
 /// AVI index entry flags.
 const AVIIF_KEYFRAME: u32 = 0x0000_0010;
@@ -233,21 +245,20 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
             movi_start + chunk_offset
         };
 
-        // Video frames: chunk_id ends in 'dc' (compressed) or 'db' (uncompressed).
-        let is_video = chunk_id.len() == 4 && chunk_id[2] == b'd' && (chunk_id[3] == b'b' || chunk_id[3] == b'c');
-        // Audio blocks: chunk_id ends in 'wb'.
-        let is_audio = chunk_id.len() == 4 && chunk_id[2] == b'w' && chunk_id[3] == b'b';
-
-        if is_video {
-            if flags & AVIIF_KEYFRAME != 0 {
-                video_keyframes.push((video_frame_index, abs_offset));
+        match classify_idx1_entry(chunk_id) {
+            EntryKind::Video => {
+                if flags & AVIIF_KEYFRAME != 0 {
+                    video_keyframes.push((video_frame_index, abs_offset));
+                }
+                video_frame_index += 1;
             }
-            video_frame_index += 1;
-        } else if is_audio {
-            if flags & AVIIF_KEYFRAME != 0 {
-                audio_keyframes.push((audio_block_index, abs_offset));
+            EntryKind::Audio => {
+                if flags & AVIIF_KEYFRAME != 0 {
+                    audio_keyframes.push((audio_block_index, abs_offset));
+                }
+                audio_block_index += 1;
             }
-            audio_block_index += 1;
+            EntryKind::Other => {}
         }
     }
 
@@ -288,6 +299,21 @@ fn parse_idx1(idx1: &[u8], fps: Option<f64>, tail_start: u64, probe: &[u8]) -> R
         init_end_byte,
         inner: Inner::Segments(segments),
     })
+}
+
+/// Classifies an `idx1` chunk ID into video, audio, or other.
+///
+/// # Arguments
+///
+/// * `chunk_id` - The 4-byte chunk ID field from an `idx1` entry.
+fn classify_idx1_entry(chunk_id: &[u8]) -> EntryKind {
+    if chunk_id.len() == 4 && chunk_id[2] == b'd' && (chunk_id[3] == b'b' || chunk_id[3] == b'c') {
+        EntryKind::Video
+    } else if chunk_id.len() == 4 && chunk_id[2] == b'w' && chunk_id[3] == b'b' {
+        EntryKind::Audio
+    } else {
+        EntryKind::Other
+    }
 }
 
 /// Converts `(frame_index, byte_offset)` keyframe pairs to `SegmentEntry` list using `fps`.

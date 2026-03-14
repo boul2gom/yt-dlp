@@ -2,7 +2,7 @@
 //!
 //! This module provides a builder pattern for configuring and executing downloads.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::client::Downloader;
@@ -12,10 +12,34 @@ use crate::download::engine::partial::PartialRange;
 use crate::download::{DownloadPriority, DownloadStatus};
 use crate::error::Result;
 use crate::model::Video;
-use crate::model::format::FormatType;
+use crate::model::format::{Format, FormatType, HttpHeaders};
 use crate::model::selector::{
     AudioCodecPreference, AudioQuality, StoryboardQuality, ThumbnailQuality, VideoCodecPreference, VideoQuality,
 };
+
+/// IDs returned after enqueueing both video and audio downloads.
+struct EnqueuedDownloads {
+    video_id: u64,
+    audio_id: u64,
+}
+
+/// Selected stream URLs and format metadata for a partial-clip attempt.
+struct PartialClipStreams<'a> {
+    video_url: &'a str,
+    audio_url: &'a str,
+    video_format: &'a Format,
+    audio_format: &'a Format,
+}
+
+/// Paths, headers, and identifiers needed to enqueue both download streams.
+struct EnqueueStreams<'a> {
+    video_url: &'a str,
+    audio_url: &'a str,
+    video_path: PathBuf,
+    audio_path: PathBuf,
+    video_headers: HttpHeaders,
+    audio_headers: HttpHeaders,
+}
 
 /// Builder for configuring and executing video downloads.
 ///
@@ -314,218 +338,35 @@ impl<'a> DownloadBuilder<'a> {
             .ok_or_else(|| Self::format_no_url(&self.video.id, &audio_format.format_id))?;
 
         // Attempt media-seek partial download before falling back to a full fetch.
-        if let Some(range) = self.partial_range.as_ref() {
-            let time_range = if range.needs_chapter_metadata() {
-                range
-                    .to_time_range(&self.video.chapters)
-                    .ok_or_else(|| crate::error::Error::invalid_partial_range("chapter index out of bounds"))?
-            } else {
-                range.clone()
-            };
-
-            if let Some((start_secs, end_secs)) = time_range.get_times() {
-                let video_total_size = video_format
-                    .file_info
-                    .filesize
-                    .or(video_format.file_info.filesize_approx)
-                    .filter(|&n| n > 0)
-                    .map(|n| n as u64);
-                let audio_total_size = audio_format
-                    .file_info
-                    .filesize
-                    .or(audio_format.file_info.filesize_approx)
-                    .filter(|&n| n > 0)
-                    .map(|n| n as u64);
-
-                let video_clip_filename = format!(
-                    "clip_video_{}.{}",
-                    crate::utils::fs::random_filename(8),
-                    video_format.download_info.ext.as_str()
-                );
-                let video_clip_path = self.downloader.output_dir.join(&video_clip_filename);
-
-                let audio_clip_filename = format!(
-                    "clip_audio_{}.{}",
-                    crate::utils::fs::random_filename(8),
-                    audio_format.download_info.ext.as_str()
-                );
-                let audio_clip_path = self.downloader.output_dir.join(&audio_clip_filename);
-
-                let video_result = clip_stream(
-                    self.downloader,
-                    video_url,
-                    &video_format.download_info.http_headers,
-                    video_total_size,
-                    start_secs,
-                    end_secs,
-                    &video_clip_path,
-                )
-                .await;
-
-                match video_result {
-                    Ok(()) => {
-                        let audio_result = clip_stream(
-                            self.downloader,
-                            audio_url,
-                            &audio_format.download_info.http_headers,
-                            audio_total_size,
-                            start_secs,
-                            end_secs,
-                            &audio_clip_path,
-                        )
-                        .await;
-
-                        match audio_result {
-                            Ok(()) => {
-                                tracing::info!(
-                                    start_secs,
-                                    end_secs,
-                                    "✅ media-seek partial download succeeded, combining streams"
-                                );
-
-                                let output_path = if self.output.is_absolute() {
-                                    self.output.clone()
-                                } else {
-                                    self.downloader.output_dir.join(&self.output)
-                                };
-
-                                let combined_path = self
-                                    .downloader
-                                    .combine_audio_and_video_to_path(&audio_clip_path, &video_clip_path, &output_path)
-                                    .await?;
-
-                                // Precision trim: media-seek returns keyframe-aligned boundaries;
-                                // FFmpeg -c copy sharpens to the exact requested timestamps.
-                                let trimmed_name = format!(
-                                    "trimmed_{}.{}",
-                                    crate::utils::fs::random_filename(8),
-                                    combined_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4")
-                                );
-                                let trimmed_path = self.downloader.output_dir.join(&trimmed_name);
-
-                                self.downloader
-                                    .extract_time_range(&combined_path, &trimmed_path, start_secs, end_secs)
-                                    .await?;
-
-                                tokio::fs::rename(&trimmed_path, &combined_path).await.map_err(|e| {
-                                    crate::error::Error::io_with_path("renaming trimmed output", &combined_path, e)
-                                })?;
-
-                                return Ok(combined_path);
-                            }
-                            Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
-                                tracing::warn!(
-                                    "media-seek audio clip unavailable for this format, falling back to full download"
-                                );
-                                // Clean up temp files from partial clip attempt
-                                let _ = tokio::fs::remove_file(&video_clip_path).await;
-                                let _ = tokio::fs::remove_file(&audio_clip_path).await;
-                            }
-                            Err(e) => {
-                                let _ = tokio::fs::remove_file(&video_clip_path).await;
-                                let _ = tokio::fs::remove_file(&audio_clip_path).await;
-                                return Err(e.into());
-                            }
-                        }
-                    }
-                    Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
-                        tracing::warn!(
-                            "media-seek video clip unavailable for this format, falling back to full download"
-                        );
-                        // Clean up temp files from partial clip attempt
-                        let _ = tokio::fs::remove_file(&video_clip_path).await;
-                        let _ = tokio::fs::remove_file(&audio_clip_path).await;
-                    }
-                    Err(e) => {
-                        let _ = tokio::fs::remove_file(&video_clip_path).await;
-                        let _ = tokio::fs::remove_file(&audio_clip_path).await;
-                        return Err(e.into());
-                    }
-                }
-            }
+        let streams = PartialClipStreams {
+            video_url,
+            audio_url,
+            video_format,
+            audio_format,
+        };
+        if let Some(range) = self.partial_range.as_ref()
+            && let Some(path) = try_partial_clip(self.downloader, self.video, &streams, range, &self.output).await?
+        {
+            return Ok(path);
         }
 
         // Create output paths
         let video_path = self.downloader.output_dir.join(&video_filename);
         let audio_path = self.downloader.output_dir.join(&audio_filename);
 
-        // Enqueue downloads with configured priority
-        let (video_download_id, audio_download_id) = if let Some(callback) = self.progress_callback {
-            // Wrap callback in Arc to share between downloads
-            let callback = Arc::new(callback);
-
-            // Clone Arc for video download (progress will be split 50/50 between video and audio)
-            let video_callback = {
-                let callback = Arc::clone(&callback);
-                move |downloaded: u64, total: u64| {
-                    if total > 0 {
-                        let progress = (downloaded as f64 / total as f64) * 0.5;
-                        callback(progress);
-                    }
-                }
-            };
-
-            // Clone Arc for audio download (second half of progress)
-            let audio_callback = {
-                let callback = Arc::clone(&callback);
-                move |downloaded: u64, total: u64| {
-                    if total > 0 {
-                        let progress = 0.5 + (downloaded as f64 / total as f64) * 0.5;
-                        callback(progress);
-                    }
-                }
-            };
-
-            let video_id = self
-                .downloader
-                .download_manager
-                .enqueue_with_progress_and_headers(
-                    video_url,
-                    video_path.clone(),
-                    Some(self.priority),
-                    video_callback,
-                    Some(video_format.download_info.http_headers.clone()),
-                )
-                .await;
-
-            let audio_id = self
-                .downloader
-                .download_manager
-                .enqueue_with_progress_and_headers(
-                    audio_url,
-                    audio_path.clone(),
-                    Some(self.priority),
-                    audio_callback,
-                    Some(audio_format.download_info.http_headers.clone()),
-                )
-                .await;
-
-            (video_id, audio_id)
-        } else {
-            let video_id = self
-                .downloader
-                .download_manager
-                .enqueue_with_headers(
-                    video_url,
-                    video_path.clone(),
-                    Some(self.priority),
-                    Some(video_format.download_info.http_headers.clone()),
-                )
-                .await;
-
-            let audio_id = self
-                .downloader
-                .download_manager
-                .enqueue_with_headers(
-                    audio_url,
-                    audio_path.clone(),
-                    Some(self.priority),
-                    Some(audio_format.download_info.http_headers.clone()),
-                )
-                .await;
-
-            (video_id, audio_id)
+        // Enqueue downloads with configured priority (clone paths so they remain usable in the Completed arm)
+        let enqueue_streams = EnqueueStreams {
+            video_url: streams.video_url,
+            audio_url: streams.audio_url,
+            video_path: video_path.clone(),
+            audio_path: audio_path.clone(),
+            video_headers: streams.video_format.download_info.http_headers.clone(),
+            audio_headers: streams.audio_format.download_info.http_headers.clone(),
         };
+        let enqueued =
+            enqueue_both_downloads(self.downloader, enqueue_streams, self.priority, self.progress_callback).await;
+        let video_download_id = enqueued.video_id;
+        let audio_download_id = enqueued.audio_id;
 
         // Wait for both downloads to complete
         tracing::debug!(
@@ -615,5 +456,267 @@ impl<'a> DownloadBuilder<'a> {
                 "Unexpected download status",
             )),
         }
+    }
+}
+
+/// Attempts a media-seek partial clip for both streams and combines the result.
+///
+/// Performs a binary-search-based byte-range clip for the given time window on both
+/// the video and audio streams, then combines them with FFmpeg and applies a
+/// precision trim. Returns `Ok(Some(path))` on success, `Ok(None)` when the format
+/// does not support partial clipping (falls through to full download), or `Err` on
+/// a real I/O or network error.
+///
+/// # Arguments
+///
+/// * `downloader` - The active [`Downloader`] instance.
+/// * `video` - The video metadata (used for chapter resolution).
+/// * `video_url` - HTTP URL for the video stream.
+/// * `audio_url` - HTTP URL for the audio stream.
+/// * `video_format` - Selected video format (for headers and file extension).
+/// * `audio_format` - Selected audio format (for headers and file extension).
+/// * `range` - The requested partial range (time or chapter).
+/// * `output` - Desired output file path (may be relative to the downloader output dir).
+///
+/// # Errors
+///
+/// Returns an error if clip download succeeds but combining or trimming fails, or if a
+/// non-format-related fetch error occurs.
+///
+/// # Returns
+///
+/// `Ok(Some(path))` with the combined file path on success, `Ok(None)` to fall
+/// through to full download, or `Err` on failure.
+async fn try_partial_clip(
+    downloader: &Downloader,
+    video: &Video,
+    streams: &PartialClipStreams<'_>,
+    range: &PartialRange,
+    output: &Path,
+) -> Result<Option<PathBuf>> {
+    let time_range = if range.needs_chapter_metadata() {
+        range
+            .to_time_range(&video.chapters)
+            .ok_or_else(|| crate::error::Error::invalid_partial_range("chapter index out of bounds"))?
+    } else {
+        range.clone()
+    };
+
+    let Some((start_secs, end_secs)) = time_range.get_times() else {
+        return Ok(None);
+    };
+
+    let video_total_size = streams
+        .video_format
+        .file_info
+        .filesize
+        .or(streams.video_format.file_info.filesize_approx)
+        .filter(|&n| n > 0)
+        .map(|n| n as u64);
+    let audio_total_size = streams
+        .audio_format
+        .file_info
+        .filesize
+        .or(streams.audio_format.file_info.filesize_approx)
+        .filter(|&n| n > 0)
+        .map(|n| n as u64);
+
+    let video_clip_filename = format!(
+        "clip_video_{}.{}",
+        crate::utils::fs::random_filename(8),
+        streams.video_format.download_info.ext.as_str()
+    );
+    let video_clip_path = downloader.output_dir.join(&video_clip_filename);
+
+    let audio_clip_filename = format!(
+        "clip_audio_{}.{}",
+        crate::utils::fs::random_filename(8),
+        streams.audio_format.download_info.ext.as_str()
+    );
+    let audio_clip_path = downloader.output_dir.join(&audio_clip_filename);
+
+    let video_result = clip_stream(
+        downloader,
+        streams.video_url,
+        &streams.video_format.download_info.http_headers,
+        video_total_size,
+        start_secs,
+        end_secs,
+        &video_clip_path,
+    )
+    .await;
+
+    match video_result {
+        Ok(()) => {}
+        Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
+            tracing::warn!("media-seek video clip unavailable for this format, falling back to full download");
+            let _ = tokio::fs::remove_file(&video_clip_path).await;
+            let _ = tokio::fs::remove_file(&audio_clip_path).await;
+            return Ok(None);
+        }
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&video_clip_path).await;
+            let _ = tokio::fs::remove_file(&audio_clip_path).await;
+            return Err(e.into());
+        }
+    }
+
+    let audio_result = clip_stream(
+        downloader,
+        streams.audio_url,
+        &streams.audio_format.download_info.http_headers,
+        audio_total_size,
+        start_secs,
+        end_secs,
+        &audio_clip_path,
+    )
+    .await;
+
+    match audio_result {
+        Ok(()) => {}
+        Err(media_seek::Error::UnsupportedFormat | media_seek::Error::ParseFailed { .. }) => {
+            tracing::warn!("media-seek audio clip unavailable for this format, falling back to full download");
+            let _ = tokio::fs::remove_file(&video_clip_path).await;
+            let _ = tokio::fs::remove_file(&audio_clip_path).await;
+            return Ok(None);
+        }
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&video_clip_path).await;
+            let _ = tokio::fs::remove_file(&audio_clip_path).await;
+            return Err(e.into());
+        }
+    }
+
+    tracing::info!(
+        start_secs,
+        end_secs,
+        "✅ media-seek partial download succeeded, combining streams"
+    );
+
+    let output_path = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        downloader.output_dir.join(output)
+    };
+
+    let combined_path = downloader
+        .combine_audio_and_video_to_path(&audio_clip_path, &video_clip_path, &output_path)
+        .await?;
+
+    // Precision trim: media-seek returns keyframe-aligned boundaries;
+    // FFmpeg -c copy sharpens to the exact requested timestamps.
+    let trimmed_name = format!(
+        "trimmed_{}.{}",
+        crate::utils::fs::random_filename(8),
+        combined_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4")
+    );
+    let trimmed_path = downloader.output_dir.join(&trimmed_name);
+
+    downloader
+        .extract_time_range(&combined_path, &trimmed_path, start_secs, end_secs)
+        .await?;
+
+    tokio::fs::rename(&trimmed_path, &combined_path)
+        .await
+        .map_err(|e| crate::error::Error::io_with_path("renaming trimmed output", &combined_path, e))?;
+
+    Ok(Some(combined_path))
+}
+
+/// Enqueues video and audio downloads and returns their assigned IDs.
+///
+/// When a `callback` is provided the progress is split 50 / 50 between video
+/// (0.0 – 0.5) and audio (0.5 – 1.0). Without a callback the downloads are
+/// enqueued without progress tracking.
+///
+/// # Arguments
+///
+/// * `downloader` - The active [`Downloader`] instance.
+/// * `video_url` - HTTP URL for the video stream.
+/// * `audio_url` - HTTP URL for the audio stream.
+/// * `video_path` - Local destination path for the video file.
+/// * `audio_path` - Local destination path for the audio file.
+/// * `video_headers` - HTTP headers for the video request.
+/// * `audio_headers` - HTTP headers for the audio request.
+/// * `priority` - Download priority applied to both enqueue calls.
+/// * `callback` - Optional progress callback receiving a value in `[0.0, 1.0]`.
+///
+/// # Returns
+///
+/// An [`EnqueuedDownloads`] containing the video and audio download IDs.
+async fn enqueue_both_downloads(
+    downloader: &Downloader,
+    streams: EnqueueStreams<'_>,
+    priority: DownloadPriority,
+    callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
+) -> EnqueuedDownloads {
+    if let Some(callback) = callback {
+        let callback = Arc::new(callback);
+
+        let video_callback = {
+            let callback = Arc::clone(&callback);
+            move |downloaded: u64, total: u64| {
+                if total > 0 {
+                    let progress = (downloaded as f64 / total as f64) * 0.5;
+                    callback(progress);
+                }
+            }
+        };
+
+        let audio_callback = {
+            let callback = Arc::clone(&callback);
+            move |downloaded: u64, total: u64| {
+                if total > 0 {
+                    let progress = 0.5 + (downloaded as f64 / total as f64) * 0.5;
+                    callback(progress);
+                }
+            }
+        };
+
+        let video_id = downloader
+            .download_manager
+            .enqueue_with_progress_and_headers(
+                streams.video_url,
+                streams.video_path,
+                Some(priority),
+                video_callback,
+                Some(streams.video_headers),
+            )
+            .await;
+
+        let audio_id = downloader
+            .download_manager
+            .enqueue_with_progress_and_headers(
+                streams.audio_url,
+                streams.audio_path,
+                Some(priority),
+                audio_callback,
+                Some(streams.audio_headers),
+            )
+            .await;
+
+        EnqueuedDownloads { video_id, audio_id }
+    } else {
+        let video_id = downloader
+            .download_manager
+            .enqueue_with_headers(
+                streams.video_url,
+                streams.video_path,
+                Some(priority),
+                Some(streams.video_headers),
+            )
+            .await;
+
+        let audio_id = downloader
+            .download_manager
+            .enqueue_with_headers(
+                streams.audio_url,
+                streams.audio_path,
+                Some(priority),
+                Some(streams.audio_headers),
+            )
+            .await;
+
+        EnqueuedDownloads { video_id, audio_id }
     }
 }

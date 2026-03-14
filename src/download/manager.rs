@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
-use tokio::sync::{Mutex, Semaphore, broadcast};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
@@ -371,9 +371,19 @@ impl DownloadManager {
             .collect();
 
         // Remove from statuses and cancelled
-        for id in ids_to_remove {
-            statuses.remove(&id);
-            cancelled.remove(&id);
+        for id in &ids_to_remove {
+            statuses.remove(id);
+            cancelled.remove(id);
+        }
+        drop(statuses);
+        drop(cancelled);
+
+        // Also clean task handles and progress counters for finished downloads
+        let mut tasks = self.tasks.lock().await;
+        let mut counters = self.progress_counters.lock().unwrap_or_else(|e| e.into_inner());
+        for id in &ids_to_remove {
+            tasks.remove(id);
+            counters.remove(id);
         }
     }
 
@@ -728,64 +738,6 @@ impl DownloadManager {
                         "⚙️ Popped task from download queue"
                     );
 
-                    if cancelled.lock().await.contains(&task.id) {
-                        drop(permit);
-                        continue;
-                    }
-
-                    {
-                        statuses.lock().await.insert(
-                            task.id,
-                            DownloadStatus::Downloading {
-                                downloaded_bytes: 0,
-                                total_bytes: 0,
-                            },
-                        );
-                    }
-
-                    emit_bus_event(
-                        &event_bus,
-                        crate::events::DownloadEvent::DownloadStarted {
-                            download_id: task.id,
-                            url: task.url.clone(),
-                            total_bytes: 0,
-                            format_id: None,
-                        },
-                    );
-
-                    let fetcher = match prepare_task_fetcher(&task, &config, &shared_client) {
-                        Ok(f) => f,
-                        Err(e) => {
-                            let reason = e.to_string();
-                            {
-                                statuses
-                                    .lock()
-                                    .await
-                                    .insert(task.id, DownloadStatus::Failed { reason: reason.clone() });
-                            }
-                            emit_bus_event(
-                                &event_bus,
-                                crate::events::DownloadEvent::DownloadFailed {
-                                    download_id: task.id,
-                                    url: task.url.clone(),
-                                    error: reason.clone(),
-                                    retry_count: 0,
-                                },
-                            );
-                            let _ = completion_tx.send((task.id, DownloadStatus::Failed { reason }));
-                            continue;
-                        }
-                    };
-
-                    let fetcher = fetcher.with_progress_callback(build_progress_callback(
-                        task.id,
-                        &progress_counters,
-                        progress_tx.clone(),
-                        event_bus.clone(),
-                        task.progress_callback.clone(),
-                    ));
-
-                    let task_id = task.id;
                     let ctx = WorkerContext {
                         statuses: statuses.clone(),
                         tasks: tasks.clone(),
@@ -794,18 +746,7 @@ impl DownloadManager {
                         event_bus: event_bus.clone(),
                         progress_counters: progress_counters.clone(),
                     };
-                    let handle = tokio::spawn(run_download_task(
-                        task_id,
-                        task.url.clone(),
-                        task.destination.clone(),
-                        fetcher,
-                        permit,
-                        ctx,
-                    ));
-
-                    {
-                        tasks.lock().await.insert(task_id, handle);
-                    }
+                    process_queued_task(task, &config, &shared_client, permit, progress_tx.clone(), ctx).await;
                 }
 
                 // Queue drained — wait for the next enqueue signal or shutdown
@@ -856,4 +797,92 @@ impl Drop for DownloadManager {
             }
         }
     }
+}
+
+/// Processes a single task that has been popped from the download queue.
+///
+/// Handles the full lifecycle of one queued download: cancelled-check, status
+/// update, event emission, fetcher construction, progress callback wiring, and
+/// task spawning. Accepts an already-acquired semaphore permit that is forwarded
+/// to the spawned `run_download_task` and released when that task completes.
+///
+/// # Arguments
+///
+/// * `task` - The popped [`DownloadTask`] to process.
+/// * `config` - The download manager configuration.
+/// * `client` - The shared HTTP client.
+/// * `permit` - An acquired semaphore permit forwarded to the download task.
+/// * `progress_tx` - Sender for progress broadcast updates.
+/// * `ctx` - Shared worker state (statuses, tasks, cancelled, bus, etc.).
+async fn process_queued_task(
+    task: DownloadTask,
+    config: &ManagerConfig,
+    client: &Arc<reqwest::Client>,
+    permit: OwnedSemaphorePermit,
+    progress_tx: broadcast::Sender<ProgressUpdate>,
+    ctx: WorkerContext,
+) {
+    if ctx.cancelled.lock().await.contains(&task.id) {
+        return; // permit drops automatically
+    }
+
+    ctx.statuses.lock().await.insert(
+        task.id,
+        DownloadStatus::Downloading {
+            downloaded_bytes: 0,
+            total_bytes: 0,
+        },
+    );
+
+    emit_bus_event(
+        &ctx.event_bus,
+        crate::events::DownloadEvent::DownloadStarted {
+            download_id: task.id,
+            url: task.url.clone(),
+            total_bytes: 0,
+            format_id: None,
+        },
+    );
+
+    let fetcher = match prepare_task_fetcher(&task, config, client) {
+        Ok(f) => f,
+        Err(e) => {
+            let reason = e.to_string();
+            ctx.statuses
+                .lock()
+                .await
+                .insert(task.id, DownloadStatus::Failed { reason: reason.clone() });
+            emit_bus_event(
+                &ctx.event_bus,
+                crate::events::DownloadEvent::DownloadFailed {
+                    download_id: task.id,
+                    url: task.url.clone(),
+                    error: reason.clone(),
+                    retry_count: 0,
+                },
+            );
+            let _ = ctx.completion_tx.send((task.id, DownloadStatus::Failed { reason }));
+            return;
+        }
+    };
+
+    let fetcher = fetcher.with_progress_callback(build_progress_callback(
+        task.id,
+        &ctx.progress_counters,
+        progress_tx,
+        ctx.event_bus.clone(),
+        task.progress_callback.clone(),
+    ));
+
+    let task_id = task.id;
+    let tasks = ctx.tasks.clone(); // clone before ctx is moved into run_download_task
+    let handle = tokio::spawn(run_download_task(
+        task_id,
+        task.url.clone(),
+        task.destination.clone(),
+        fetcher,
+        permit,
+        ctx,
+    ));
+    tasks.lock().await.insert(task_id, handle);
 }

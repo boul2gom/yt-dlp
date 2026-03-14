@@ -65,51 +65,58 @@ impl JsonVideoCache {
     }
 }
 
-impl VideoBackend for JsonVideoCache {
-    async fn get(&self, url: &str) -> Result<Option<Video>> {
-        tracing::debug!(
-            url = url,
-            cache_dir = ?self.cache_dir,
-            ttl = self.ttl,
-            "🔍 Looking for video in JSON cache by URL"
-        );
-
-        // Try the URL→ID index first for O(1) lookup
+impl JsonVideoCache {
+    /// Looks up a video by URL using the O(1) URL→ID index file.
+    ///
+    /// Returns `Ok(Some(video))` on a valid, non-expired cache hit, `Ok(None)` on a miss or expiry.
+    /// Removes stale index and data files when an expired entry is found.
+    async fn try_index_lookup(&self, url: &str) -> Result<Option<Video>> {
         let index_path = self.cache_dir.join(format!("{}.url", url_hash(url)));
-        if index_path.exists() {
-            if let Ok(id) = tokio::fs::read_to_string(&index_path).await {
-                let file_path = self.cache_dir.join(format!("{}.json", id.trim()));
-                if file_path.exists() {
-                    let content = tokio::fs::read_to_string(&file_path).await?;
-                    if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
-                        && cached.url == url
-                    {
-                        if is_expired(cached.cached_at, self.ttl) {
-                            tracing::debug!(
-                                url = url,
-                                cached_at = cached.cached_at,
-                                ttl = self.ttl,
-                                "⚙️ Cache expired for video"
-                            );
-                            let _ = tokio::fs::remove_file(&file_path).await;
-                            let _ = tokio::fs::remove_file(&index_path).await;
-                            return Ok(None);
-                        }
-                        tracing::debug!(
-                            url = url,
-                            video_id = cached.id,
-                            video_title = cached.title,
-                            "✅ Cache hit for video (indexed)"
-                        );
-                        return Ok(Some(cached.video()?));
-                    }
-                }
-            }
-            // Stale index entry
-            let _ = tokio::fs::remove_file(&index_path).await;
+        if !index_path.exists() {
+            return Ok(None);
         }
+        let Ok(id) = tokio::fs::read_to_string(&index_path).await else {
+            let _ = tokio::fs::remove_file(&index_path).await;
+            return Ok(None);
+        };
+        let file_path = self.cache_dir.join(format!("{}.json", id.trim()));
+        if !file_path.exists() {
+            let _ = tokio::fs::remove_file(&index_path).await;
+            return Ok(None);
+        }
+        let content = tokio::fs::read_to_string(&file_path).await?;
+        if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
+            && cached.url == url
+        {
+            if is_expired(cached.cached_at, self.ttl) {
+                tracing::debug!(
+                    url = url,
+                    cached_at = cached.cached_at,
+                    ttl = self.ttl,
+                    "⚙️ Cache expired for video"
+                );
+                let _ = tokio::fs::remove_file(&file_path).await;
+                let _ = tokio::fs::remove_file(&index_path).await;
+                return Ok(None);
+            }
+            tracing::debug!(
+                url = url,
+                video_id = cached.id,
+                video_title = cached.title,
+                "✅ Cache hit for video (indexed)"
+            );
+            return Ok(Some(cached.video()?));
+        }
+        // Stale index entry (URL mismatch — hash collision or overwrite).
+        let _ = tokio::fs::remove_file(&index_path).await;
+        Ok(None)
+    }
 
-        // Fallback: directory scan for backward compatibility with pre-index entries
+    /// Scans the cache directory for a video entry matching `url`.
+    ///
+    /// Used as a fallback when no URL→ID index exists (backward compatibility
+    /// with entries written before index files were introduced).
+    async fn fallback_dir_scan(&self, url: &str) -> Result<Option<Video>> {
         let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             if entry.path().extension().is_some_and(|ext| ext == "json") {
@@ -138,6 +145,25 @@ impl VideoBackend for JsonVideoCache {
             }
         }
         Ok(None)
+    }
+}
+
+impl VideoBackend for JsonVideoCache {
+    async fn get(&self, url: &str) -> Result<Option<Video>> {
+        tracing::debug!(
+            url = url,
+            cache_dir = ?self.cache_dir,
+            ttl = self.ttl,
+            "🔍 Looking for video in JSON cache by URL"
+        );
+
+        // Try the URL→ID index first for O(1) lookup.
+        if let Some(video) = self.try_index_lookup(url).await? {
+            return Ok(Some(video));
+        }
+
+        // Fallback: directory scan for backward compatibility with pre-index entries.
+        self.fallback_dir_scan(url).await
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {

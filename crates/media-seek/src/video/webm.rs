@@ -7,6 +7,8 @@ use crate::RangeFetcher;
 use crate::error::{Error, Result};
 use crate::index::{ContainerIndex, Inner, SegmentEntry};
 
+/// EBML header magic bytes — the first four bytes of every WebM / Matroska file.
+pub(crate) const EBML_MAGIC: &[u8; 4] = &[0x1A, 0x45, 0xDF, 0xA3];
 /// Default EBML TimestampScale: 1 ms in nanoseconds.
 const DEFAULT_TIMESTAMP_SCALE_NS: u64 = 1_000_000;
 /// Nanoseconds per second.
@@ -409,6 +411,72 @@ fn parse_cues(
     segments
 }
 
+/// Fetches the Cues element body, returning `(buffer, body_start_offset)`.
+///
+/// Three strategies are tried in order:
+/// 1. Cues is fully within `probe` — copies the relevant slice.
+/// 2. Cues starts within `probe` but extends past it — fetches the full extent.
+/// 3. Cues is entirely beyond `probe` — fetches an initial window (`INITIAL_CUES_FETCH`),
+///    then a second fetch only if the Cues body does not fit in the first window.
+///
+/// # Arguments
+///
+/// * `probe` - The initial probe buffer.
+/// * `cues_abs` - Absolute stream byte offset of the Cues element start.
+/// * `fetcher` - Used to fetch ranges beyond or partly beyond the probe.
+///
+/// # Errors
+///
+/// Returns `Error::ParseFailed` when the Cues header is malformed.
+/// Returns `Error::FetchFailed` on a failed Range request.
+async fn fetch_cues_body<F: RangeFetcher>(probe: &[u8], cues_abs: u64, fetcher: &F) -> Result<(Vec<u8>, usize)> {
+    if cues_abs as usize + 16 < probe.len() {
+        // Cues starts within the probe — read its header and check if body is fully contained.
+        let (_, id_len) = read_elem_id(probe, cues_abs as usize)
+            .ok_or_else(|| Error::parse("could not read Cues element ID from probe"))?;
+        let (cues_body_size, sz_len) = read_vint(probe, cues_abs as usize + id_len)
+            .ok_or_else(|| Error::parse("could not read Cues size from probe"))?;
+        let body_start = id_len + sz_len;
+        let cues_end = cues_abs as usize + body_start + cues_body_size as usize;
+
+        if cues_end <= probe.len() {
+            // Fully contained — copy the probe slice into a Vec.
+            return Ok((probe[cues_abs as usize..cues_end].to_vec(), body_start));
+        }
+
+        // Partially in probe — fetch the full extent.
+        let buf = fetcher
+            .fetch(cues_abs, (cues_end as u64).saturating_sub(1))
+            .await
+            .map_err(Error::fetch)?;
+        let (_, id_len2) = read_elem_id(&buf, 0).ok_or_else(|| Error::parse("fetched Cues data malformed"))?;
+        let (_, sz_len2) = read_vint(&buf, id_len2).ok_or_else(|| Error::parse("fetched Cues size malformed"))?;
+        return Ok((buf, id_len2 + sz_len2));
+    }
+
+    // Cues is entirely beyond the probe — fetch a 256 KB window first.
+    let header_data = fetcher
+        .fetch(cues_abs, cues_abs + INITIAL_CUES_FETCH - 1)
+        .await
+        .map_err(Error::fetch)?;
+    let (_, id_len) = read_elem_id(&header_data, 0).ok_or_else(|| Error::parse("fetched Cues header malformed"))?;
+    let (cues_body_size, sz_len) =
+        read_vint(&header_data, id_len).ok_or_else(|| Error::parse("fetched Cues size malformed"))?;
+    let body_start = id_len + sz_len;
+    let total_needed = body_start as u64 + cues_body_size;
+
+    if total_needed <= INITIAL_CUES_FETCH {
+        return Ok((header_data, body_start));
+    }
+
+    // Initial fetch was too small — fetch the complete Cues element.
+    let buf = fetcher
+        .fetch(cues_abs, cues_abs + total_needed - 1)
+        .await
+        .map_err(Error::fetch)?;
+    Ok((buf, body_start))
+}
+
 /// Parses a WebM/Matroska stream and returns a `ContainerIndex`.
 ///
 /// # Arguments
@@ -436,72 +504,12 @@ where
     // Absolute byte position of the Cues element
     let cues_abs = loc.segment_data_start + cues_offset;
 
-    // Decide whether we need to fetch the Cues data
-    let cues_data: Vec<u8>;
-    let cues_slice: &[u8];
-
-    if cues_abs as usize + 16 < probe.len() {
-        // Cues starts within the probe — try to read the size and see if it's fully contained
-        let (_, id_len) = read_elem_id(probe, cues_abs as usize)
-            .ok_or_else(|| Error::parse("could not read Cues element ID from probe"))?;
-        let (cues_body_size, sz_len) = read_vint(probe, cues_abs as usize + id_len)
-            .ok_or_else(|| Error::parse("could not read Cues size from probe"))?;
-        let cues_end = cues_abs as usize + id_len + sz_len + cues_body_size as usize;
-
-        if cues_end <= probe.len() {
-            // Fully contained — use the probe slice
-            cues_slice = &probe[cues_abs as usize + id_len + sz_len..cues_end];
-        } else {
-            // Partially in probe — fetch the missing tail
-            cues_data = fetcher
-                .fetch(cues_abs, (cues_end as u64).saturating_sub(1))
-                .await
-                .map_err(Error::fetch)?;
-            let (_, id_len2) =
-                read_elem_id(&cues_data, 0).ok_or_else(|| Error::parse("fetched Cues data malformed"))?;
-            let (_, sz_len2) =
-                read_vint(&cues_data, id_len2).ok_or_else(|| Error::parse("fetched Cues size malformed"))?;
-            let body_start = id_len2 + sz_len2;
-            cues_slice = if body_start < cues_data.len() {
-                &cues_data[body_start..]
-            } else {
-                &[]
-            };
-        }
+    let (cues_buf, cues_body_start) = fetch_cues_body(probe, cues_abs, fetcher).await?;
+    let cues_slice = if cues_body_start <= cues_buf.len() {
+        &cues_buf[cues_body_start..]
     } else {
-        // Cues is beyond the probe — fetch a window starting at the Cues offset.
-        // We don't know the Cues size yet, so fetch 256 KB — enough for most long-form
-        // videos' Cues table, eliminating a second RTT in the common case.
-        const INITIAL_FETCH: u64 = INITIAL_CUES_FETCH;
-        let header_data = fetcher
-            .fetch(cues_abs, cues_abs + INITIAL_FETCH - 1)
-            .await
-            .map_err(Error::fetch)?;
-        let (_, id_len) = read_elem_id(&header_data, 0).ok_or_else(|| Error::parse("fetched Cues header malformed"))?;
-        let (cues_body_size, sz_len) =
-            read_vint(&header_data, id_len).ok_or_else(|| Error::parse("fetched Cues size malformed"))?;
-        let body_start = id_len + sz_len;
-        let total_needed = body_start as u64 + cues_body_size;
-
-        if total_needed <= INITIAL_FETCH {
-            cues_data = header_data;
-            let end = (body_start + cues_body_size as usize).min(cues_data.len());
-            if body_start > cues_data.len() {
-                return Err(Error::parse("fetched Cues data too short for body_start"));
-            }
-            cues_slice = &cues_data[body_start..end];
-        } else {
-            cues_data = fetcher
-                .fetch(cues_abs, cues_abs + total_needed - 1)
-                .await
-                .map_err(Error::fetch)?;
-            let end = (body_start + cues_body_size as usize).min(cues_data.len());
-            if body_start > cues_data.len() {
-                return Err(Error::parse("fetched Cues data too short for body_start"));
-            }
-            cues_slice = &cues_data[body_start..end];
-        }
-    }
+        &[]
+    };
 
     let segments = parse_cues(cues_slice, loc.segment_data_start, loc.timestamp_scale_ns, total_size);
     if segments.is_empty() {

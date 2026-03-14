@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::client::streams::selection::VideoSelection;
 use crate::download::Fetcher;
@@ -316,39 +316,11 @@ impl Downloader {
 
         // Check if the format is in the cache
         #[cfg(cache)]
-        if let Some(cache) = &self.cache
-            && let Some(video_id) = format.video_id.as_ref()
+        if let Some(cached_path) = self
+            .lookup_cached_format(format, path, &preferences, has_preferences)
+            .await?
         {
-            // First try to find by exact format ID
-            if let Ok(Some((_, cached_path))) = cache
-                .downloads
-                .get_by_video_and_format(video_id, &format.format_id)
-                .await
-            {
-                tracing::debug!(format_id = format.format_id, "🔍 Using cached format");
-
-                // Hard link if possible, fall back to copy for cross-filesystem
-                if tokio::fs::hard_link(&cached_path, path).await.is_err() {
-                    tokio::fs::copy(&cached_path, path).await?;
-                }
-                return Ok(path.clone());
-            }
-
-            // Then try to find by preferences if they exist
-            if has_preferences
-                && let Ok(Some((_, cached_path))) = cache
-                    .downloads
-                    .get_by_video_and_preferences(video_id, &preferences)
-                    .await
-            {
-                tracing::debug!("🔍 Using cached format by preferences");
-
-                // Hard link if possible, fall back to copy for cross-filesystem
-                if tokio::fs::hard_link(&cached_path, path).await.is_err() {
-                    tokio::fs::copy(&cached_path, path).await?;
-                }
-                return Ok(path.clone());
-            }
+            return Ok(cached_path);
         }
 
         // Check if URL is available
@@ -372,30 +344,113 @@ impl Downloader {
 
         // Cache the downloaded file if caching is enabled
         #[cfg(cache)]
-        if let Some(cache) = &self.cache {
-            let output_str = utils::try_name(path.as_path()).unwrap_or_default();
-
-            tracing::debug!(format_id = format.format_id, "🔍 Caching format");
-
-            // Use the appropriate function depending on whether we have preferences or not
-            if has_preferences {
-                if let Some(video_id) = format.video_id.as_ref()
-                    && let Err(_e) = cache
-                        .downloads
-                        .put_file_with_preferences(path, output_str, Some(video_id.clone()), Some(format), &preferences)
-                        .await
-                {
-                    tracing::warn!(error = %_e, "Failed to cache format with preferences");
-                }
-            } else if let Err(_e) = cache
-                .downloads
-                .put_file(path, output_str, format.video_id.clone(), Some(format))
-                .await
-            {
-                tracing::warn!(error = %_e, "Failed to cache format");
-            }
-        }
+        self.cache_format_output(format, path, has_preferences, &preferences)
+            .await;
 
         Ok(path.clone())
+    }
+
+    /// Checks the two-level download cache for a format and copies it to `path` on hit.
+    ///
+    /// First tries an exact format-ID lookup; then falls back to a preference-based
+    /// lookup when `has_preferences` is `true`. On a hit the cached file is hard-linked
+    /// (or copied for cross-filesystem paths) to `path`.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The format whose cache entry is sought.
+    /// * `path` - Destination path where the cached file should be placed.
+    /// * `preferences` - Format preferences used for the secondary lookup.
+    /// * `has_preferences` - Whether `preferences` contains any non-default values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file copy operation fails.
+    ///
+    /// # Returns
+    ///
+    /// `Some(path)` when a cache hit is found and the file has been placed at `path`,
+    /// `None` otherwise.
+    #[cfg(cache)]
+    async fn lookup_cached_format(
+        &self,
+        format: &Format,
+        path: &Path,
+        preferences: &FormatPreferences,
+        has_preferences: bool,
+    ) -> crate::error::Result<Option<PathBuf>> {
+        let Some(cache) = &self.cache else { return Ok(None) };
+        let Some(video_id) = format.video_id.as_ref() else {
+            return Ok(None);
+        };
+
+        if let Ok(Some((_, cached_path))) = cache
+            .downloads
+            .get_by_video_and_format(video_id, &format.format_id)
+            .await
+        {
+            tracing::debug!(format_id = format.format_id, "🔍 Using cached format");
+            if tokio::fs::hard_link(&cached_path, path).await.is_err() {
+                tokio::fs::copy(&cached_path, path).await?;
+            }
+            return Ok(Some(path.to_path_buf()));
+        }
+
+        if has_preferences
+            && let Ok(Some((_, cached_path))) = cache
+                .downloads
+                .get_by_video_and_preferences(video_id, preferences)
+                .await
+        {
+            tracing::debug!("🔍 Using cached format by preferences");
+            if tokio::fs::hard_link(&cached_path, path).await.is_err() {
+                tokio::fs::copy(&cached_path, path).await?;
+            }
+            return Ok(Some(path.to_path_buf()));
+        }
+
+        Ok(None)
+    }
+
+    /// Writes a downloaded format file to the cache, using preferences when available.
+    ///
+    /// Logs a warning on cache failure without propagating the error so that a cache
+    /// write failure never aborts a successful download.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The downloaded format to store.
+    /// * `path` - Path of the local file that was just downloaded.
+    /// * `has_preferences` - Whether `preferences` contains any non-default values.
+    /// * `preferences` - Format preferences used when `has_preferences` is `true`.
+    #[cfg(cache)]
+    async fn cache_format_output(
+        &self,
+        format: &Format,
+        path: &Path,
+        has_preferences: bool,
+        preferences: &FormatPreferences,
+    ) {
+        let Some(cache) = &self.cache else { return };
+        let output_str = utils::try_name(path).unwrap_or_default();
+
+        tracing::debug!(format_id = format.format_id, "🔍 Caching format");
+
+        if has_preferences {
+            if let Some(video_id) = format.video_id.as_ref()
+                && let Err(_e) = cache
+                    .downloads
+                    .put_file_with_preferences(path, output_str, Some(video_id.clone()), Some(format), preferences)
+                    .await
+            {
+                tracing::warn!(error = %_e, "Failed to cache format with preferences");
+            }
+        } else if let Err(_e) = cache
+            .downloads
+            .put_file(path, output_str, format.video_id.clone(), Some(format))
+            .await
+        {
+            tracing::warn!(error = %_e, "Failed to cache format");
+        }
     }
 }

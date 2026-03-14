@@ -27,6 +27,44 @@ use crate::utils::retry::is_http_error_retryable;
 // Buffer size for checking whether a segment has already been downloaded
 const SEGMENT_CHECK_BUFFER_SIZE: usize = 1024;
 
+/// Writes `batch` to `file` at the given `offset` using positional I/O inside `spawn_blocking`.
+///
+/// Uses `write_all_at` on Unix and a `seek_write` loop on Windows so that multiple segments
+/// can write concurrently without holding a lock on the file handle.
+///
+/// # Arguments
+///
+/// * `file` - Shared file handle opened for writing.
+/// * `batch` - Byte buffer to write.
+/// * `offset` - File-local byte offset at which to begin writing.
+///
+/// # Errors
+///
+/// Returns an I/O error if the write fails or `seek_write` returns zero.
+async fn write_batch_to_file(file: Arc<std::fs::File>, batch: Vec<u8>, offset: u64) -> Result<()> {
+    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        #[cfg(unix)]
+        file.write_all_at(&batch, offset)?;
+        #[cfg(windows)]
+        {
+            let mut written = 0usize;
+            while written < batch.len() {
+                let n = file.seek_write(&batch[written..], offset + written as u64)?;
+                if n == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "seek_write returned 0",
+                    ));
+                }
+                written += n;
+            }
+        }
+        Ok(())
+    })
+    .await?
+    .map_err(Into::into)
+}
+
 impl Fetcher {
     /// Runs the shared parallel segment download pipeline.
     ///
@@ -412,30 +450,7 @@ impl Fetcher {
 
                             if write_buf.len() >= WRITE_BATCH_SIZE {
                                 let batch = std::mem::replace(&mut write_buf, Vec::with_capacity(WRITE_BATCH_SIZE));
-                                let offset = buf_offset;
-                                let file = Arc::clone(&context.file);
-
-                                tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-                                    #[cfg(unix)]
-                                    file.write_all_at(&batch, offset)?;
-                                    #[cfg(windows)]
-                                    {
-                                        let mut written = 0usize;
-                                        while written < batch.len() {
-                                            let n = file.seek_write(&batch[written..], offset + written as u64)?;
-                                            if n == 0 {
-                                                return Err(std::io::Error::new(
-                                                    std::io::ErrorKind::WriteZero,
-                                                    "seek_write returned 0",
-                                                ));
-                                            }
-                                            written += n;
-                                        }
-                                    }
-                                    Ok(())
-                                })
-                                .await??;
-
+                                write_batch_to_file(Arc::clone(&context.file), batch, buf_offset).await?;
                                 buf_offset = current_offset;
                             }
 
@@ -450,30 +465,7 @@ impl Fetcher {
 
                         // Flush remaining buffered data
                         if !write_buf.is_empty() {
-                            let batch = write_buf;
-                            let offset = buf_offset;
-                            let file = Arc::clone(&context.file);
-
-                            tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-                                #[cfg(unix)]
-                                file.write_all_at(&batch, offset)?;
-                                #[cfg(windows)]
-                                {
-                                    let mut written = 0usize;
-                                    while written < batch.len() {
-                                        let n = file.seek_write(&batch[written..], offset + written as u64)?;
-                                        if n == 0 {
-                                            return Err(std::io::Error::new(
-                                                std::io::ErrorKind::WriteZero,
-                                                "seek_write returned 0",
-                                            ));
-                                        }
-                                        written += n;
-                                    }
-                                }
-                                Ok(())
-                            })
-                            .await??;
+                            write_batch_to_file(Arc::clone(&context.file), write_buf, buf_offset).await?;
                         }
 
                         Ok(())

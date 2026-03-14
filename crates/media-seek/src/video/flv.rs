@@ -27,6 +27,8 @@ const AMF_STRICT_ARRAY: u8 = 0x0A;
 const AMF_DATE: u8 = 0x0B;
 const AMF_LONG_STRING: u8 = 0x0C;
 
+/// FLV file magic bytes — the first three bytes of every FLV file.
+pub(crate) const FLV_MAGIC: &[u8; 3] = b"FLV";
 /// FLV file header size: "FLV" (3) + version (1) + flags (1) + header_size (4).
 const FLV_HEADER_SIZE: usize = 9;
 /// FLV tag header size in bytes.
@@ -396,20 +398,9 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
             let len = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
             pos += 2 + len;
         }
-        AMF_OBJECT => loop {
-            if pos + 2 > data.len() {
-                break;
-            }
-            let kl = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
-            pos += 2;
-            if kl == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
-                pos += 1;
-                break;
-            }
-            pos += kl;
-            let Ok((_, n)) = skip_amf_value(data, pos) else { break };
-            pos += n;
-        },
+        AMF_OBJECT => {
+            pos = skip_amf_keyed_body(data, pos);
+        }
         AMF_NULL | AMF_UNDEFINED => {}
         AMF_REFERENCE => {
             // 2-byte reference index
@@ -419,21 +410,8 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
             if pos + 4 > data.len() {
                 return Err(Error::parse("ECMA array count truncated"));
             }
-            pos += 4;
-            loop {
-                if pos + 2 > data.len() {
-                    break;
-                }
-                let kl = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
-                pos += 2;
-                if kl == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
-                    pos += 1;
-                    break;
-                }
-                pos += kl;
-                let Ok((_, n)) = skip_amf_value(data, pos) else { break };
-                pos += n;
-            }
+            pos += 4; // skip approximate entry count
+            pos = skip_amf_keyed_body(data, pos);
         }
         AMF_STRICT_ARRAY => {
             if pos + 4 > data.len() {
@@ -441,10 +419,7 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
             }
             let count = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
             pos += 4;
-            for _ in 0..count {
-                let Ok((_, n)) = skip_amf_value(data, pos) else { break };
-                pos += n;
-            }
+            pos = skip_amf_strict_array_body(data, pos, count);
         }
         AMF_DATE => {
             // 8-byte f64 timestamp + 2-byte timezone offset
@@ -465,4 +440,50 @@ fn skip_amf_value(data: &[u8], start: usize) -> Result<((), usize)> {
         }
     }
     Ok(((), pos - start))
+}
+
+/// Skips an AMF0 keyed-value body (used by both `AMF_OBJECT` and `AMF_ECMA_ARRAY`).
+///
+/// Consumes key–value pairs terminated by an empty key followed by `AMF_OBJECT_END`.
+/// Returns the position immediately after the last consumed byte.
+///
+/// # Arguments
+///
+/// * `data` - The full AMF0 buffer.
+/// * `start` - Byte offset of the first key-length field inside the body.
+fn skip_amf_keyed_body(data: &[u8], start: usize) -> usize {
+    let mut pos = start;
+    loop {
+        if pos + 2 > data.len() {
+            break;
+        }
+        let kl = u16::from_be_bytes(data[pos..pos + 2].try_into().unwrap()) as usize;
+        pos += 2;
+        if kl == 0 && pos < data.len() && data[pos] == AMF_OBJECT_END {
+            pos += 1;
+            break;
+        }
+        pos += kl;
+        let Ok((_, n)) = skip_amf_value(data, pos) else { break };
+        pos += n;
+    }
+    pos
+}
+
+/// Skips `count` AMF0 values from a strict array body.
+///
+/// Returns the position immediately after the last consumed byte.
+///
+/// # Arguments
+///
+/// * `data` - The full AMF0 buffer.
+/// * `start` - Byte offset of the first array element.
+/// * `count` - Number of elements to skip.
+fn skip_amf_strict_array_body(data: &[u8], start: usize, count: usize) -> usize {
+    let mut pos = start;
+    for _ in 0..count {
+        let Ok((_, n)) = skip_amf_value(data, pos) else { break };
+        pos += n;
+    }
+    pos
 }

@@ -140,16 +140,17 @@ where
         track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
     }
 
-    for seg in &initial.segments {
-        if core.cancellation_token.is_cancelled() {
-            break;
-        }
-        let fragment = core.fetch_fragment(seg, SegmentErrorMode::Streaming).await?;
-        bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
-        segments_downloaded += 1;
-        track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
-        on_fragment(fragment).await?;
-    }
+    let initial_refs: Vec<&hls::HlsSegment> = initial.segments.iter().collect();
+    process_new_fragments(
+        &core,
+        &initial_refs,
+        &mut on_fragment,
+        &bytes_written,
+        &mut segments_downloaded,
+        &mut seen_sequences,
+        &mut sequence_window,
+    )
+    .await?;
     on_batch().await?;
 
     let stop_reason = loop {
@@ -184,17 +185,16 @@ where
             .filter(|s| !seen_sequences.contains(&s.sequence))
             .collect();
 
-        for seg in &new_segments {
-            if core.cancellation_token.is_cancelled() {
-                break;
-            }
-
-            let fragment = core.fetch_fragment(seg, SegmentErrorMode::Streaming).await?;
-            bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
-            segments_downloaded += 1;
-            track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
-            on_fragment(fragment).await?;
-        }
+        process_new_fragments(
+            &core,
+            &new_segments,
+            &mut on_fragment,
+            &bytes_written,
+            &mut segments_downloaded,
+            &mut seen_sequences,
+            &mut sequence_window,
+        )
+        .await?;
         on_batch().await?;
 
         let now_nanos = start.elapsed().as_nanos() as u64;
@@ -238,6 +238,52 @@ where
         segments_downloaded,
         stop_reason,
     })
+}
+
+/// Downloads and delivers a slice of HLS segments through `on_fragment`.
+///
+/// Iterates over `segments` in order, fetching each one and invoking `on_fragment`
+/// with the resulting [`LiveFragment`]. Stops early (without error) when the
+/// cancellation token is triggered. Updates byte and segment counters and the
+/// sequence-tracking state on each successful fetch.
+///
+/// # Arguments
+///
+/// * `core` - Shared live core with the HTTP client and cancellation token.
+/// * `segments` - Ordered segment references to process.
+/// * `on_fragment` - Async callback invoked with each downloaded fragment.
+/// * `bytes_written` - Running byte counter updated atomically.
+/// * `segments_downloaded` - Running segment counter incremented per segment.
+/// * `seen_sequences` - Set of processed sequence numbers.
+/// * `sequence_window` - Bounded deque used to evict old entries from `seen_sequences`.
+///
+/// # Errors
+///
+/// Returns an error if fetching a segment fails or `on_fragment` returns an error.
+async fn process_new_fragments<F, Fut>(
+    core: &LiveCore,
+    segments: &[&hls::HlsSegment],
+    on_fragment: &mut F,
+    bytes_written: &Arc<AtomicU64>,
+    segments_downloaded: &mut u64,
+    seen_sequences: &mut HashSet<u64>,
+    sequence_window: &mut VecDeque<u64>,
+) -> Result<()>
+where
+    F: FnMut(LiveFragment) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    for seg in segments {
+        if core.cancellation_token.is_cancelled() {
+            break;
+        }
+        let fragment = core.fetch_fragment(seg, SegmentErrorMode::Streaming).await?;
+        bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
+        *segments_downloaded += 1;
+        track_sequence(seg.sequence, seen_sequences, sequence_window);
+        on_fragment(fragment).await?;
+    }
+    Ok(())
 }
 
 fn track_sequence(sequence: u64, seen: &mut HashSet<u64>, window: &mut VecDeque<u64>) {

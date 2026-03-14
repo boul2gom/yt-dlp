@@ -2,8 +2,9 @@
 extend-exclude = ["tests/fixtures/"]
 
 [default.extend-words]
-# ISO 14496-12 (MP4) box type name — not a typo
+# MP4 parser box type name
 trak = "trak"
+# AVI parser index chunk name
 indx = "indx"
 # "seeked" is intentional in seek-stream context (past participle of "seek" for I/O seeking)
 seeked = "seeked"
