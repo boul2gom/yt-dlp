@@ -179,4 +179,4 @@ path = "tests/e2e.rs"
 # lofty depends on the abandoned `paste` crate (RUSTSEC-2024-0436).
 # This patch points to a fork that replaces paste with its maintained fork pastey.
 [patch.crates-io]
-lofty = { git = "https://github.com/boul2gom/lofty-rs", rev = "f8eef9d98b6fabe8514052375d16eb66e696fd88" }
+lofty = { git = "https://github.com/boul2gom/lofty-rs" }

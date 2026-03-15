@@ -83,10 +83,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         }
 
         if tag_type == TAG_TYPE_SCRIPT {
-            if let Ok(index) = parse_script_tag(&probe[tag_data_start..tag_end]) {
-                if let Inner::Segments(ref segs) = index.inner {
-                    tracing::debug!(keyframes = segs.len(), "✅ FLV index parsed (onMetaData)");
-                }
+            if let Some(index) = try_parse_script_tag(probe, tag_data_start, tag_end) {
                 return Ok(index);
             }
         } else if tag_type == TAG_TYPE_VIDEO && data_size >= 1 {
@@ -152,6 +149,17 @@ fn build_fallback_segments(keyframes: &[(u32, u64)], file_end: u64) -> Vec<Segme
         });
     }
     segments
+}
+
+/// Attempts to parse a Script tag at `[start..end]` in `probe` and returns the resulting index.
+///
+/// Returns `None` when the tag cannot be parsed as a valid `onMetaData` keyframes table.
+fn try_parse_script_tag(probe: &[u8], start: usize, end: usize) -> Option<ContainerIndex> {
+    let index = parse_script_tag(&probe[start..end]).ok()?;
+    if let Inner::Segments(ref segs) = index.inner {
+        tracing::debug!(keyframes = segs.len(), "✅ FLV index parsed (onMetaData)");
+    }
+    Some(index)
 }
 
 /// Parses the AMF0 Script tag payload and returns the keyframes `ContainerIndex`.

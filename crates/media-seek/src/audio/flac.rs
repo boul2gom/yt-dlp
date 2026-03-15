@@ -18,28 +18,18 @@ const SEEK_POINT_SIZE: usize = 18;
 /// Fallback byte rate when total samples are unknown (128 kbps / 8).
 const FALLBACK_BYTE_RATE: f64 = 128_000.0 / 8.0;
 
-/// Parses a FLAC stream and returns a `ContainerIndex`.
-///
-/// Reads the STREAMINFO block for the sample rate and total sample count, then
-/// the SEEKTABLE block (if present) to build a segmented index. Falls back to a
-/// `Linear` index if no SEEKTABLE is present.
-///
-/// # Arguments
-///
-/// * `probe` - Leading bytes of the FLAC stream.
-/// * `total_size` - Total stream size in bytes, used to compute the linear byte rate
-///   when no SEEKTABLE is present and the file is larger than the probe.
-///
-/// # Errors
-///
-/// Returns `Error::ParseFailed` when the stream does not start with the FLAC marker
-/// or the STREAMINFO block is malformed.
-pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIndex> {
-    tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLAC stream");
-    if !probe.starts_with(FLAC_MARKER) {
-        return Err(Error::parse("missing fLaC marker"));
-    }
+/// Parsed data collected from a FLAC metadata block scan.
+struct FlacMetadata {
+    sample_rate: u32,
+    total_samples: u64,
+    seek_points: Option<Vec<(u64, u64, u16)>>,
+    audio_start: u64,
+}
 
+/// Scans the FLAC metadata block sequence starting at byte 4 (after the `fLaC` marker).
+///
+/// Returns `None` when STREAMINFO is missing or reports a zero sample rate.
+fn scan_metadata_blocks(probe: &[u8]) -> Option<FlacMetadata> {
     let mut pos = 4usize;
     let mut sample_rate: u32 = 0;
     let mut total_samples: u64 = 0;
@@ -87,29 +77,52 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
     }
 
     if sample_rate == 0 {
-        return Err(Error::parse("FLAC STREAMINFO missing or sample_rate is zero"));
+        return None;
+    }
+    Some(FlacMetadata { sample_rate, total_samples, seek_points, audio_start })
+}
+
+/// Parses a FLAC stream and returns a `ContainerIndex`.
+///
+/// Reads the STREAMINFO block for the sample rate and total sample count, then
+/// the SEEKTABLE block (if present) to build a segmented index. Falls back to a
+/// `Linear` index if no SEEKTABLE is present.
+///
+/// # Arguments
+///
+/// * `probe` - Leading bytes of the FLAC stream.
+/// * `total_size` - Total stream size in bytes, used to compute the linear byte rate
+///   when no SEEKTABLE is present and the file is larger than the probe.
+///
+/// # Errors
+///
+/// Returns `Error::ParseFailed` when the stream does not start with the FLAC marker
+/// or the STREAMINFO block is malformed.
+pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIndex> {
+    tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLAC stream");
+    if !probe.starts_with(FLAC_MARKER) {
+        return Err(Error::parse("missing fLaC marker"));
     }
 
-    if let Some(points) = seek_points.filter(|p| !p.is_empty()) {
-        return build_seektable_segments(&points, audio_start, sample_rate, total_samples, total_size);
+    let meta = scan_metadata_blocks(probe)
+        .ok_or_else(|| Error::parse("FLAC STREAMINFO missing or sample_rate is zero"))?;
+
+    if let Some(points) = meta.seek_points.filter(|p| !p.is_empty()) {
+        return build_seektable_segments(&points, meta.audio_start, meta.sample_rate, meta.total_samples, total_size);
     }
 
     // No SEEKTABLE — fall back to linear.
-    let total_secs = if total_samples > 0 {
-        total_samples as f64 / sample_rate as f64
+    let total_secs = if meta.total_samples > 0 {
+        meta.total_samples as f64 / meta.sample_rate as f64
     } else {
         0.0
     };
-    let audio_bytes = total_size.unwrap_or(probe.len() as u64).saturating_sub(audio_start) as f64;
-    let byte_rate = if total_secs > 0.0 {
-        audio_bytes / total_secs
-    } else {
-        FALLBACK_BYTE_RATE
-    };
+    let audio_bytes = total_size.unwrap_or(probe.len() as u64).saturating_sub(meta.audio_start) as f64;
+    let byte_rate = if total_secs > 0.0 { audio_bytes / total_secs } else { FALLBACK_BYTE_RATE };
 
     tracing::debug!("✅ FLAC index parsed (mode=linear)");
     Ok(ContainerIndex {
-        init_end_byte: audio_start.saturating_sub(1),
+        init_end_byte: meta.audio_start.saturating_sub(1),
         inner: Inner::Linear {
             byte_rate,
             block_align: 1,

@@ -1474,8 +1474,8 @@ dependencies = [
 
 [[package]]
 name = "lofty"
-version = "0.23.2"
-source = "git+https://github.com/boul2gom/lofty-rs?rev=f8eef9d98b6fabe8514052375d16eb66e696fd88#f8eef9d98b6fabe8514052375d16eb66e696fd88"
+version = "0.23.3"
+source = "git+https://github.com/boul2gom/lofty-rs#d2e41640481a48a95303d95939ba831767afcec8"
 dependencies = [
  "byteorder",
  "data-encoding",
@@ -1489,7 +1489,7 @@ dependencies = [
 [[package]]
 name = "lofty_attr"
 version = "0.12.0"
-source = "git+https://github.com/boul2gom/lofty-rs?rev=f8eef9d98b6fabe8514052375d16eb66e696fd88#f8eef9d98b6fabe8514052375d16eb66e696fd88"
+source = "git+https://github.com/boul2gom/lofty-rs#d2e41640481a48a95303d95939ba831767afcec8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1694,7 +1694,7 @@ dependencies = [
 [[package]]
 name = "ogg_pager"
 version = "0.7.1"
-source = "git+https://github.com/boul2gom/lofty-rs?rev=f8eef9d98b6fabe8514052375d16eb66e696fd88#f8eef9d98b6fabe8514052375d16eb66e696fd88"
+source = "git+https://github.com/boul2gom/lofty-rs#d2e41640481a48a95303d95939ba831767afcec8"
 dependencies = [
  "byteorder",
 ]

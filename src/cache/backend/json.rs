@@ -739,25 +739,40 @@ impl FileBackend for JsonFileCache {
         };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
-                    continue;
-                };
-                let Ok(cached) = serde_json::from_str::<CachedFile>(&content) else {
-                    continue;
-                };
-
-                if cached.video_id.as_deref() == Some(video_id) && cached.language_code.as_deref() == Some(language) {
-                    if is_expired(cached.cached_at, self.ttl) {
-                        continue;
-                    }
-                    let file_path = self.cache_dir.join(&cached.relative_path);
-                    if file_path.exists() {
-                        return Ok(Some((cached, file_path)));
-                    }
-                }
+            if let Some(result) =
+                try_match_subtitle_entry(&entry.path(), video_id, language, self.ttl, &self.cache_dir).await
+            {
+                return Ok(Some(result));
             }
         }
         Ok(None)
     }
+}
+
+/// Attempts to load and validate a subtitle cache entry at `path`.
+///
+/// Returns `Some((cached, file_path))` when the entry matches the requested
+/// `video_id` / `language`, has not expired, and the cached file exists on disk.
+/// Returns `None` for any other case (wrong extension, parse error, mismatch, expired,
+/// or missing file).
+async fn try_match_subtitle_entry(
+    path: &std::path::Path,
+    video_id: &str,
+    language: &str,
+    ttl: u64,
+    cache_dir: &std::path::Path,
+) -> Option<(CachedFile, PathBuf)> {
+    if path.extension().is_none_or(|ext| ext != "json") {
+        return None;
+    }
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    let cached: CachedFile = serde_json::from_str(&content).ok()?;
+    if cached.video_id.as_deref() != Some(video_id) || cached.language_code.as_deref() != Some(language) {
+        return None;
+    }
+    if is_expired(cached.cached_at, ttl) {
+        return None;
+    }
+    let file_path = cache_dir.join(&cached.relative_path);
+    file_path.exists().then_some((cached, file_path))
 }

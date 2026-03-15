@@ -310,46 +310,52 @@ fn read_pmt_pcr_pid(data: &[u8], pmt_pid: u16) -> Option<u16> {
     None
 }
 
+/// Extracts a PCR timestamp (in seconds) from a single TS packet.
+///
+/// Returns `None` when the packet does not carry a PCR for `pcr_pid`.
+fn extract_pcr_from_packet(pkt: &[u8], pcr_pid: u16) -> Option<f64> {
+    if pkt[0] != TS_SYNC {
+        return None;
+    }
+    let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
+    if pid != pcr_pid {
+        return None;
+    }
+    // PCR is in the adaptation field
+    let adaptation_field_control = (pkt[3] >> 4) & 0x03;
+    if adaptation_field_control != 0x02 && adaptation_field_control != 0x03 {
+        return None;
+    }
+    if pkt.len() < 6 {
+        return None;
+    }
+    let af_len = pkt[4] as usize;
+    if af_len < PCR_AF_MIN_LEN {
+        return None;
+    }
+    let af = &pkt[5..5 + af_len];
+    if af[0] & PCR_FLAG == 0 {
+        return None;
+    }
+    // PCR base (33 bits) + reserved (6 bits) + PCR extension (9 bits)
+    let base = ((af[1] as u64) << 25)
+        | ((af[2] as u64) << 17)
+        | ((af[3] as u64) << 9)
+        | ((af[4] as u64) << 1)
+        | ((af[5] >> 7) as u64);
+    let ext = (((af[5] & 0x01) as u64) << 8) | af[6] as u64;
+    let pcr_value = base * PCR_BASE_MULTIPLIER + ext;
+    Some(pcr_value as f64 / SYSTEM_CLOCK_HZ)
+}
+
 /// Scans `window` for a TS packet carrying a PCR for `pcr_pid` and returns the PCR in seconds.
 fn find_pcr_in_window(window: &[u8], pcr_pid: u16) -> Option<f64> {
     let n_pkts = window.len() / PKT_SIZE as usize;
     for i in 0..n_pkts {
         let pkt = &window[i * PKT_SIZE as usize..(i + 1) * PKT_SIZE as usize];
-        if pkt[0] != TS_SYNC {
-            continue;
+        if let Some(pcr) = extract_pcr_from_packet(pkt, pcr_pid) {
+            return Some(pcr);
         }
-        let pid = (((pkt[1] & 0x1F) as u16) << 8) | pkt[2] as u16;
-        if pid != pcr_pid {
-            continue;
-        }
-        // PCR is in the adaptation field
-        let adaptation_field_control = (pkt[3] >> 4) & 0x03;
-        if adaptation_field_control != 0x02 && adaptation_field_control != 0x03 {
-            continue;
-        }
-        if pkt.len() < 6 {
-            continue;
-        }
-        let af_len = pkt[4] as usize;
-        if af_len < PCR_AF_MIN_LEN {
-            continue;
-        }
-        let af = &pkt[5..5 + af_len];
-        if af[0] & PCR_FLAG == 0 {
-            continue;
-        }
-        // PCR base (33 bits) + reserved (6 bits) + PCR extension (9 bits)
-        if af.len() < PCR_AF_MIN_LEN {
-            continue;
-        }
-        let base = ((af[1] as u64) << 25)
-            | ((af[2] as u64) << 17)
-            | ((af[3] as u64) << 9)
-            | ((af[4] as u64) << 1)
-            | ((af[5] >> 7) as u64);
-        let ext = (((af[5] & 0x01) as u64) << 8) | af[6] as u64;
-        let pcr_value = base * PCR_BASE_MULTIPLIER + ext;
-        return Some(pcr_value as f64 / SYSTEM_CLOCK_HZ);
     }
     None
 }

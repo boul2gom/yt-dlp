@@ -311,6 +311,44 @@ fn validate_aifc_codec(codec: &[u8]) -> Result<()> {
     )))
 }
 
+/// Parses the `COMM` chunk payload and returns `(channels, sample_rate, bits_per_sample)`.
+///
+/// # Errors
+///
+/// Returns `Error::ParseFailed` when the chunk is smaller than the required minimum or
+/// (for AIFC) when the codec is a compressed type.
+fn parse_comm_chunk(probe: &[u8], pos: usize, chunk_size: usize, is_aifc: bool) -> Result<(u16, u32, u16)> {
+    // Standard AIFF COMM: 18 bytes minimum.
+    // AIFC COMM: 22 bytes minimum (18 standard + 4 compressionType).
+    let min_size = if is_aifc { AIFC_COMM_MIN_SIZE } else { AIFF_COMM_MIN_SIZE };
+    if chunk_size < min_size {
+        return Err(Error::parse("AIFF COMM chunk too small"));
+    }
+
+    let channels = u16::from_be_bytes(
+        probe[pos + COMM_CHANNELS_OFFSET..pos + COMM_CHANNELS_OFFSET + 2]
+            .try_into()
+            .unwrap(),
+    );
+    // 4 bytes num_sample_frames, then 2 bytes bit_depth, then 10-byte 80-bit extended SR
+    let bits_per_sample = u16::from_be_bytes(
+        probe[pos + COMM_BITS_PER_SAMPLE_OFFSET..pos + COMM_BITS_PER_SAMPLE_OFFSET + 2]
+            .try_into()
+            .unwrap(),
+    );
+    let sample_rate = read_ieee754_extended(
+        &probe[pos + COMM_SAMPLE_RATE_OFFSET..pos + COMM_SAMPLE_RATE_OFFSET + COMM_SAMPLE_RATE_LEN],
+    );
+
+    if is_aifc {
+        // AIFC COMM has 4-byte compressionType immediately after the 18-byte base.
+        let codec = &probe[pos + AIFC_CODEC_OFFSET..pos + AIFC_CODEC_OFFSET + AIFC_CODEC_LEN];
+        validate_aifc_codec(codec)?;
+    }
+
+    Ok((channels, sample_rate, bits_per_sample))
+}
+
 /// Scans AIFF/AIFC chunks starting at byte 12 (after the FORM + type header).
 ///
 /// Returns the parsed fields from the `COMM` chunk and the absolute byte offset of
@@ -340,36 +378,8 @@ fn scan_aiff_chunks(probe: &[u8], is_aifc: bool) -> Result<AiffChunkResult> {
         let chunk_end = pos + chunk_size;
 
         if chunk_id == b"COMM" {
-            // Standard AIFF COMM: 18 bytes minimum.
-            // AIFC COMM: 22 bytes minimum (18 standard + 4 compressionType).
-            let min_size = if is_aifc {
-                AIFC_COMM_MIN_SIZE
-            } else {
-                AIFF_COMM_MIN_SIZE
-            };
-            if chunk_size >= min_size {
-                channels = u16::from_be_bytes(
-                    probe[pos + COMM_CHANNELS_OFFSET..pos + COMM_CHANNELS_OFFSET + 2]
-                        .try_into()
-                        .unwrap(),
-                );
-                // 4 bytes num_sample_frames, then 2 bytes bit_depth, then 10-byte 80-bit extended SR
-                bits_per_sample = u16::from_be_bytes(
-                    probe[pos + COMM_BITS_PER_SAMPLE_OFFSET..pos + COMM_BITS_PER_SAMPLE_OFFSET + 2]
-                        .try_into()
-                        .unwrap(),
-                );
-                sample_rate = read_ieee754_extended(
-                    &probe[pos + COMM_SAMPLE_RATE_OFFSET..pos + COMM_SAMPLE_RATE_OFFSET + COMM_SAMPLE_RATE_LEN],
-                );
-
-                if is_aifc {
-                    // AIFC COMM has 4-byte compressionType immediately after the 18-byte base.
-                    let codec = &probe[pos + AIFC_CODEC_OFFSET..pos + AIFC_CODEC_OFFSET + AIFC_CODEC_LEN];
-                    validate_aifc_codec(codec)?;
-                }
-                comm_found = true;
-            }
+            (channels, sample_rate, bits_per_sample) = parse_comm_chunk(probe, pos, chunk_size, is_aifc)?;
+            comm_found = true;
         } else if chunk_id == b"SSND" {
             // SSND: 4 byte offset field + 4 byte block size field, then PCM data
             let ssnd_data_offset =
@@ -384,7 +394,10 @@ fn scan_aiff_chunks(probe: &[u8], is_aifc: bool) -> Result<AiffChunkResult> {
     if !comm_found {
         return Err(Error::parse("AIFF COMM chunk not found"));
     }
-    if channels == 0 || sample_rate == 0 || bits_per_sample == 0 {
+    if channels == 0 {
+        return Err(Error::parse("AIFF COMM chunk has zero channels"));
+    }
+    if sample_rate == 0 || bits_per_sample == 0 {
         return Err(Error::parse("AIFF COMM chunk has zero sample parameters"));
     }
 

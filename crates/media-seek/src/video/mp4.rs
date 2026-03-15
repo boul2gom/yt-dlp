@@ -121,6 +121,43 @@ struct MoovTables {
 
 // ==================== Public entry point ====================
 
+/// Attempts to fetch a window just beyond `probe` and parse any SIDX boxes found there.
+///
+/// Returns `Some(result)` when SIDX boxes are found in the fetched window, or `None`
+/// when `total_size` is unknown, the probe already covers the full stream, or no SIDX
+/// boxes are present in the fetched window. Fetch errors are logged and treated as `None`.
+async fn try_sidx_beyond_probe<F: RangeFetcher>(
+    probe: &[u8],
+    total_size: Option<u64>,
+    fetcher: &F,
+) -> Option<Result<ContainerIndex>> {
+    let total = total_size?;
+    let fetch_start = probe.len() as u64;
+    if fetch_start >= total {
+        return None;
+    }
+    let fetch_end = (fetch_start + SIDX_FETCH_WINDOW - 1).min(total - 1);
+    tracing::debug!(fetch_start, fetch_end, "⚙️ No SIDX/moov in probe, fetching next window");
+    let extra = match fetcher.fetch(fetch_start, fetch_end).await {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::debug!(err = %e, "⚙️ fetch beyond probe failed, falling through");
+            return None;
+        }
+    };
+    let sidx_list = find_all_sidx(&extra);
+    if sidx_list.is_empty() {
+        return None;
+    }
+    let result = parse_all_sidx(&sidx_list, fetch_start);
+    if let Ok(ref idx) = result
+        && let Inner::Segments(ref segs) = idx.inner
+    {
+        tracing::debug!(segments = segs.len(), "✅ fMP4 SIDX index parsed (fetched)");
+    }
+    Some(result)
+}
+
 /// Parses an MP4/M4A/ISO BMFF stream and returns a [`ContainerIndex`].
 ///
 /// First checks for fMP4 SIDX boxes (collecting all chained SIDX boxes); if none
@@ -163,29 +200,8 @@ pub(crate) async fn parse<F: RangeFetcher>(
 
     // If the probe has no moov either, try fetching beyond the probe for SIDX.
     if find_box(probe, b"moov").is_none() {
-        if let Some(total) = total_size {
-            let fetch_start = probe.len() as u64;
-            if fetch_start < total {
-                let fetch_end = (fetch_start + SIDX_FETCH_WINDOW - 1).min(total - 1);
-                tracing::debug!(fetch_start, fetch_end, "⚙️ No SIDX/moov in probe, fetching next window");
-                match fetcher.fetch(fetch_start, fetch_end).await {
-                    Ok(extra) => {
-                        let sidx_list2 = find_all_sidx(&extra);
-                        if !sidx_list2.is_empty() {
-                            let result = parse_all_sidx(&sidx_list2, fetch_start);
-                            if let Ok(ref idx) = result
-                                && let Inner::Segments(ref segs) = idx.inner
-                            {
-                                tracing::debug!(segments = segs.len(), "✅ fMP4 SIDX index parsed (fetched)");
-                            }
-                            return result;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!(err = %e, "⚙️ fetch beyond probe failed, falling through");
-                    }
-                }
-            }
+        if let Some(result) = try_sidx_beyond_probe(probe, total_size, fetcher).await {
+            return result;
         }
         return Err(Error::index_not_found("no SIDX or moov box found in probe"));
     }
@@ -472,6 +488,29 @@ struct RawStblBoxes<'a> {
     stsz: Option<&'a [u8]>,
 }
 
+/// Decodes the size fields from an ISOBMFF box header at `data[pos..]`.
+///
+/// Returns `(header_len, box_size)` where `header_len` is the number of bytes
+/// consumed by the header (8 for normal boxes, 16 for extended-size boxes) and
+/// `box_size` is the total number of bytes in the box including the header.
+/// Returns `None` when the box header is invalid or truncated.
+fn decode_box_header(data: &[u8], pos: usize) -> Option<(usize, usize)> {
+    let size32 = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+    if size32 == 1 {
+        if pos + 16 > data.len() {
+            return None;
+        }
+        let ext = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().ok()?) as usize;
+        Some((16, ext))
+    } else if size32 == 0 {
+        Some((8, data.len() - pos))
+    } else if size32 < 8 {
+        None
+    } else {
+        Some((8, size32))
+    }
+}
+
 /// Traverses the children of an `stbl` box and returns raw payload slices for each
 /// seek-relevant box type (`stts`, `stco`, `co64`, `stsc`, `stss`, `stsz`).
 ///
@@ -489,35 +528,13 @@ fn walk_stbl_boxes(stbl: &[u8]) -> RawStblBoxes<'_> {
     };
     let mut pos = 0usize;
     while pos + 8 <= stbl.len() {
-        let size32 = u32::from_be_bytes(stbl[pos..pos + 4].try_into().unwrap()) as usize;
-        let (header_len, box_size) = if size32 == 1 {
-            if pos + 16 > stbl.len() {
-                break;
-            }
-            let ext = u64::from_be_bytes(stbl[pos + 8..pos + 16].try_into().unwrap()) as usize;
-            (16, ext)
-        } else if size32 == 0 {
-            (8, stbl.len() - pos)
-        } else if size32 < 8 {
-            break;
-        } else {
-            (8, size32)
-        };
-
+        let Some((header_len, box_size)) = decode_box_header(stbl, pos) else { break };
         let box_end = (pos + box_size).min(stbl.len());
         let payload = &stbl[pos + header_len..box_end];
         match &stbl[pos + 4..pos + 8] {
             b"stts" => raw.stts = Some(payload),
-            b"stco" => {
-                if raw.stco.is_none() {
-                    raw.stco = Some(payload);
-                }
-            }
-            b"co64" => {
-                if raw.co64.is_none() {
-                    raw.co64 = Some(payload);
-                }
-            }
+            b"stco" => raw.stco = raw.stco.or(Some(payload)),
+            b"co64" => raw.co64 = raw.co64.or(Some(payload)),
             b"stsc" => raw.stsc = Some(payload),
             b"stss" => raw.stss = Some(payload),
             b"stsz" => raw.stsz = Some(payload),
