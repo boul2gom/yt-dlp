@@ -57,11 +57,9 @@ fn scan_metadata_blocks(probe: &[u8]) -> Option<FlacMetadata> {
 
         match block_type {
             BLOCK_TYPE_STREAMINFO => {
-                if block_len >= STREAMINFO_MIN_SIZE {
-                    let (sr, ts) = parse_streaminfo_block(&probe[pos..pos + block_len]);
-                    sample_rate = sr;
-                    total_samples = ts;
-                }
+                let (sr, ts) = parse_streaminfo_block(&probe[pos..block_end]);
+                sample_rate = sr;
+                total_samples = ts;
             }
             BLOCK_TYPE_SEEKTABLE => {
                 seek_points = Some(parse_seektable_block(&probe[pos..block_end]));

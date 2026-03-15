@@ -59,18 +59,12 @@ const MIN_FALLBACK_KEYFRAMES: usize = 2;
 /// Returns `Error::ParseFailed` when the FLV header is missing or malformed.
 /// Returns `Error::IndexNotFound` when no keyframes table is found and fewer
 /// than two video keyframes are detected in the probe.
-pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
-    tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLV stream");
-    // FLV header: "FLV" (3) + version (1) + flags (1) + header_size (4) = 9 bytes
-    if probe.len() < FLV_HEADER_SIZE || &probe[0..3] != b"FLV" {
-        return Err(Error::parse("not an FLV stream"));
-    }
-    let header_size = u32::from_be_bytes(probe[5..9].try_into().unwrap()) as usize;
-    let body_start = header_size + PREV_TAG_SIZE_LEN;
+/// Scans FLV tags starting at `body_start` and returns the first successfully parsed
+/// `onMetaData` index, or the accumulated video keyframe fallback list when no Script
+/// tag is found.
+fn scan_flv_tags(probe: &[u8], body_start: usize) -> (Option<ContainerIndex>, Vec<(u32, u64)>) {
     let mut pos = body_start;
-
-    // Collect fallback video keyframes while scanning for onMetaData.
-    let mut fallback_keyframes: Vec<(u32, u64)> = Vec::new(); // (timestamp_ms, byte_offset)
+    let mut fallback_keyframes: Vec<(u32, u64)> = Vec::new();
 
     while pos + TAG_HEADER_SIZE <= probe.len() {
         let tag_type = probe[pos];
@@ -84,7 +78,7 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
 
         if tag_type == TAG_TYPE_SCRIPT {
             if let Some(index) = try_parse_script_tag(probe, tag_data_start, tag_end) {
-                return Ok(index);
+                return (Some(index), fallback_keyframes);
             }
         } else if tag_type == TAG_TYPE_VIDEO && data_size >= 1 {
             // Video frame-type is in the upper nibble of the first data byte.
@@ -95,6 +89,23 @@ pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
         }
 
         pos = tag_end + PREV_TAG_SIZE_LEN;
+    }
+
+    (None, fallback_keyframes)
+}
+
+pub(crate) fn parse(probe: &[u8]) -> Result<ContainerIndex> {
+    tracing::debug!(probe_len = probe.len(), "⚙️ Parsing FLV stream");
+    // FLV header: "FLV" (3) + version (1) + flags (1) + header_size (4) = 9 bytes
+    if probe.len() < FLV_HEADER_SIZE || &probe[0..3] != b"FLV" {
+        return Err(Error::parse("not an FLV stream"));
+    }
+    let header_size = u32::from_be_bytes(probe[5..9].try_into().unwrap()) as usize;
+    let body_start = header_size + PREV_TAG_SIZE_LEN;
+
+    let (script_index, fallback_keyframes) = scan_flv_tags(probe, body_start);
+    if let Some(index) = script_index {
+        return Ok(index);
     }
 
     // No usable onMetaData — try the fallback keyframe index.

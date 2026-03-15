@@ -9,6 +9,7 @@ Thank you for your interest in contributing! This guide will help you understand
 - [🚀 Getting Started](#-getting-started)
 - [🏗️ Project Architecture](#️-project-architecture)
 - [✍️ Code Style](#️-code-style)
+  - [🪆 Nesting depth](#-nesting-depth)
 - [🚨 Error Handling](#-error-handling)
 - [🔧 Builder Patterns](#-builder-patterns)
 - [📦 Model & Data Types](#-model--data-types)
@@ -196,6 +197,63 @@ if is_timeout || is_connect || is_request { … }
 // ❌ three or more raw expressions inline — NOT OK
 if error.is_timeout() || error.is_connect() || error.is_request() { … }
 ```
+
+### 🪆 Nesting depth
+
+**Maximum two levels of nesting inside any function body.** Each loop (`for`, `while`, `loop`), conditional (`if`, `else if`, `match`), or closure that contains control flow counts as one level. Exceeding two levels raises the [SonarCloud Cognitive Complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) above the enforced threshold of 15 and will block your PR.
+
+When a third level is needed, **extract the inner logic into a private helper function** that returns an `Option`, `Result`, or a dedicated struct.
+
+```rust
+// ❌ BAD — three levels of nesting (loop → if → if)
+fn scan_tags(probe: &[u8]) {
+    while let Some(tag) = next_tag(probe) {           // level 1
+        if tag.kind == TagKind::Video {               // level 2
+            if tag.frame_type == FrameType::Key {     // level 3 ← NOT allowed
+                keyframes.push(tag.offset);
+            }
+        }
+    }
+}
+
+// ✅ GOOD — max two levels; the inner predicate is extracted
+fn is_video_keyframe(tag: &Tag) -> bool {
+    tag.kind == TagKind::Video && tag.frame_type == FrameType::Key
+}
+
+fn scan_tags(probe: &[u8]) {
+    while let Some(tag) = next_tag(probe) {           // level 1
+        if is_video_keyframe(&tag) {                  // level 2
+            keyframes.push(tag.offset);
+        }
+    }
+}
+```
+
+The same rule applies to `match` arms that contain their own `if`/`loop`/`match`:
+
+```rust
+// ❌ BAD — match arm body itself opens a new level
+match block_type {
+    BlockType::StreamInfo => {
+        if block_len >= MIN_SIZE {    // level 3 when already inside a loop + match
+            parse_stream_info(block);
+        }
+    }
+}
+
+// ✅ GOOD — delegate to a helper that handles the guard internally
+match block_type {
+    BlockType::StreamInfo => parse_stream_info(block), // helper does its own guard
+}
+```
+
+| Rule | Detail |
+|------|--------|
+| Hard limit | 2 nesting levels per function |
+| What counts | `for`, `while`, `loop`, `if`/`else if`/`else`, `match`, closures with control flow |
+| Remedy | Extract inner body into a private `fn`, or use early-return / guard-clause patterns |
+| SonarCloud | Max Cognitive Complexity per function: **15** |
 
 ### 🎯 Parameter types
 
@@ -938,6 +996,7 @@ Before submitting your PR, make sure:
 - [ ] 📦 No tuple return types — use named structs instead
 - [ ] 🔗 No double-qualified paths — import types and use short names
 - [ ] 🌍 All text (comments, docs, logs) is in English
+- [ ] 🪆 No function exceeds 2 nesting levels — extract deeper logic into private helpers
 
 ---
 
