@@ -9,8 +9,8 @@ use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::core::{
-    LiveCore, LiveCoreConfig, LiveFragment, POLL_INTERVAL_DIVISOR, RecordingStats, SegmentErrorMode, ZERO_U64,
-    emit_live_progress,
+    LiveCore, LiveCoreConfig, LiveFragment, POLL_INTERVAL_DIVISOR, SegmentErrorMode, ZERO_U64, emit_live_progress,
+    track_sequence,
 };
 use super::{LiveStreamConfig, hls};
 use crate::error::Result;
@@ -18,9 +18,6 @@ use crate::events::DownloadEvent;
 
 /// Channel capacity for streaming fragments.
 const FRAGMENT_CHANNEL_CAPACITY: usize = 32;
-
-/// Maximum sequence numbers to track for duplicate suppression.
-const SEQUENCE_TRACK_WINDOW: usize = 512;
 
 /// Result stream type for live fragment delivery.
 pub type LiveFragmentStream = ReceiverStream<Result<LiveFragment>>;
@@ -53,7 +50,6 @@ impl LiveFragmentStreamer {
                 cancellation_token: config.cancellation_token,
                 client,
                 event_bus: config.event_bus,
-                output_path: None,
             }),
         }
     }
@@ -109,7 +105,7 @@ async fn run_loop<F, Fut, B, BFut>(
     poll_interval: Duration,
     mut on_fragment: F,
     mut on_batch: B,
-) -> Result<RecordingStats>
+) -> Result<()>
 where
     F: FnMut(LiveFragment) -> Fut,
     Fut: Future<Output = Result<()>>,
@@ -227,12 +223,7 @@ where
         total_duration,
     });
 
-    Ok(RecordingStats {
-        total_bytes,
-        total_duration,
-        segments_downloaded,
-        stop_reason,
-    })
+    Ok(())
 }
 
 /// Downloads and delivers a slice of HLS segments through `on_fragment`.
@@ -279,16 +270,4 @@ where
         on_fragment(fragment).await?;
     }
     Ok(())
-}
-
-fn track_sequence(sequence: u64, seen: &mut HashSet<u64>, window: &mut VecDeque<u64>) {
-    if seen.insert(sequence) {
-        window.push_back(sequence);
-    }
-
-    while window.len() > SEQUENCE_TRACK_WINDOW {
-        if let Some(evicted) = window.pop_front() {
-            seen.remove(&evicted);
-        }
-    }
 }

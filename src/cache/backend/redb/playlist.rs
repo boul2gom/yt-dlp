@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use redb::{Database, ReadableDatabase, ReadableTable};
 
-use super::{DEFAULT_PLAYLIST_TTL, PLAYLIST_URL_INDEX, PLAYLISTS, url_hash};
+use super::{DEFAULT_PLAYLIST_TTL, PLAYLIST_URL_INDEX, PLAYLISTS, clean_redb_table, url_hash};
 use crate::cache::backend::PlaylistBackend;
 use crate::cache::playlist::CachedPlaylist;
 use crate::error::Result;
@@ -215,44 +215,7 @@ impl PlaylistBackend for RedbPlaylistCache {
         let ttl = self.ttl;
 
         tokio::task::spawn_blocking(move || {
-            let txn = db
-                .begin_write()
-                .map_err(|e| crate::error::Error::database("write playlist clean", e))?;
-            {
-                let table = txn
-                    .open_table(PLAYLISTS)
-                    .map_err(|e| crate::error::Error::database("open playlists table", e))?;
-                let mut expired_keys = Vec::new();
-
-                let iter = table
-                    .iter()
-                    .map_err(|e| crate::error::Error::database("iterate playlists", e))?;
-                for entry in iter {
-                    let (key_guard, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
-                    let key = key_guard.value().to_string();
-                    let bytes = val.value();
-                    if let Ok(cached) = serde_json::from_slice::<CachedPlaylist>(bytes)
-                        && is_expired(cached.cached_at, ttl)
-                    {
-                        expired_keys.push(key);
-                    }
-                }
-                drop(table);
-
-                if !expired_keys.is_empty() {
-                    let mut table = txn
-                        .open_table(PLAYLISTS)
-                        .map_err(|e| crate::error::Error::database("open playlists table", e))?;
-                    for key in &expired_keys {
-                        table
-                            .remove(key.as_str())
-                            .map_err(|e| crate::error::Error::database("remove expired playlist", e))?;
-                    }
-                }
-            }
-            txn.commit()
-                .map_err(|e| crate::error::Error::database("commit playlist clean", e))?;
-            Ok(())
+            clean_redb_table(&db, PLAYLISTS, ttl, &std::path::PathBuf::new(), "playlist")
         })
         .await
         .map_err(|e| crate::error::Error::runtime("redb clean playlists", e))?

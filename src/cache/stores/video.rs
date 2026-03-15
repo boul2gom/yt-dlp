@@ -367,7 +367,7 @@ impl VideoCache {
 
         // L2: persistent
         #[cfg(persistent_cache)]
-        {
+        let result = {
             let cached = self.persistent.get_by_id(id).await?;
             tracing::debug!(video_id = id, "✅ Video cache hit by ID (L2 persistent)");
 
@@ -377,10 +377,11 @@ impl VideoCache {
                 let _ = self.memory.put(cached.url.clone(), video).await;
             }
 
-            return Ok(cached);
-        }
+            Ok(cached)
+        };
+        #[cfg(not(persistent_cache))]
+        let result = Err(crate::error::Error::cache_miss(format!("video:{}", id)));
 
-        #[allow(unreachable_code)]
-        Err(crate::error::Error::cache_miss(format!("video:{}", id)))
+        result
     }
 }

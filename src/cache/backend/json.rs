@@ -5,6 +5,49 @@
 use std::path::{Path, PathBuf};
 
 use super::{FileBackend, PlaylistBackend, VideoBackend, url_hash};
+
+const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
+const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
+const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
+
+/// An expired JSON cache entry found during a directory scan.
+struct ExpiredJsonEntry {
+    /// Path to the JSON metadata file on disk.
+    path: PathBuf,
+    /// Original URL, used to derive and delete the companion `.url` index file.
+    url: Option<String>,
+}
+
+/// Scans `dir` for `.json` files whose `cached_at` field indicates expiry under `ttl`.
+///
+/// Reads each file as a `serde_json::Value` to avoid a generic bound, extracting
+/// `cached_at` (i64 Unix timestamp) and optionally `url` for companion index cleanup.
+async fn list_expired_json_entries(dir: &Path, ttl: u64) -> Result<Vec<ExpiredJsonEntry>> {
+    let mut expired = Vec::new();
+    let mut entries = tokio::fs::read_dir(dir).await?;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Ok(content) = tokio::fs::read_to_string(&path).await else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let Some(cached_at) = val.get("cached_at").and_then(|v| v.as_i64()) else {
+            continue;
+        };
+        if is_expired(cached_at, ttl) {
+            let url = val.get("url").and_then(|v| v.as_str()).map(str::to_string);
+            expired.push(ExpiredJsonEntry { path, url });
+        }
+    }
+
+    Ok(expired)
+}
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -43,7 +86,7 @@ impl JsonVideoCache {
         }
         Ok(Self {
             cache_dir: video_dir,
-            ttl: ttl.unwrap_or(24 * 60 * 60),
+            ttl: ttl.unwrap_or(DEFAULT_VIDEO_TTL),
         })
     }
 }
@@ -202,18 +245,12 @@ impl VideoBackend for JsonVideoCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Cleaning JSON video cache"
         );
-        let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await?;
-                if let Ok(cached) = serde_json::from_str::<CachedVideo>(&content)
-                    && is_expired(cached.cached_at, self.ttl)
-                {
-                    let _ = tokio::fs::remove_file(entry.path()).await;
-                    // Also remove the orphaned .url index file
-                    let url_index = self.cache_dir.join(format!("{}.url", url_hash(&cached.url)));
-                    let _ = tokio::fs::remove_file(&url_index).await;
-                }
+        let expired = list_expired_json_entries(&self.cache_dir, self.ttl).await?;
+        for entry in expired {
+            let _ = tokio::fs::remove_file(&entry.path).await;
+            if let Some(url) = entry.url {
+                let url_index = self.cache_dir.join(format!("{}.url", url_hash(&url)));
+                let _ = tokio::fs::remove_file(&url_index).await;
             }
         }
         Ok(())
@@ -267,7 +304,7 @@ impl JsonPlaylistCache {
         }
         Ok(Self {
             cache_dir: list_dir,
-            ttl: ttl.unwrap_or(6 * 60 * 60), // 6 hours default
+            ttl: ttl.unwrap_or(DEFAULT_PLAYLIST_TTL),
         })
     }
 }
@@ -370,18 +407,12 @@ impl PlaylistBackend for JsonPlaylistCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Cleaning JSON playlist cache"
         );
-        let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().extension().is_some_and(|ext| ext == "json") {
-                let content = tokio::fs::read_to_string(entry.path()).await?;
-                if let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&content)
-                    && is_expired(cached.cached_at, self.ttl)
-                {
-                    let _ = tokio::fs::remove_file(entry.path()).await;
-                    // Also remove the orphaned .url index file
-                    let url_index = self.cache_dir.join(format!("{}.url", url_hash(&cached.url)));
-                    let _ = tokio::fs::remove_file(&url_index).await;
-                }
+        let expired = list_expired_json_entries(&self.cache_dir, self.ttl).await?;
+        for entry in expired {
+            let _ = tokio::fs::remove_file(&entry.path).await;
+            if let Some(url) = entry.url {
+                let url_index = self.cache_dir.join(format!("{}.url", url_hash(&url)));
+                let _ = tokio::fs::remove_file(&url_index).await;
             }
         }
         Ok(())
@@ -442,7 +473,7 @@ impl JsonFileCache {
 
         Ok(Self {
             cache_dir, // We keep root cache dir to access subdirectories
-            ttl: ttl.unwrap_or(7 * 24 * 60 * 60),
+            ttl: ttl.unwrap_or(DEFAULT_FILE_TTL),
         })
     }
 

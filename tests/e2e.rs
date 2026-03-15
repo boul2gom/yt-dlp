@@ -1,5 +1,9 @@
-#[path = "common/mod.rs"]
-mod common;
+mod common {
+    #[path = "assertions.rs"] pub mod assertions;
+    #[path = "downloader.rs"] pub mod downloader;
+    #[path = "fixtures.rs"]   pub mod fixtures;
+    #[path = "server.rs"]     pub mod server;
+}
 
 #[path = "e2e/helpers.rs"]
 mod helpers;

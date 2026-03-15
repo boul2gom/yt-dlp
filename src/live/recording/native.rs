@@ -4,7 +4,7 @@
 //! output file. The loop stops on cancellation, stream end (`#EXT-X-ENDLIST`), or
 //! when the configured maximum duration elapses.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::{fs, time};
 
-use super::super::core::{LiveCore, LiveCoreConfig, RecordingStats, SegmentErrorMode, ZERO_U64, emit_live_progress};
+use super::super::core::{
+    LiveCore, LiveCoreConfig, RecordingStats, SegmentErrorMode, ZERO_U64, emit_live_progress, track_sequence,
+};
 use super::super::{RecordingConfig, hls};
 use crate::error::{Error, Result};
 use crate::events::DownloadEvent;
@@ -22,6 +24,12 @@ use crate::events::types::RecordingMethod;
 
 /// Buffered writer capacity for recording output.
 const OUTPUT_BUFFER_CAPACITY: usize = 64 * 1024;
+
+/// Groups the two dedup data structures passed to [`LiveRecorder::write_segments`].
+struct SequenceTracker<'a> {
+    seen: &'a mut HashSet<u64>,
+    window: &'a mut VecDeque<u64>,
+}
 
 /// Reqwest-based live stream recorder.
 ///
@@ -52,7 +60,6 @@ impl LiveRecorder {
                 cancellation_token: config.cancellation_token,
                 client,
                 event_bus: config.event_bus,
-                output_path: Some(config.output_path.clone()),
             }),
             output_path: config.output_path,
         }
@@ -114,6 +121,7 @@ impl LiveRecorder {
         let bytes_written = Arc::new(AtomicU64::new(ZERO_U64));
         let mut segments_downloaded: u64 = ZERO_U64;
         let mut seen_sequences: HashSet<u64> = HashSet::new();
+        let mut sequence_window: VecDeque<u64> = VecDeque::new();
         let mut last_progress_nanos: u64 = ZERO_U64;
 
         tracing::info!(
@@ -137,7 +145,7 @@ impl LiveRecorder {
             Duration::from_secs_f64(initial.target_duration / super::super::core::POLL_INTERVAL_DIVISOR);
 
         for seg in &initial.segments {
-            seen_sequences.insert(seg.sequence);
+            track_sequence(seg.sequence, &mut seen_sequences, &mut sequence_window);
         }
 
         let initial_refs: Vec<&hls::HlsSegment> = initial.segments.iter().collect();
@@ -147,7 +155,7 @@ impl LiveRecorder {
             output_path,
             &bytes_written,
             &mut segments_downloaded,
-            &mut seen_sequences,
+            &mut SequenceTracker { seen: &mut seen_sequences, window: &mut sequence_window },
         )
         .await?;
 
@@ -194,7 +202,7 @@ impl LiveRecorder {
                 output_path,
                 &bytes_written,
                 &mut segments_downloaded,
-                &mut seen_sequences,
+                &mut SequenceTracker { seen: &mut seen_sequences, window: &mut sequence_window },
             )
             .await?;
 
@@ -226,18 +234,12 @@ impl LiveRecorder {
         let total_duration = start.elapsed();
         let total_bytes = bytes_written.load(Ordering::Relaxed);
 
-        let output_path = self
-            .core
-            .output_path
-            .clone()
-            .ok_or_else(|| Error::live_recording(&self.core.playlist_url, "missing output path for recording"))?;
-
         self.core
             .event_bus
             .emit_if_subscribed(DownloadEvent::LiveRecordingStopped {
                 video_id: self.core.video_id.clone(),
                 reason: stop_reason.clone(),
-                output_path,
+                output_path: self.output_path.clone(),
                 total_bytes,
                 total_duration,
             });
@@ -254,7 +256,7 @@ impl LiveRecorder {
     ///
     /// Iterates over `segments` in order. Stops early (without error) if the
     /// cancellation token is triggered. Each segment's byte count is added to
-    /// `bytes_written`, its sequence number inserted into `seen_sequences`, and
+    /// `bytes_written`, its sequence number registered via [`track_sequence`], and
     /// `segments_downloaded` is incremented.
     ///
     /// # Arguments
@@ -264,7 +266,7 @@ impl LiveRecorder {
     /// * `output_path` - Used only for I/O error context.
     /// * `bytes_written` - Running total of bytes written (updated atomically).
     /// * `segments_downloaded` - Running segment count (incremented for each segment).
-    /// * `seen_sequences` - Set of sequence numbers already written (updated).
+    /// * `tracker` - Dedup state (seen-sequence set + eviction window).
     ///
     /// # Errors
     ///
@@ -276,7 +278,7 @@ impl LiveRecorder {
         output_path: &PathBuf,
         bytes_written: &Arc<AtomicU64>,
         segments_downloaded: &mut u64,
-        seen_sequences: &mut HashSet<u64>,
+        tracker: &mut SequenceTracker<'_>,
     ) -> Result<()> {
         for seg in segments {
             if self.core.cancellation_token.is_cancelled() {
@@ -290,7 +292,7 @@ impl LiveRecorder {
                 .map_err(|e| Error::io_with_path("writing segment", output_path, e))?;
             bytes_written.fetch_add(fragment.data.len() as u64, Ordering::Relaxed);
             *segments_downloaded += 1;
-            seen_sequences.insert(seg.sequence);
+            track_sequence(seg.sequence, tracker.seen, tracker.window);
         }
         Ok(())
     }

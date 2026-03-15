@@ -149,13 +149,83 @@ pub trait ExtractorBase: VideoExtractor {
         args.push(url.to_string());
         execute_and_parse_playlist(self.executable_path(), &args, self.timeout()).await
     }
+
+    /// Fetches video metadata and emits structured tracing on success or failure.
+    ///
+    /// Wraps `fetch_video_metadata` with a consistent log pattern. Call this from
+    /// `VideoExtractor::fetch_video` implementations to avoid repeating the
+    /// match-and-log boilerplate. The `extractor` string is emitted as a structured
+    /// field so each implementor can identify itself in logs.
+    async fn log_and_fetch_video(&self, url: &str, extractor: &str) -> Result<Video> {
+        let result = self.fetch_video_metadata(url).await;
+        match &result {
+            Ok(video) => tracing::debug!(
+                url = url,
+                extractor = extractor,
+                video_id = video.id,
+                title = video.title,
+                format_count = video.formats.len(),
+                "✅ Video fetched successfully"
+            ),
+            Err(e) => tracing::warn!(
+                url = url,
+                extractor = extractor,
+                error = %e,
+                "Failed to fetch video"
+            ),
+        }
+        result
+    }
+
+    /// Fetches playlist metadata and emits structured tracing on success or failure.
+    ///
+    /// Wraps `fetch_playlist_metadata` with a consistent log pattern. Call this from
+    /// `VideoExtractor::fetch_playlist` implementations to avoid repeating the
+    /// match-and-log boilerplate.
+    async fn log_and_fetch_playlist(&self, url: &str, extractor: &str) -> Result<Playlist> {
+        let result = self.fetch_playlist_metadata(url).await;
+        match &result {
+            Ok(playlist) => tracing::debug!(
+                url = url,
+                extractor = extractor,
+                playlist_id = playlist.id,
+                title = playlist.title,
+                entry_count = playlist.entries.len(),
+                "✅ Playlist fetched successfully"
+            ),
+            Err(e) => tracing::warn!(
+                url = url,
+                extractor = extractor,
+                error = %e,
+                "Failed to fetch playlist"
+            ),
+        }
+        result
+    }
 }
 
+/// Implements [`ExtractorConfig`] for a struct with `args: Vec<String>` and `timeout: Duration` fields.
+///
+/// Both fields must be named exactly `args` and `timeout`.
+macro_rules! impl_extractor_config {
+    ($type:path) => {
+        impl $crate::extractor::ExtractorConfig for $type {
+            fn args_mut(&mut self) -> &mut Vec<String> {
+                &mut self.args
+            }
+
+            fn timeout_mut(&mut self) -> &mut std::time::Duration {
+                &mut self.timeout
+            }
+        }
+    };
+}
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub use detector::detect_extractor_type;
 pub use generic::Generic;
+pub(crate) use impl_extractor_config;
 pub use youtube::Youtube;
 
 use crate::executor::Executor;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use redb::{Database, ReadableDatabase, ReadableTable};
 
-use super::{DEFAULT_VIDEO_TTL, VIDEO_URL_INDEX, VIDEOS, url_hash};
+use super::{DEFAULT_VIDEO_TTL, VIDEO_URL_INDEX, VIDEOS, clean_redb_table, url_hash};
 use crate::cache::backend::VideoBackend;
 use crate::cache::video::CachedVideo;
 use crate::error::Result;
@@ -179,48 +179,9 @@ impl VideoBackend for RedbVideoCache {
         let db = self.db.clone();
         let ttl = self.ttl;
 
-        tokio::task::spawn_blocking(move || {
-            let txn = db
-                .begin_write()
-                .map_err(|e| crate::error::Error::database("write video clean", e))?;
-            {
-                let table = txn
-                    .open_table(VIDEOS)
-                    .map_err(|e| crate::error::Error::database("open videos table", e))?;
-                let mut expired_keys = Vec::new();
-
-                let iter = table
-                    .iter()
-                    .map_err(|e| crate::error::Error::database("iterate videos", e))?;
-                for entry in iter {
-                    let (key_guard, val) = entry.map_err(|e| crate::error::Error::database("read entry", e))?;
-                    let key = key_guard.value().to_string();
-                    let bytes = val.value();
-                    if let Ok(cached) = serde_json::from_slice::<CachedVideo>(bytes)
-                        && is_expired(cached.cached_at, ttl)
-                    {
-                        expired_keys.push(key);
-                    }
-                }
-                drop(table);
-
-                if !expired_keys.is_empty() {
-                    let mut table = txn
-                        .open_table(VIDEOS)
-                        .map_err(|e| crate::error::Error::database("open videos table", e))?;
-                    for key in &expired_keys {
-                        table
-                            .remove(key.as_str())
-                            .map_err(|e| crate::error::Error::database("remove expired video", e))?;
-                    }
-                }
-            }
-            txn.commit()
-                .map_err(|e| crate::error::Error::database("commit video clean", e))?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| crate::error::Error::runtime("redb clean videos", e))?
+        tokio::task::spawn_blocking(move || clean_redb_table(&db, VIDEOS, ttl, &std::path::PathBuf::new(), "video"))
+            .await
+            .map_err(|e| crate::error::Error::runtime("redb clean videos", e))?
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {

@@ -1,5 +1,8 @@
-#[path = "common/mod.rs"]
-mod common;
+mod common {
+    #[path = "fixtures.rs"]       pub mod fixtures;
+    #[path = "media_seek.rs"]     pub mod media_seek;
+    #[path = "test_extractor.rs"] pub mod test_extractor;
+}
 
 #[cfg(cache)]
 #[path = "unit/cache/config.rs"]

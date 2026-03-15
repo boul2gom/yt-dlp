@@ -554,6 +554,8 @@ impl Fetcher {
             dest.write_all(&buffer).await?;
         }
 
+        dest.flush().await?;
+
         Ok(())
     }
 

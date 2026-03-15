@@ -195,6 +195,21 @@ if is_timeout || is_connect || is_request { … }
 if error.is_timeout() || error.is_connect() || error.is_request() { … }
 ```
 
+### 🚫 Lint suppressions
+
+`#[allow(…)]` attributes are **forbidden** in this codebase, with one explicit exception:
+
+- `#[allow(clippy::large_enum_variant)]` on `DownloadEvent` — boxing all variants for one large variant would add unnecessary indirection throughout the event system.
+
+**Fix the root cause instead of suppressing the lint:**
+
+| Lint | Preferred fix |
+|---|---|
+| `dead_code` | Remove the item, or gate with `#[cfg(feature = "…")]` |
+| `unreachable_code` | Use `unreachable!("…")` or gate the fallback with `#[cfg(not(…))]` |
+| `clippy::too_many_arguments` | Group related parameters into a dedicated struct |
+| `unused_*` | Remove unused imports/variables, or prefix with `_` for intentional non-use |
+
 ### 🪆 Nesting depth
 
 **Maximum two levels of nesting inside any function body.** Each loop (`for`, `while`, `loop`), conditional (`if`, `else if`, `match`), or closure that contains control flow counts as one level. Exceeding two levels raises the [SonarCloud Cognitive Complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) above the enforced threshold of 15 and will block your PR.

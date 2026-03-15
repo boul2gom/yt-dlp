@@ -28,6 +28,13 @@ const PREFIX_PLAYLIST_ID: &str = "yt-dlp:playlist_id:";
 const PREFIX_FILE: &str = "yt-dlp:file:";
 const PREFIX_THUMBNAIL: &str = "yt-dlp:thumbnail:";
 
+async fn get_redis_connection(client: &redis::Client) -> Result<redis::aio::MultiplexedConnection> {
+    client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| crate::error::Error::redis("get connection", e))
+}
+
 fn url_key(prefix: &str, url: &str) -> String {
     let hash = Sha256::digest(url.as_bytes());
     format!("{}{:x}", prefix, hash)
@@ -70,10 +77,7 @@ impl RedisVideoCache {
     }
 
     async fn conn(&self) -> Result<redis::aio::MultiplexedConnection> {
-        self.client
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| crate::error::Error::redis("get connection", e))
+        get_redis_connection(&self.client).await
     }
 }
 
@@ -192,10 +196,7 @@ impl RedisPlaylistCache {
     }
 
     async fn conn(&self) -> Result<redis::aio::MultiplexedConnection> {
-        self.client
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| crate::error::Error::redis("get connection", e))
+        get_redis_connection(&self.client).await
     }
 }
 
@@ -382,10 +383,7 @@ impl RedisFileCache {
     }
 
     async fn conn(&self) -> Result<redis::aio::MultiplexedConnection> {
-        self.client
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| crate::error::Error::redis("get connection", e))
+        get_redis_connection(&self.client).await
     }
 }
 

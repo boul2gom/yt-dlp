@@ -1,5 +1,13 @@
-#[path = "common/mod.rs"]
-mod common;
+mod common {
+    #[path = "cache.rs"]      
+    pub mod cache;
+    #[path = "fixtures.rs"]   
+    pub mod fixtures;
+    #[path = "media_seek.rs"] 
+    pub mod media_seek;
+    #[path = "server.rs"]     
+    pub mod server;
+}
 
 #[path = "integration/events/bus.rs"]
 mod event_bus;

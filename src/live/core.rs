@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -44,13 +43,10 @@ pub(super) enum SegmentErrorMode {
 #[derive(Debug, Clone)]
 pub struct LiveFragment {
     /// The segment sequence number.
-    #[allow(dead_code)]
     pub sequence: u64,
     /// The segment duration.
-    #[allow(dead_code)]
     pub duration: Duration,
     /// The absolute URL for the fragment.
-    #[allow(dead_code)]
     pub url: String,
     /// The fragment bytes.
     pub data: Vec<u8>,
@@ -72,8 +68,6 @@ pub(super) struct LiveCoreConfig {
     pub(super) client: Arc<reqwest::Client>,
     /// The event bus for emitting recording events.
     pub(super) event_bus: EventBus,
-    /// Optional output path for recording mode.
-    pub(super) output_path: Option<PathBuf>,
 }
 
 /// Shared state and utilities for live recording/streaming.
@@ -93,9 +87,6 @@ pub(super) struct LiveCore {
     pub(super) client: Arc<reqwest::Client>,
     /// The event bus for emitting recording events.
     pub(super) event_bus: EventBus,
-    /// Optional output path for recording mode.
-    #[allow(dead_code)]
-    pub(super) output_path: Option<PathBuf>,
 }
 
 impl LiveCore {
@@ -113,7 +104,6 @@ impl LiveCore {
             cancellation_token: config.cancellation_token,
             client: config.client,
             event_bus: config.event_bus,
-            output_path: config.output_path,
         }
     }
 
@@ -192,17 +182,40 @@ impl LiveCore {
     }
 }
 
-/// Result metrics produced by the recording/streaming loops.
+/// Result metrics produced by the recording loop.
+#[cfg(feature = "live-recording")]
 #[derive(Debug, Clone)]
 pub(super) struct RecordingStats {
-    #[allow(dead_code)]
     pub(super) total_bytes: u64,
-    #[allow(dead_code)]
     pub(super) total_duration: Duration,
-    #[allow(dead_code)]
     pub(super) segments_downloaded: u64,
-    #[allow(dead_code)]
     pub(super) stop_reason: String,
+}
+
+/// Maximum number of HLS sequence numbers tracked for duplicate suppression.
+///
+/// When this window is full, the oldest entry is evicted from both the [`HashSet`]
+/// and the [`VecDeque`] to prevent unbounded memory growth on long-running streams.
+pub(super) const SEQUENCE_TRACK_WINDOW: usize = 512;
+
+/// Registers a sequence number as seen, evicting the oldest entry when the window is full.
+///
+/// Inserts `sequence` into `seen` and appends it to the bounded `window` deque.
+/// Once `window` exceeds [`SEQUENCE_TRACK_WINDOW`], the front element is popped and
+/// removed from `seen`, keeping memory use constant over time.
+pub(super) fn track_sequence(
+    sequence: u64,
+    seen: &mut std::collections::HashSet<u64>,
+    window: &mut std::collections::VecDeque<u64>,
+) {
+    if seen.insert(sequence) {
+        window.push_back(sequence);
+    }
+    while window.len() > SEQUENCE_TRACK_WINDOW {
+        if let Some(evicted) = window.pop_front() {
+            seen.remove(&evicted);
+        }
+    }
 }
 
 /// Emits a live progress event if the throttle interval has elapsed.

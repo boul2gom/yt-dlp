@@ -57,9 +57,6 @@ impl PersistentBackendKind {
     /// # Returns
     ///
     /// The resolved `PersistentBackendKind`.
-    // `#[allow(unreachable_code)]` is required: each cfg-guarded `return` makes subsequent
-    // statements unreachable in that specific feature combination, by design.
-    #[allow(unreachable_code)]
     pub fn resolve(kind: Option<Self>) -> Result<Self> {
         if let Some(k) = kind {
             return Ok(k);
@@ -67,16 +64,16 @@ impl PersistentBackendKind {
         if PERSISTENT_BACKEND_COUNT > 1 {
             return Err(Error::ambiguous_cache_backend(PERSISTENT_BACKEND_COUNT));
         }
-        // Exactly one persistent feature compiled in — auto-detect.
-        // Mutually exclusive cfg guards ensure only one branch is compiled per combination.
+        // Exactly one persistent feature compiled in — auto-detect via exclusive cfg guards.
+        // Each combination compiles exactly one `let backend` binding.
         #[cfg(feature = "cache-json")]
-        return Ok(Self::Json);
+        let backend = Self::Json;
         #[cfg(all(feature = "cache-redb", not(feature = "cache-json")))]
-        return Ok(Self::Redb);
+        let backend = Self::Redb;
         #[cfg(all(feature = "cache-redis", not(feature = "cache-json"), not(feature = "cache-redb")))]
-        return Ok(Self::Redis);
-        // Unreachable: `persistent_cache` cfg is only emitted when ≥ 1 persistent feature is active.
-        Err(Error::ambiguous_cache_backend(PERSISTENT_BACKEND_COUNT))
+        let backend = Self::Redis;
+
+        Ok(backend)
     }
 }
 

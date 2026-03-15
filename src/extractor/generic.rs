@@ -25,15 +25,7 @@ pub struct Generic {
     timeout: Duration,
 }
 
-impl super::ExtractorConfig for Generic {
-    fn args_mut(&mut self) -> &mut Vec<String> {
-        &mut self.args
-    }
-
-    fn timeout_mut(&mut self) -> &mut Duration {
-        &mut self.timeout
-    }
-}
+crate::extractor::impl_extractor_config!(Generic);
 
 impl Generic {
     /// Create a new generic extractor with automatic detection.
@@ -176,24 +168,7 @@ impl VideoExtractor for Generic {
             arg_count = self.args.len(),
             "📡 Fetching video with Generic extractor"
         );
-
-        let result = self.fetch_video_metadata(url).await;
-
-        match &result {
-            Ok(video) => tracing::debug!(
-                url = url,
-                video_id = video.id,
-                title = video.title,
-                "✅ Video fetched successfully with Generic extractor"
-            ),
-            Err(e) => tracing::warn!(
-                url = url,
-                error = %e,
-                "Failed to fetch video with Generic extractor"
-            ),
-        }
-
-        result
+        self.log_and_fetch_video(url, "Generic").await
     }
 
     async fn fetch_playlist(&self, url: &str) -> Result<Playlist> {
@@ -203,25 +178,7 @@ impl VideoExtractor for Generic {
             arg_count = self.args.len(),
             "📡 Fetching playlist with Generic extractor"
         );
-
-        let result = self.fetch_playlist_metadata(url).await;
-
-        match &result {
-            Ok(playlist) => tracing::debug!(
-                url = url,
-                playlist_id = playlist.id,
-                title = playlist.title,
-                entry_count = playlist.entries.len(),
-                "✅ Playlist fetched successfully with Generic extractor"
-            ),
-            Err(e) => tracing::warn!(
-                url = url,
-                error = %e,
-                "Failed to fetch playlist with Generic extractor"
-            ),
-        }
-
-        result
+        self.log_and_fetch_playlist(url, "Generic").await
     }
 
     fn name(&self) -> crate::extractor::ExtractorName {

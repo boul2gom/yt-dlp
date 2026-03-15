@@ -113,9 +113,6 @@ async fn fetch_asset_downloads_file() {
 
     let _: () = fetcher.fetch_asset(&dest).await.expect("fetch_asset failed");
 
-    // tokio::fs::File drop is async — give it a moment to close
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
     assert!(dest.exists(), "file should exist");
     let content = std::fs::read(&dest).unwrap();
     assert!(
@@ -139,9 +136,6 @@ async fn fetch_asset_simple_fallback() {
     let fetcher = Fetcher::with_client(format!("{}/simple.bin", server.uri()), client);
 
     let _: () = fetcher.fetch_asset(&dest).await.expect("fetch_asset failed");
-
-    // tokio::fs::File drop is async — give it a moment to close
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     assert!(dest.exists());
     let content = std::fs::read(&dest).unwrap();

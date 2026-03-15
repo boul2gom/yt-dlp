@@ -582,13 +582,11 @@ impl DownloadCache {
 
         // L2: persistent (may copy actual file content)
         #[cfg(persistent_cache)]
-        {
-            let path = self.persistent.put(file, source_path).await?;
-            return Ok(path);
-        }
+        let out = self.persistent.put(file, source_path).await?;
+        #[cfg(not(persistent_cache))]
+        let out = source_path.to_path_buf();
 
-        #[allow(unreachable_code)]
-        Ok(source_path.to_path_buf())
+        Ok(out)
     }
 
     /// Internal helper: put a CachedThumbnail to both layers.
@@ -603,12 +601,10 @@ impl DownloadCache {
         let _ = self.memory.put_thumbnail(thumbnail.clone(), source_path).await?;
 
         #[cfg(persistent_cache)]
-        {
-            let path = self.persistent.put_thumbnail(thumbnail, source_path).await?;
-            return Ok(path);
-        }
+        let out = self.persistent.put_thumbnail(thumbnail, source_path).await?;
+        #[cfg(not(persistent_cache))]
+        let out = source_path.to_path_buf();
 
-        #[allow(unreachable_code)]
-        Ok(source_path.to_path_buf())
+        Ok(out)
     }
 }
