@@ -320,7 +320,11 @@ fn validate_aifc_codec(codec: &[u8]) -> Result<()> {
 fn parse_comm_chunk(probe: &[u8], pos: usize, chunk_size: usize, is_aifc: bool) -> Result<(u16, u32, u16)> {
     // Standard AIFF COMM: 18 bytes minimum.
     // AIFC COMM: 22 bytes minimum (18 standard + 4 compressionType).
-    let min_size = if is_aifc { AIFC_COMM_MIN_SIZE } else { AIFF_COMM_MIN_SIZE };
+    let min_size = if is_aifc {
+        AIFC_COMM_MIN_SIZE
+    } else {
+        AIFF_COMM_MIN_SIZE
+    };
     if chunk_size < min_size {
         return Err(Error::parse("AIFF COMM chunk too small"));
     }

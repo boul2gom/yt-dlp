@@ -79,7 +79,12 @@ fn scan_metadata_blocks(probe: &[u8]) -> Option<FlacMetadata> {
     if sample_rate == 0 {
         return None;
     }
-    Some(FlacMetadata { sample_rate, total_samples, seek_points, audio_start })
+    Some(FlacMetadata {
+        sample_rate,
+        total_samples,
+        seek_points,
+        audio_start,
+    })
 }
 
 /// Parses a FLAC stream and returns a `ContainerIndex`.
@@ -104,11 +109,17 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
         return Err(Error::parse("missing fLaC marker"));
     }
 
-    let meta = scan_metadata_blocks(probe)
-        .ok_or_else(|| Error::parse("FLAC STREAMINFO missing or sample_rate is zero"))?;
+    let meta =
+        scan_metadata_blocks(probe).ok_or_else(|| Error::parse("FLAC STREAMINFO missing or sample_rate is zero"))?;
 
     if let Some(points) = meta.seek_points.filter(|p| !p.is_empty()) {
-        return build_seektable_segments(&points, meta.audio_start, meta.sample_rate, meta.total_samples, total_size);
+        return build_seektable_segments(
+            &points,
+            meta.audio_start,
+            meta.sample_rate,
+            meta.total_samples,
+            total_size,
+        );
     }
 
     // No SEEKTABLE — fall back to linear.
@@ -117,8 +128,14 @@ pub(crate) fn parse(probe: &[u8], total_size: Option<u64>) -> Result<ContainerIn
     } else {
         0.0
     };
-    let audio_bytes = total_size.unwrap_or(probe.len() as u64).saturating_sub(meta.audio_start) as f64;
-    let byte_rate = if total_secs > 0.0 { audio_bytes / total_secs } else { FALLBACK_BYTE_RATE };
+    let audio_bytes = total_size
+        .unwrap_or(probe.len() as u64)
+        .saturating_sub(meta.audio_start) as f64;
+    let byte_rate = if total_secs > 0.0 {
+        audio_bytes / total_secs
+    } else {
+        FALLBACK_BYTE_RATE
+    };
 
     tracing::debug!("✅ FLAC index parsed (mode=linear)");
     Ok(ContainerIndex {

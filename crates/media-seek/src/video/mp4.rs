@@ -528,7 +528,9 @@ fn walk_stbl_boxes(stbl: &[u8]) -> RawStblBoxes<'_> {
     };
     let mut pos = 0usize;
     while pos + 8 <= stbl.len() {
-        let Some((header_len, box_size)) = decode_box_header(stbl, pos) else { break };
+        let Some((header_len, box_size)) = decode_box_header(stbl, pos) else {
+            break;
+        };
         let box_end = (pos + box_size).min(stbl.len());
         let payload = &stbl[pos + header_len..box_end];
         match &stbl[pos + 4..pos + 8] {
