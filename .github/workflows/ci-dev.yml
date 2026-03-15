@@ -225,7 +225,7 @@ jobs:
         with:
           components: clippy
 
-      - name: 🦀 Clippy
+      - name: 🦀 Check with Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
 
       - name: 🧪 Run unit tests

@@ -3,6 +3,51 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::fixtures;
 
+/// Sets up a minimal wiremock server serving HLS master + media playlists and segments.
+///
+/// Mounts three routes:
+/// - `GET /hls/master.m3u8` — HLS master playlist
+/// - `GET /hls/*.m3u8` — HLS media playlist
+/// - `GET /hls/segment_N.ts` — TS segment bytes
+pub async fn setup_hls_server() -> MockServer {
+    let server = MockServer::start().await;
+
+    let master_content = fixtures::load_hls_fixture("master.m3u8", &server.uri());
+    Mock::given(method("GET"))
+        .and(path("/hls/master.m3u8"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(master_content)
+                .insert_header("Content-Type", "application/vnd.apple.mpegurl"),
+        )
+        .mount(&server)
+        .await;
+
+    let media_content = fixtures::load_hls_fixture("media.m3u8", &server.uri());
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/hls/.*\.m3u8$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(media_content)
+                .insert_header("Content-Type", "application/vnd.apple.mpegurl"),
+        )
+        .mount(&server)
+        .await;
+
+    let segment_bytes = fixtures::load_media_bytes("small.ts");
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/hls/segment_\d+\.ts$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(segment_bytes)
+                .insert_header("Content-Type", "video/mp2t"),
+        )
+        .mount(&server)
+        .await;
+
+    server
+}
+
 /// Sets up a mock HTTP server that serves media files, HLS playlists, and thumbnails.
 pub async fn setup_media_server() -> MockServer {
     let server = MockServer::start().await;

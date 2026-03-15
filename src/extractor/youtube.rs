@@ -98,14 +98,12 @@ pub struct Youtube {
 }
 
 impl super::ExtractorConfig for Youtube {
-    fn with_arg(&mut self, arg: String) -> &mut Self {
-        self.args.push(arg);
-        self
+    fn args_mut(&mut self) -> &mut Vec<String> {
+        &mut self.args
     }
 
-    fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        self.timeout = timeout;
-        self
+    fn timeout_mut(&mut self) -> &mut Duration {
+        &mut self.timeout
     }
 }
 

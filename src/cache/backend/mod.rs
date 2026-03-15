@@ -25,6 +25,39 @@ pub mod redb;
 #[cfg(feature = "cache-redis")]
 pub mod redis;
 
+/// Compute a stable FNV-1a 64-bit hex hash of a URL.
+///
+/// Uses a manual implementation for cross-version stability
+/// (unlike `DefaultHasher`, which can change between Rust releases).
+pub(crate) fn url_hash(url: &str) -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x00000100000001B3;
+    let mut hash = FNV_OFFSET;
+    for byte in url.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{:016x}", hash)
+}
+
+/// Delegates a method call to the active backend variant.
+///
+/// Expands to a `match self` block that forwards the call to whichever
+/// concrete backend is selected at runtime, respecting feature gates.
+#[cfg(persistent_cache)]
+macro_rules! delegate_to_backend {
+    ($self:ident . $method:ident ( $($arg:expr),* )) => {
+        match $self {
+            #[cfg(feature = "cache-json")]
+            Self::Json(b) => b.$method($($arg),*).await,
+            #[cfg(feature = "cache-redb")]
+            Self::Redb(b) => b.$method($($arg),*).await,
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(b) => b.$method($($arg),*).await,
+        }
+    };
+}
+
 #[cfg(feature = "cache-json")]
 use json::{JsonFileCache, JsonPlaylistCache, JsonVideoCache};
 #[cfg(feature = "cache-redb")]
@@ -389,58 +422,23 @@ impl PersistentVideoBackend {
 #[cfg(persistent_cache)]
 impl VideoBackend for PersistentVideoBackend {
     async fn get(&self, url: &str) -> Result<Option<Video>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get(url).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get(url).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get(url).await,
-        }
+        delegate_to_backend!(self.get(url))
     }
 
     async fn put(&self, url: String, video: Video) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.put(url, video).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.put(url, video).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.put(url, video).await,
-        }
+        delegate_to_backend!(self.put(url, video))
     }
 
     async fn remove(&self, url: &str) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.remove(url).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.remove(url).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.remove(url).await,
-        }
+        delegate_to_backend!(self.remove(url))
     }
 
     async fn clean(&self) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.clean().await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.clean().await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.clean().await,
-        }
+        delegate_to_backend!(self.clean())
     }
 
     async fn get_by_id(&self, id: &str) -> Result<CachedVideo> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_by_id(id).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_by_id(id).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_by_id(id).await,
-        }
+        delegate_to_backend!(self.get_by_id(id))
     }
 }
 
@@ -477,69 +475,27 @@ impl PersistentPlaylistBackend {
 #[cfg(persistent_cache)]
 impl PlaylistBackend for PersistentPlaylistBackend {
     async fn get(&self, url: &str) -> Result<Option<Playlist>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get(url).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get(url).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get(url).await,
-        }
+        delegate_to_backend!(self.get(url))
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_by_id(id).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_by_id(id).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_by_id(id).await,
-        }
+        delegate_to_backend!(self.get_by_id(id))
     }
 
     async fn put(&self, url: String, playlist: Playlist) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.put(url, playlist).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.put(url, playlist).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.put(url, playlist).await,
-        }
+        delegate_to_backend!(self.put(url, playlist))
     }
 
     async fn invalidate(&self, url: &str) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.invalidate(url).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.invalidate(url).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.invalidate(url).await,
-        }
+        delegate_to_backend!(self.invalidate(url))
     }
 
     async fn clean(&self) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.clean().await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.clean().await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.clean().await,
-        }
+        delegate_to_backend!(self.clean())
     }
 
     async fn clear_all(&self) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.clear_all().await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.clear_all().await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.clear_all().await,
-        }
+        delegate_to_backend!(self.clear_all())
     }
 }
 
@@ -578,25 +534,11 @@ impl PersistentFileBackend {
 #[cfg(persistent_cache)]
 impl FileBackend for PersistentFileBackend {
     async fn get_by_hash(&self, hash: &str) -> Result<Option<(CachedFile, PathBuf)>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_by_hash(hash).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_by_hash(hash).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_by_hash(hash).await,
-        }
+        delegate_to_backend!(self.get_by_hash(hash))
     }
 
     async fn get_by_video_and_format(&self, video_id: &str, format_id: &str) -> Result<Option<(CachedFile, PathBuf)>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_by_video_and_format(video_id, format_id).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_by_video_and_format(video_id, format_id).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_by_video_and_format(video_id, format_id).await,
-        }
+        delegate_to_backend!(self.get_by_video_and_format(video_id, format_id))
     }
 
     async fn get_by_video_and_preferences(
@@ -604,79 +546,30 @@ impl FileBackend for PersistentFileBackend {
         video_id: &str,
         preferences: &FormatPreferences,
     ) -> Result<Option<(CachedFile, PathBuf)>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_by_video_and_preferences(video_id, preferences).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_by_video_and_preferences(video_id, preferences).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_by_video_and_preferences(video_id, preferences).await,
-        }
+        delegate_to_backend!(self.get_by_video_and_preferences(video_id, preferences))
     }
 
     async fn put(&self, file: CachedFile, source_path: &std::path::Path) -> Result<PathBuf> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.put(file, source_path).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.put(file, source_path).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.put(file, source_path).await,
-        }
+        delegate_to_backend!(self.put(file, source_path))
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.remove(id).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.remove(id).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.remove(id).await,
-        }
+        delegate_to_backend!(self.remove(id))
     }
 
     async fn clean(&self) -> Result<()> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.clean().await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.clean().await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.clean().await,
-        }
+        delegate_to_backend!(self.clean())
     }
 
     async fn get_thumbnail_by_video_id(&self, video_id: &str) -> Result<Option<(CachedThumbnail, PathBuf)>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_thumbnail_by_video_id(video_id).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_thumbnail_by_video_id(video_id).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_thumbnail_by_video_id(video_id).await,
-        }
+        delegate_to_backend!(self.get_thumbnail_by_video_id(video_id))
     }
 
     async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &std::path::Path) -> Result<PathBuf> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.put_thumbnail(thumbnail, source_path).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.put_thumbnail(thumbnail, source_path).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.put_thumbnail(thumbnail, source_path).await,
-        }
+        delegate_to_backend!(self.put_thumbnail(thumbnail, source_path))
     }
 
     async fn get_subtitle_by_language(&self, video_id: &str, language: &str) -> Result<Option<(CachedFile, PathBuf)>> {
-        match self {
-            #[cfg(feature = "cache-json")]
-            Self::Json(b) => b.get_subtitle_by_language(video_id, language).await,
-            #[cfg(feature = "cache-redb")]
-            Self::Redb(b) => b.get_subtitle_by_language(video_id, language).await,
-            #[cfg(feature = "cache-redis")]
-            Self::Redis(b) => b.get_subtitle_by_language(video_id, language).await,
-        }
+        delegate_to_backend!(self.get_subtitle_by_language(video_id, language))
     }
 }

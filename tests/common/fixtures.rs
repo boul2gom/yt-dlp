@@ -40,10 +40,17 @@ pub fn load_video_fixture() -> Video {
     serde_json::from_str(&json).expect("Failed to deserialize video fixture")
 }
 
+/// Loads any JSON fixture, replaces `{{MOCK_SERVER}}` with `base_url`, and deserialises it.
+///
+/// Use this instead of duplicating the `load_json_string + replace + from_str` pattern.
+pub fn load_fixture_with_url<T: serde::de::DeserializeOwned>(name: &str, base_url: &str) -> T {
+    let json = load_json_string(name).replace("{{MOCK_SERVER}}", base_url);
+    serde_json::from_str(&json).unwrap_or_else(|e| panic!("Failed to deserialize fixture {name}: {e}"))
+}
+
 /// Loads a Video from the video.json fixture with mock server URLs replaced.
 pub fn load_video_with_mock_urls(mock_server_url: &str) -> Video {
-    let json = load_json_string("video.json").replace("{{MOCK_SERVER}}", mock_server_url);
-    serde_json::from_str(&json).expect("Failed to deserialize video fixture with mock URLs")
+    load_fixture_with_url("video.json", mock_server_url)
 }
 
 /// Loads a Video from the live_video.json fixture.

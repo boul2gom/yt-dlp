@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{FileBackend, PlaylistBackend, VideoBackend};
+use super::{FileBackend, PlaylistBackend, VideoBackend, url_hash};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -12,23 +12,6 @@ use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
 use crate::utils::is_expired;
-
-/// Compute a stable hex hash of a URL to use as an index filename.
-/// Uses FNV-1a (via manual implementation) for cross-version stability,
-/// unlike `DefaultHasher` which can change between Rust releases.
-fn url_hash(url: &str) -> String {
-    /// FNV-1a 64-bit offset basis.
-    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-    /// FNV-1a 64-bit prime.
-    const FNV_PRIME: u64 = 0x00000100000001B3;
-
-    let mut hash = FNV_OFFSET;
-    for byte in url.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
-}
 
 /// JSON-backed video cache implementation.
 ///

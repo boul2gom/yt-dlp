@@ -7,10 +7,7 @@ use yt_dlp::cache::backend::redb::RedbVideoCache;
 
 #[tokio::test]
 async fn video_put_and_get() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::redb::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=redb_test";
@@ -27,10 +24,7 @@ async fn video_put_and_get() {
 
 #[tokio::test]
 async fn video_get_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::redb::video().await;
 
     let result = cache.get("https://nonexistent.com/video").await.expect("get failed");
     assert!(result.is_none());
@@ -69,10 +63,7 @@ async fn persists_across_reopen() {
 
 #[tokio::test]
 async fn video_remove() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::redb::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=redb_remove";
@@ -123,10 +114,7 @@ async fn concurrent_reads() {
 
 #[tokio::test]
 async fn clean_does_not_error() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = RedbVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::redb::video().await;
 
     cache.clean().await.expect("clean failed");
 }

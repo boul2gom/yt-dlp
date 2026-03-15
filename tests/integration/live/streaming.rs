@@ -3,51 +3,9 @@ use std::time::Duration;
 
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
-use wiremock::matchers::{method, path, path_regex};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 use yt_dlp::live::{LiveFragmentStreamer, LiveStreamConfig};
 
-use crate::common;
-
-/// Sets up a wiremock server serving HLS master + media playlists and segments.
-async fn setup_hls_server() -> MockServer {
-    let server = MockServer::start().await;
-
-    let master_content = common::fixtures::load_hls_fixture("master.m3u8", &server.uri());
-    Mock::given(method("GET"))
-        .and(path("/hls/master.m3u8"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(master_content)
-                .insert_header("Content-Type", "application/vnd.apple.mpegurl"),
-        )
-        .mount(&server)
-        .await;
-
-    let media_content = common::fixtures::load_hls_fixture("media.m3u8", &server.uri());
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/hls/.*\.m3u8$"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(media_content)
-                .insert_header("Content-Type", "application/vnd.apple.mpegurl"),
-        )
-        .mount(&server)
-        .await;
-
-    let segment_bytes = common::fixtures::load_media_bytes("small.ts");
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/hls/segment_\d+\.ts$"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_bytes(segment_bytes)
-                .insert_header("Content-Type", "video/mp2t"),
-        )
-        .mount(&server)
-        .await;
-
-    server
-}
+use crate::common::server::setup_hls_server;
 
 #[tokio::test]
 async fn stream_live_fragments_yields_segments() {

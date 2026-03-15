@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 pub mod assertions;
 #[allow(dead_code)]
+pub mod cache;
+#[allow(dead_code)]
 pub mod downloader;
 #[allow(dead_code)]
 pub mod fixtures;

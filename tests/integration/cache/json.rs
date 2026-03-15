@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use yt_dlp::cache::backend::json::{JsonFileCache, JsonPlaylistCache, JsonVideoCache};
+use yt_dlp::cache::backend::json::{JsonPlaylistCache, JsonVideoCache};
 use yt_dlp::cache::backend::{FileBackend, PlaylistBackend, VideoBackend};
 use yt_dlp::cache::video::CachedType;
 use yt_dlp::cache::{CachedFile, CachedThumbnail};
@@ -12,10 +12,7 @@ use yt_dlp::utils::current_timestamp;
 
 #[tokio::test]
 async fn video_put_and_get() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=json_test";
@@ -32,10 +29,7 @@ async fn video_put_and_get() {
 
 #[tokio::test]
 async fn video_get_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let result = cache.get("https://nonexistent.com/video").await.expect("get failed");
     assert!(result.is_none());
@@ -74,10 +68,7 @@ async fn persists_across_reopen() {
 
 #[tokio::test]
 async fn files_created_on_disk() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     cache
@@ -99,10 +90,7 @@ async fn files_created_on_disk() {
 
 #[tokio::test]
 async fn video_remove() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=remove_json";
@@ -120,10 +108,7 @@ async fn video_remove() {
 
 #[tokio::test]
 async fn clean_does_not_error() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     cache.clean().await.expect("clean failed");
 }
@@ -157,10 +142,7 @@ async fn video_ttl_expires_entry() {
 
 #[tokio::test]
 async fn multiple_distinct_keys_independent() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let mut video_a = crate::common::fixtures::load_video_fixture();
     video_a.id = "multi_id_a".to_string();
@@ -189,10 +171,7 @@ async fn multiple_distinct_keys_independent() {
 
 #[tokio::test]
 async fn video_get_by_id_returns_cached_video() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=getbyid_test";
@@ -206,10 +185,7 @@ async fn video_get_by_id_returns_cached_video() {
 
 #[tokio::test]
 async fn video_get_by_id_miss_returns_error() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonVideoCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::video().await;
 
     let result = cache.get_by_id("nonexistent_id").await;
     assert!(result.is_err(), "get_by_id on unknown id should return error");
@@ -239,10 +215,7 @@ async fn video_get_by_id_expired_returns_error() {
 
 #[tokio::test]
 async fn playlist_put_and_get() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let playlist = crate::common::fixtures::load_playlist_fixture();
     let url = "https://youtube.com/playlist?list=json_pl_test";
@@ -256,10 +229,7 @@ async fn playlist_put_and_get() {
 
 #[tokio::test]
 async fn playlist_get_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let result = cache.get("https://nonexistent.com/playlist").await.expect("get failed");
     assert!(result.is_none());
@@ -267,10 +237,7 @@ async fn playlist_get_miss_returns_none() {
 
 #[tokio::test]
 async fn playlist_invalidate_removes_entry() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let playlist = crate::common::fixtures::load_playlist_fixture();
     let url = "https://youtube.com/playlist?list=invalidate_test";
@@ -284,10 +251,7 @@ async fn playlist_invalidate_removes_entry() {
 
 #[tokio::test]
 async fn playlist_get_by_id_returns_playlist() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let playlist = crate::common::fixtures::load_playlist_fixture();
     let url = "https://youtube.com/playlist?list=getbyid_pl";
@@ -301,10 +265,7 @@ async fn playlist_get_by_id_returns_playlist() {
 
 #[tokio::test]
 async fn playlist_get_by_id_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let result = cache.get_by_id("nonexistent_pl_id").await.expect("get_by_id failed");
     assert!(result.is_none());
@@ -312,10 +273,7 @@ async fn playlist_get_by_id_miss_returns_none() {
 
 #[tokio::test]
 async fn playlist_clean_does_not_error() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     cache.clean().await.expect("clean failed");
 }
@@ -341,10 +299,7 @@ async fn playlist_ttl_expires_entry() {
 
 #[tokio::test]
 async fn playlist_clear_all_removes_all_entries() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonPlaylistCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::playlist().await;
 
     let mut pl_a = crate::common::fixtures::load_playlist_fixture();
     pl_a.id = "pl_clear_a".to_string();
@@ -424,10 +379,7 @@ fn make_cached_thumbnail(id: &str, video_id: &str) -> CachedThumbnail {
 
 #[tokio::test]
 async fn file_put_and_get_by_hash() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = make_test_source(dir.path(), "source_file.mp4");
     let file = make_cached_file("fmt_hash_test", "vid_hash_test");
@@ -445,10 +397,7 @@ async fn file_put_and_get_by_hash() {
 
 #[tokio::test]
 async fn file_get_by_hash_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::file().await;
 
     let result = cache.get_by_hash("nonexistent_hash").await.expect("get_by_hash failed");
     assert!(result.is_none());
@@ -456,10 +405,7 @@ async fn file_get_by_hash_miss_returns_none() {
 
 #[tokio::test]
 async fn file_put_and_get_by_video_and_format() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = make_test_source(dir.path(), "src_vf.mp4");
     let file = make_cached_file("fmt_vf", "vid_vf");
@@ -476,10 +422,7 @@ async fn file_put_and_get_by_video_and_format() {
 
 #[tokio::test]
 async fn file_get_by_video_and_format_miss() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = make_test_source(dir.path(), "src_miss.mp4");
     let file = make_cached_file("fmt_miss", "vid_miss");
@@ -495,10 +438,7 @@ async fn file_get_by_video_and_format_miss() {
 
 #[tokio::test]
 async fn file_remove_cleans_metadata_and_content() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = make_test_source(dir.path(), "src_remove.mp4");
     let file = make_cached_file("fmt_remove", "vid_remove");
@@ -513,10 +453,7 @@ async fn file_remove_cleans_metadata_and_content() {
 
 #[tokio::test]
 async fn file_clean_does_not_error() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = make_test_source(dir.path(), "src_clean.mp4");
     let file = make_cached_file("fmt_clean", "vid_clean");
@@ -531,10 +468,7 @@ async fn file_clean_does_not_error() {
 
 #[tokio::test]
 async fn thumbnail_put_and_get_by_video_id() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     // Minimal JPEG bytes
     let src = dir.path().join("thumb.jpg");
@@ -557,10 +491,7 @@ async fn thumbnail_put_and_get_by_video_id() {
 
 #[tokio::test]
 async fn thumbnail_get_miss_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (_dir, cache) = crate::common::cache::json::file().await;
 
     let result = cache
         .get_thumbnail_by_video_id("nonexistent_vid")
@@ -575,10 +506,7 @@ async fn thumbnail_get_miss_returns_none() {
 
 #[tokio::test]
 async fn subtitle_put_and_get_by_language() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = dir.path().join("sub_en.srt");
     std::fs::write(&src, b"1\n00:00:01,000 --> 00:00:04,000\nHello\n").expect("write subtitle");
@@ -613,10 +541,7 @@ async fn subtitle_put_and_get_by_language() {
 
 #[tokio::test]
 async fn subtitle_get_wrong_language_returns_none() {
-    let dir = tempfile::tempdir().expect("tempdir failed");
-    let cache = JsonFileCache::new(dir.path().to_path_buf(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let (dir, cache) = crate::common::cache::json::file().await;
 
     let src = dir.path().join("sub_fr.srt");
     std::fs::write(&src, b"1\n00:00:01,000 --> 00:00:04,000\nBonjour\n").expect("write subtitle");

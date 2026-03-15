@@ -1,5 +1,5 @@
 use yt_dlp::cache::backend::VideoBackend;
-use yt_dlp::cache::backend::memory::{MokaPlaylistCache, MokaVideoCache};
+use yt_dlp::cache::backend::memory::MokaVideoCache;
 
 // ---------------------------------------------------------------------------
 // VideoBackend CRUD
@@ -7,9 +7,7 @@ use yt_dlp::cache::backend::memory::{MokaPlaylistCache, MokaVideoCache};
 
 #[tokio::test]
 async fn video_put_and_get() {
-    let cache = MokaVideoCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=test_video_123";
@@ -26,9 +24,7 @@ async fn video_put_and_get() {
 
 #[tokio::test]
 async fn video_get_miss_returns_none() {
-    let cache = MokaVideoCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::video().await;
 
     let result = cache.get("https://nonexistent.com/video").await.expect("get failed");
     assert!(result.is_none());
@@ -36,9 +32,7 @@ async fn video_get_miss_returns_none() {
 
 #[tokio::test]
 async fn video_remove() {
-    let cache = MokaVideoCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::video().await;
 
     let video = crate::common::fixtures::load_video_fixture();
     let url = "https://youtube.com/watch?v=removable";
@@ -58,9 +52,7 @@ async fn video_remove() {
 async fn playlist_put_and_get() {
     use yt_dlp::cache::backend::PlaylistBackend;
 
-    let cache = MokaPlaylistCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::playlist().await;
 
     let playlist = crate::common::fixtures::load_playlist_fixture();
     let url = "https://youtube.com/playlist?list=test";
@@ -78,9 +70,7 @@ async fn playlist_put_and_get() {
 async fn playlist_get_miss_returns_none() {
     use yt_dlp::cache::backend::PlaylistBackend;
 
-    let cache = MokaPlaylistCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::playlist().await;
 
     let result = cache.get("https://nonexistent.com/playlist").await.expect("get failed");
     assert!(result.is_none());
@@ -90,9 +80,7 @@ async fn playlist_get_miss_returns_none() {
 async fn playlist_invalidate() {
     use yt_dlp::cache::backend::PlaylistBackend;
 
-    let cache = MokaPlaylistCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::playlist().await;
 
     let playlist = crate::common::fixtures::load_playlist_fixture();
     let url = "https://youtube.com/playlist?list=inv";
@@ -133,9 +121,7 @@ async fn video_ttl_expires_entries() {
 
 #[tokio::test]
 async fn clean_does_not_error() {
-    let cache = MokaVideoCache::new("/tmp/test-cache".into(), Some(3600))
-        .await
-        .expect("cache creation failed");
+    let cache = crate::common::cache::memory::video().await;
 
     cache.clean().await.expect("clean failed");
 }

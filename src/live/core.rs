@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use super::hls;
 use crate::error::{Error, Result};
-use crate::events::EventBus;
+use crate::events::{DownloadEvent, EventBus};
 
 /// Progress throttle interval (50 ms) to avoid flooding the event bus.
 pub(super) const PROGRESS_THROTTLE_NANOS: u64 = 50_000_000;
@@ -202,4 +203,33 @@ pub(super) struct RecordingStats {
     pub(super) segments_downloaded: u64,
     #[allow(dead_code)]
     pub(super) stop_reason: String,
+}
+
+/// Emits a live progress event if the throttle interval has elapsed.
+///
+/// Computes elapsed time, byte count, and bitrate, then calls `make_event` to
+/// construct the concrete `DownloadEvent` variant (streaming vs recording).
+/// The caller supplies a closure so each module can emit its own event type
+/// without duplicating the throttle / bitrate logic.
+pub(super) fn emit_live_progress(
+    core: &LiveCore,
+    start: Instant,
+    bytes_written: &AtomicU64,
+    segments_downloaded: u64,
+    last_progress_nanos: &mut u64,
+    make_event: impl FnOnce(Duration, u64, u64, f64) -> DownloadEvent,
+) {
+    let now_nanos = start.elapsed().as_nanos() as u64;
+    if now_nanos - *last_progress_nanos >= PROGRESS_THROTTLE_NANOS {
+        *last_progress_nanos = now_nanos;
+        let total_bytes = bytes_written.load(Ordering::Relaxed);
+        let elapsed = start.elapsed();
+        let bitrate_bps = if elapsed.as_secs_f64() > ZERO_F64 {
+            (total_bytes as f64 * BITS_PER_BYTE) / elapsed.as_secs_f64()
+        } else {
+            ZERO_F64
+        };
+        core.event_bus
+            .emit_if_subscribed(make_event(elapsed, total_bytes, segments_downloaded, bitrate_bps));
+    }
 }

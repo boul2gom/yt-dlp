@@ -38,9 +38,6 @@ Thank you for your interest in contributing! This guide will help you understand
 
 Every PR must pass these commands:
 ```bash
-# Lint each feature in isolation (workspace-wide, covers both yt-dlp and media-seek)
-cargo hack clippy --workspace --each-feature --exclude-all-features -- -D warnings
-
 # Lint all features combined (all backends in a single pass)
 cargo clippy --workspace --all-features -- -D warnings
 

@@ -9,8 +9,8 @@ use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::core::{
-    BITS_PER_BYTE, LiveCore, LiveCoreConfig, LiveFragment, POLL_INTERVAL_DIVISOR, PROGRESS_THROTTLE_NANOS,
-    RecordingStats, SegmentErrorMode, ZERO_F64, ZERO_U64,
+    LiveCore, LiveCoreConfig, LiveFragment, POLL_INTERVAL_DIVISOR, RecordingStats, SegmentErrorMode, ZERO_U64,
+    emit_live_progress,
 };
 use super::{LiveStreamConfig, hls};
 use crate::error::Result;
@@ -197,12 +197,19 @@ where
         .await?;
         on_batch().await?;
 
-        emit_stream_progress(
+        emit_live_progress(
             &core,
             start,
             &bytes_written,
             segments_downloaded,
             &mut last_progress_nanos,
+            |elapsed, bytes_received, segments, bitrate_bps| DownloadEvent::LiveStreamProgress {
+                video_id: core.video_id.clone(),
+                elapsed,
+                bytes_received,
+                segments,
+                bitrate_bps,
+            },
         );
 
         if playlist.is_endlist {
@@ -226,34 +233,6 @@ where
         segments_downloaded,
         stop_reason,
     })
-}
-
-/// Emits a `LiveStreamProgress` event when the throttle interval has elapsed.
-fn emit_stream_progress(
-    core: &LiveCore,
-    start: Instant,
-    bytes_written: &AtomicU64,
-    segments_downloaded: u64,
-    last_progress_nanos: &mut u64,
-) {
-    let now_nanos = start.elapsed().as_nanos() as u64;
-    if now_nanos - *last_progress_nanos >= PROGRESS_THROTTLE_NANOS {
-        *last_progress_nanos = now_nanos;
-        let total_bytes = bytes_written.load(Ordering::Relaxed);
-        let elapsed = start.elapsed();
-        let bitrate_bps = if elapsed.as_secs_f64() > ZERO_F64 {
-            (total_bytes as f64 * BITS_PER_BYTE) / elapsed.as_secs_f64()
-        } else {
-            ZERO_F64
-        };
-        core.event_bus.emit_if_subscribed(DownloadEvent::LiveStreamProgress {
-            video_id: core.video_id.clone(),
-            elapsed,
-            bytes_received: total_bytes,
-            segments: segments_downloaded,
-            bitrate_bps,
-        });
-    }
 }
 
 /// Downloads and delivers a slice of HLS segments through `on_fragment`.

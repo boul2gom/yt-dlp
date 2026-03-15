@@ -33,20 +33,7 @@ pub(crate) const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
 pub(crate) const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
 pub(crate) const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
 
-/// FNV-1a 64-bit offset basis.
-const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-/// FNV-1a 64-bit prime.
-const FNV_PRIME: u64 = 0x00000100000001B3;
-
-/// Stable FNV-1a URL hash for secondary index keys.
-pub(crate) fn url_hash(url: &str) -> String {
-    let mut hash = FNV_OFFSET;
-    for byte in url.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
-}
+pub(crate) use super::url_hash;
 
 /// Clean expired entries from a redb table, removing associated files on disk.
 pub(crate) fn clean_redb_table(

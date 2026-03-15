@@ -31,28 +31,24 @@ pub fn load_e2e_video(base_url: &str) -> yt_dlp::model::Video {
 /// Loads the live video fixture with `{{MOCK_SERVER}}` replaced.
 #[allow(dead_code)]
 pub fn load_e2e_live_video(base_url: &str) -> yt_dlp::model::Video {
-    let json = fixtures::load_json_string("live_video.json").replace("{{MOCK_SERVER}}", base_url);
-    serde_json::from_str(&json).expect("Failed to deserialize live_video fixture")
+    fixtures::load_fixture_with_url("live_video.json", base_url)
 }
 
 /// Loads the short video fixture with `{{MOCK_SERVER}}` replaced.
 #[allow(dead_code)]
 pub fn load_e2e_short_video(base_url: &str) -> yt_dlp::model::Video {
-    let json = fixtures::load_json_string("short_video.json").replace("{{MOCK_SERVER}}", base_url);
-    serde_json::from_str(&json).expect("Failed to deserialize short_video fixture")
+    fixtures::load_fixture_with_url("short_video.json", base_url)
 }
 
 /// Loads the Twitch live fixture with `{{MOCK_SERVER}}` replaced.
 #[allow(dead_code)]
 pub fn load_e2e_twitch_live(base_url: &str) -> yt_dlp::model::Video {
-    let json = fixtures::load_json_string("twitch_live.json").replace("{{MOCK_SERVER}}", base_url);
-    serde_json::from_str(&json).expect("Failed to deserialize twitch_live fixture")
+    fixtures::load_fixture_with_url("twitch_live.json", base_url)
 }
 
 /// Loads the DRM video fixture with `{{MOCK_SERVER}}` replaced.
 pub fn load_e2e_drm_video(base_url: &str) -> yt_dlp::model::Video {
-    let json = fixtures::load_json_string("drm_video.json").replace("{{MOCK_SERVER}}", base_url);
-    serde_json::from_str(&json).expect("Failed to deserialize drm_video fixture")
+    fixtures::load_fixture_with_url("drm_video.json", base_url)
 }
 
 /// Loads the playlist fixture (note: entry URLs are not mock-server-relative).
@@ -63,8 +59,7 @@ pub fn load_e2e_playlist() -> yt_dlp::model::playlist::Playlist {
 /// Loads the reel fixture with `{{MOCK_SERVER}}` replaced.
 #[allow(dead_code)]
 pub fn load_e2e_reel(base_url: &str) -> yt_dlp::model::Video {
-    let json = fixtures::load_json_string("reel.json").replace("{{MOCK_SERVER}}", base_url);
-    serde_json::from_str(&json).expect("Failed to deserialize reel fixture")
+    fixtures::load_fixture_with_url("reel.json", base_url)
 }
 
 /// Mounts an additional route on `server` that responds with `status` for `GET <path>`.
