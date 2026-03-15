@@ -155,7 +155,10 @@ impl LiveRecorder {
             output_path,
             &bytes_written,
             &mut segments_downloaded,
-            &mut SequenceTracker { seen: &mut seen_sequences, window: &mut sequence_window },
+            &mut SequenceTracker {
+                seen: &mut seen_sequences,
+                window: &mut sequence_window,
+            },
         )
         .await?;
 
@@ -202,7 +205,10 @@ impl LiveRecorder {
                 output_path,
                 &bytes_written,
                 &mut segments_downloaded,
-                &mut SequenceTracker { seen: &mut seen_sequences, window: &mut sequence_window },
+                &mut SequenceTracker {
+                    seen: &mut seen_sequences,
+                    window: &mut sequence_window,
+                },
             )
             .await?;
 

@@ -1,11 +1,11 @@
 mod common {
-    #[path = "cache.rs"]      
+    #[path = "../common/cache.rs"]
     pub mod cache;
-    #[path = "fixtures.rs"]   
+    #[path = "../common/fixtures.rs"]
     pub mod fixtures;
-    #[path = "media_seek.rs"] 
+    #[path = "../common/media_seek.rs"]
     pub mod media_seek;
-    #[path = "server.rs"]     
+    #[path = "../common/server.rs"]
     pub mod server;
 }
 

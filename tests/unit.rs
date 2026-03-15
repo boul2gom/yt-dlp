@@ -1,7 +1,10 @@
 mod common {
-    #[path = "fixtures.rs"]       pub mod fixtures;
-    #[path = "media_seek.rs"]     pub mod media_seek;
-    #[path = "test_extractor.rs"] pub mod test_extractor;
+    #[path = "../common/fixtures.rs"]
+    pub mod fixtures;
+    #[path = "../common/media_seek.rs"]
+    pub mod media_seek;
+    #[path = "../common/test_extractor.rs"]
+    pub mod test_extractor;
 }
 
 #[cfg(cache)]

@@ -1,8 +1,12 @@
 mod common {
-    #[path = "assertions.rs"] pub mod assertions;
-    #[path = "downloader.rs"] pub mod downloader;
-    #[path = "fixtures.rs"]   pub mod fixtures;
-    #[path = "server.rs"]     pub mod server;
+    #[path = "../common/assertions.rs"]
+    pub mod assertions;
+    #[path = "../common/downloader.rs"]
+    pub mod downloader;
+    #[path = "../common/fixtures.rs"]
+    pub mod fixtures;
+    #[path = "../common/server.rs"]
+    pub mod server;
 }
 
 #[path = "e2e/helpers.rs"]
