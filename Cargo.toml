@@ -116,7 +116,7 @@ tar = "0.4.45"
 xz2 = "0.1.7"
 
 # Hashing
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 
 # Date and time
 chrono = "0.4.44"
