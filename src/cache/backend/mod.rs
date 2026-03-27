@@ -9,6 +9,9 @@ use std::future::Future;
 use std::path::PathBuf;
 
 #[cfg(persistent_cache)]
+use std::path::Path;
+
+#[cfg(persistent_cache)]
 use crate::cache::config::{CacheConfig, PersistentBackendKind};
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -25,10 +28,22 @@ pub mod redb;
 #[cfg(feature = "cache-redis")]
 pub mod redis;
 
+// ── Shared constants ──
+
+/// Default time-to-live for cached videos (24 hours).
+pub(crate) const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
+/// Default time-to-live for cached playlists (6 hours).
+pub(crate) const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
+/// Default time-to-live for cached files (7 days).
+pub(crate) const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
+
+// ── Shared helpers ──
+
 /// Compute a stable FNV-1a 64-bit hex hash of a URL.
 ///
 /// Uses a manual implementation for cross-version stability
 /// (unlike `DefaultHasher`, which can change between Rust releases).
+#[cfg(persistent_cache)]
 pub(crate) fn url_hash(url: &str) -> String {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x00000100000001B3;
@@ -38,6 +53,19 @@ pub(crate) fn url_hash(url: &str) -> String {
         hash = hash.wrapping_mul(FNV_PRIME);
     }
     format!("{:016x}", hash)
+}
+
+/// Copy a source file into the cache directory, creating parent directories as needed.
+///
+/// Returns the destination path (`cache_dir` joined with `relative_path`).
+#[cfg(persistent_cache)]
+pub(crate) async fn copy_to_cache(cache_dir: &Path, relative_path: &str, source_path: &Path) -> Result<PathBuf> {
+    let dest_path = cache_dir.join(relative_path);
+    if let Some(parent) = dest_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::copy(source_path, &dest_path).await?;
+    Ok(dest_path)
 }
 
 /// Delegates a method call to the active backend variant.

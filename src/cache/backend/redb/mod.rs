@@ -29,11 +29,7 @@ pub(crate) const PLAYLIST_URL_INDEX: TableDefinition<&str, &str> = TableDefiniti
 pub(crate) const FILES: TableDefinition<&str, &[u8]> = TableDefinition::new("files");
 pub(crate) const THUMBNAILS: TableDefinition<&str, &[u8]> = TableDefinition::new("thumbnails");
 
-pub(crate) const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
-pub(crate) const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
-pub(crate) const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
-
-pub(crate) use super::url_hash;
+pub(crate) use super::{DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, copy_to_cache, url_hash};
 
 /// Clean expired entries from a redb table, removing associated files on disk.
 pub(crate) fn clean_redb_table(

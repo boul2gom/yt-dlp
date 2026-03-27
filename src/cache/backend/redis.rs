@@ -7,19 +7,17 @@
 use std::path::{Path, PathBuf};
 
 use redis::AsyncCommands;
-use sha2::{Digest, Sha256};
 
-use super::{FileBackend, PlaylistBackend, VideoBackend};
+use super::{
+    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
+    VideoBackend, copy_to_cache, url_hash,
+};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
 use crate::model::Video;
 use crate::model::playlist::Playlist;
 use crate::model::selector::FormatPreferences;
-
-const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
-const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
-const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
 
 const PREFIX_VIDEO: &str = "yt-dlp:video:";
 const PREFIX_VIDEO_ID: &str = "yt-dlp:video_id:";
@@ -35,17 +33,11 @@ async fn get_redis_connection(client: &redis::Client) -> Result<redis::aio::Mult
         .map_err(|e| crate::error::Error::redis("get connection", e))
 }
 
-fn url_key(prefix: &str, url: &str) -> String {
-    let hash = Sha256::digest(url.as_bytes());
-    let hex = hash.iter().fold(String::new(), |mut acc, b| {
-        use std::fmt::Write;
-        let _ = write!(acc, "{:02x}", b);
-        acc
-    });
-    format!("{}{}", prefix, hex)
+fn prefixed_url_key(prefix: &str, url: &str) -> String {
+    format!("{}{}", prefix, url_hash(url))
 }
 
-fn id_key(prefix: &str, id: &str) -> String {
+fn prefixed_id_key(prefix: &str, id: &str) -> String {
     format!("{}{}", prefix, id)
 }
 
@@ -91,7 +83,7 @@ impl VideoBackend for RedisVideoCache {
         tracing::debug!(url = url, "🔍 Looking for video in Redis cache by URL");
 
         let mut conn = self.conn().await?;
-        let key = url_key(PREFIX_VIDEO, url);
+        let key = prefixed_url_key(PREFIX_VIDEO, url);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -113,8 +105,8 @@ impl VideoBackend for RedisVideoCache {
         let cached = CachedVideo::new(url.clone(), &video)?;
         let bytes = serde_json::to_vec(&cached)?;
 
-        let url_k = url_key(PREFIX_VIDEO, &url);
-        let id_k = id_key(PREFIX_VIDEO_ID, &cached.id);
+        let url_k = prefixed_url_key(PREFIX_VIDEO, &url);
+        let id_k = prefixed_id_key(PREFIX_VIDEO_ID, &cached.id);
 
         // Store by URL and by ID atomically with TTL via pipeline
         redis::pipe()
@@ -132,7 +124,7 @@ impl VideoBackend for RedisVideoCache {
         tracing::debug!(url = url, "⚙️ Removing video from Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = url_key(PREFIX_VIDEO, url);
+        let key = prefixed_url_key(PREFIX_VIDEO, url);
 
         // Try to get the video ID for cleanup
         let data: Option<Vec<u8>> = conn
@@ -143,7 +135,7 @@ impl VideoBackend for RedisVideoCache {
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedVideo>(&bytes)
         {
-            let id_k = id_key(PREFIX_VIDEO_ID, &cached.id);
+            let id_k = prefixed_id_key(PREFIX_VIDEO_ID, &cached.id);
             conn.del::<_, ()>(&id_k)
                 .await
                 .map_err(|e| crate::error::Error::redis("del video by id", e))?;
@@ -165,7 +157,7 @@ impl VideoBackend for RedisVideoCache {
         tracing::debug!(video_id = id, "🔍 Looking up video by ID in Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = id_key(PREFIX_VIDEO_ID, id);
+        let key = prefixed_id_key(PREFIX_VIDEO_ID, id);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -210,7 +202,7 @@ impl PlaylistBackend for RedisPlaylistCache {
         tracing::debug!(url = url, "🔍 Looking for playlist in Redis cache by URL");
 
         let mut conn = self.conn().await?;
-        let key = url_key(PREFIX_PLAYLIST, url);
+        let key = prefixed_url_key(PREFIX_PLAYLIST, url);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -229,7 +221,7 @@ impl PlaylistBackend for RedisPlaylistCache {
         tracing::debug!(playlist_id = id, "🔍 Looking up playlist by ID in Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = id_key(PREFIX_PLAYLIST_ID, id);
+        let key = prefixed_id_key(PREFIX_PLAYLIST_ID, id);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -255,8 +247,8 @@ impl PlaylistBackend for RedisPlaylistCache {
         let cached = CachedPlaylist::from((url.clone(), playlist));
         let bytes = serde_json::to_vec(&cached)?;
 
-        let url_k = url_key(PREFIX_PLAYLIST, &url);
-        let id_k = id_key(PREFIX_PLAYLIST_ID, &cached.id);
+        let url_k = prefixed_url_key(PREFIX_PLAYLIST, &url);
+        let id_k = prefixed_id_key(PREFIX_PLAYLIST_ID, &cached.id);
 
         // Store by URL and by ID atomically with TTL via pipeline
         redis::pipe()
@@ -274,7 +266,7 @@ impl PlaylistBackend for RedisPlaylistCache {
         tracing::debug!(url = url, "⚙️ Invalidating playlist in Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = url_key(PREFIX_PLAYLIST, url);
+        let key = prefixed_url_key(PREFIX_PLAYLIST, url);
 
         // Get cached to remove ID key too
         let data: Option<Vec<u8>> = conn
@@ -285,7 +277,7 @@ impl PlaylistBackend for RedisPlaylistCache {
         if let Some(bytes) = data
             && let Ok(cached) = serde_json::from_slice::<CachedPlaylist>(&bytes)
         {
-            let id_k = id_key(PREFIX_PLAYLIST_ID, &cached.id);
+            let id_k = prefixed_id_key(PREFIX_PLAYLIST_ID, &cached.id);
             conn.del::<_, ()>(&id_k)
                 .await
                 .map_err(|e| crate::error::Error::redis("del playlist by id", e))?;
@@ -397,7 +389,7 @@ impl FileBackend for RedisFileCache {
         tracing::debug!(hash = hash, "🔍 Looking for file in Redis cache by hash");
 
         let mut conn = self.conn().await?;
-        let key = id_key(PREFIX_FILE, hash);
+        let key = prefixed_id_key(PREFIX_FILE, hash);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -491,17 +483,13 @@ impl FileBackend for RedisFileCache {
             "⚙️ Caching file to Redis backend"
         );
 
-        let dest_path = self.cache_dir.join(&file.relative_path);
-        if let Some(parent) = dest_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &dest_path).await?;
+        let dest_path = copy_to_cache(&self.cache_dir, &file.relative_path, source_path).await?;
 
         let mut conn = self.conn().await?;
         let bytes = serde_json::to_vec(&file)?;
 
         // Store by hash
-        let hash_key = id_key(PREFIX_FILE, &file.id);
+        let hash_key = prefixed_id_key(PREFIX_FILE, &file.id);
         conn.set_ex::<_, _, ()>(&hash_key, &bytes, self.ttl)
             .await
             .map_err(|e| crate::error::Error::redis("set file by hash", e))?;
@@ -534,7 +522,7 @@ impl FileBackend for RedisFileCache {
         tracing::debug!(file_id = id, "⚙️ Removing file from Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = id_key(PREFIX_FILE, id);
+        let key = prefixed_id_key(PREFIX_FILE, id);
 
         // Get file metadata to remove physical file and secondary keys
         let data: Option<Vec<u8>> = conn
@@ -575,7 +563,7 @@ impl FileBackend for RedisFileCache {
         tracing::debug!(video_id = video_id, "🔍 Looking for thumbnail in Redis cache");
 
         let mut conn = self.conn().await?;
-        let key = id_key(PREFIX_THUMBNAIL, video_id);
+        let key = prefixed_id_key(PREFIX_THUMBNAIL, video_id);
 
         let data: Option<Vec<u8>> = conn
             .get(&key)
@@ -599,23 +587,19 @@ impl FileBackend for RedisFileCache {
             "⚙️ Caching thumbnail to Redis backend"
         );
 
-        let dest_path = self.cache_dir.join(&thumbnail.relative_path);
-        if let Some(parent) = dest_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &dest_path).await?;
+        let dest_path = copy_to_cache(&self.cache_dir, &thumbnail.relative_path, source_path).await?;
 
         let mut conn = self.conn().await?;
         let bytes = serde_json::to_vec(&thumbnail)?;
 
         // Store by video_id (one thumbnail per video)
-        let key = id_key(PREFIX_THUMBNAIL, &thumbnail.video_id);
+        let key = prefixed_id_key(PREFIX_THUMBNAIL, &thumbnail.video_id);
         conn.set_ex::<_, _, ()>(&key, &bytes, self.ttl)
             .await
             .map_err(|e| crate::error::Error::redis("set thumbnail", e))?;
 
         // Also store by thumbnail hash
-        let hash_key = id_key(PREFIX_THUMBNAIL, &thumbnail.id);
+        let hash_key = prefixed_id_key(PREFIX_THUMBNAIL, &thumbnail.id);
         conn.set_ex::<_, _, ()>(&hash_key, &bytes, self.ttl)
             .await
             .map_err(|e| crate::error::Error::redis("set thumbnail by hash", e))?;

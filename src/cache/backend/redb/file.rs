@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use redb::{Database, ReadableDatabase, ReadableTable};
 
-use super::{DEFAULT_FILE_TTL, FILES, THUMBNAILS, clean_redb_table};
+use super::{DEFAULT_FILE_TTL, FILES, THUMBNAILS, clean_redb_table, copy_to_cache};
 use crate::cache::backend::FileBackend;
 use crate::cache::video::{CachedFile, CachedThumbnail};
 use crate::error::Result;
@@ -182,11 +182,7 @@ impl FileBackend for RedbFileCache {
             "⚙️ Caching file to redb backend"
         );
 
-        let dest_path = self.cache_dir.join(&file.relative_path);
-        if let Some(parent) = dest_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &dest_path).await?;
+        let dest_path = copy_to_cache(&self.cache_dir, &file.relative_path, source_path).await?;
 
         let db = self.db.clone();
         let ret_path = dest_path.clone();
@@ -312,11 +308,7 @@ impl FileBackend for RedbFileCache {
             "⚙️ Caching thumbnail to redb backend"
         );
 
-        let dest_path = self.cache_dir.join(&thumbnail.relative_path);
-        if let Some(parent) = dest_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &dest_path).await?;
+        let dest_path = copy_to_cache(&self.cache_dir, &thumbnail.relative_path, source_path).await?;
 
         let db = self.db.clone();
         let ret_path = dest_path.clone();

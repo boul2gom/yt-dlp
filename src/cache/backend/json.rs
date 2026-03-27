@@ -4,11 +4,10 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{FileBackend, PlaylistBackend, VideoBackend, url_hash};
-
-const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
-const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
-const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
+use super::{
+    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
+    VideoBackend, copy_to_cache, url_hash,
+};
 
 /// An expired JSON cache entry found during a directory scan.
 struct ExpiredJsonEntry {
@@ -643,12 +642,7 @@ impl FileBackend for JsonFileCache {
             cache_dir = ?self.cache_dir,
             "⚙️ Caching file to JSON backend"
         );
-        // Write file content (copy from source)
-        let file_path = self.cache_dir.join(&file.relative_path);
-        if let Some(parent) = file_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &file_path).await?;
+        let file_path = copy_to_cache(&self.cache_dir, &file.relative_path, source_path).await?;
 
         // Write metadata
         let meta_path = self.cache_dir.join("files_meta").join(format!("{}.json", file.id));
@@ -724,11 +718,7 @@ impl FileBackend for JsonFileCache {
     }
 
     async fn put_thumbnail(&self, thumbnail: CachedThumbnail, source_path: &Path) -> Result<PathBuf> {
-        let file_path = self.cache_dir.join(&thumbnail.relative_path);
-        if let Some(parent) = file_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::copy(source_path, &file_path).await?;
+        let file_path = copy_to_cache(&self.cache_dir, &thumbnail.relative_path, source_path).await?;
 
         // Store metadata
         let meta_path = self

@@ -9,7 +9,10 @@ use std::time::Duration;
 
 use moka::future::Cache;
 
-use super::{FileBackend, PlaylistBackend, VideoBackend};
+use super::{
+    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
+    VideoBackend,
+};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;
@@ -21,10 +24,6 @@ const VIDEO_CAPACITY: u64 = 512;
 const FILE_CAPACITY: u64 = 64;
 const THUMBNAIL_CAPACITY: u64 = 256;
 const PLAYLIST_CAPACITY: u64 = 128;
-
-const DEFAULT_VIDEO_TTL: u64 = 24 * 60 * 60;
-const DEFAULT_PLAYLIST_TTL: u64 = 6 * 60 * 60;
-const DEFAULT_FILE_TTL: u64 = 7 * 24 * 60 * 60;
 
 /// In-memory Moka video cache.
 #[derive(Debug, Clone)]
