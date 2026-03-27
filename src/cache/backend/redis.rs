@@ -37,7 +37,12 @@ async fn get_redis_connection(client: &redis::Client) -> Result<redis::aio::Mult
 
 fn url_key(prefix: &str, url: &str) -> String {
     let hash = Sha256::digest(url.as_bytes());
-    format!("{}{:x}", prefix, hash)
+    let hex = hash.iter().fold(String::new(), |mut acc, b| {
+        use std::fmt::Write;
+        let _ = write!(acc, "{:02x}", b);
+        acc
+    });
+    format!("{}{}", prefix, hex)
 }
 
 fn id_key(prefix: &str, id: &str) -> String {

@@ -373,7 +373,11 @@ impl WantedRelease {
                 }
 
                 let result = hasher.finalize();
-                Ok::<_, crate::error::Error>(format!("{:x}", result))
+                Ok::<_, crate::error::Error>(result.iter().fold(String::new(), |mut acc, b| {
+                    use std::fmt::Write;
+                    let _ = write!(acc, "{:02x}", b);
+                    acc
+                }))
             })
             .await
             .map_err(|e| crate::error::Error::runtime("checksum computation", e))??;
