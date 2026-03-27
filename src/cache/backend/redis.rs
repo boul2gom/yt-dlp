@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use redis::AsyncCommands;
 
 use super::{
-    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
-    VideoBackend, copy_to_cache, url_hash,
+    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend, VideoBackend,
+    copy_to_cache, url_hash,
 };
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};

@@ -6,10 +6,9 @@
 //! as the L1 layer; the persistent enum is the L2 layer.
 
 use std::future::Future;
-use std::path::PathBuf;
-
 #[cfg(persistent_cache)]
 use std::path::Path;
+use std::path::PathBuf;
 
 #[cfg(persistent_cache)]
 use crate::cache::config::{CacheConfig, PersistentBackendKind};

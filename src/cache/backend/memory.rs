@@ -9,10 +9,7 @@ use std::time::Duration;
 
 use moka::future::Cache;
 
-use super::{
-    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
-    VideoBackend,
-};
+use super::{DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend, VideoBackend};
 use crate::cache::playlist::CachedPlaylist;
 use crate::cache::video::{CachedFile, CachedThumbnail, CachedVideo};
 use crate::error::Result;

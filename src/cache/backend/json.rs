@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend,
-    VideoBackend, copy_to_cache, url_hash,
+    DEFAULT_FILE_TTL, DEFAULT_PLAYLIST_TTL, DEFAULT_VIDEO_TTL, FileBackend, PlaylistBackend, VideoBackend,
+    copy_to_cache, url_hash,
 };
 
 /// An expired JSON cache entry found during a directory scan.
