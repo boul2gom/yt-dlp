@@ -91,6 +91,9 @@ pub struct Video {
     /// The available formats of the video.
     #[serde(default)]
     pub formats: Vec<Format>,
+    /// The requested (defaults to the best) formats of the video.
+    #[serde(default)]
+    pub requested_formats: Vec<Format>,
     /// The thumbnails of the video.
     #[serde(default)]
     pub thumbnails: Vec<Thumbnail>,
