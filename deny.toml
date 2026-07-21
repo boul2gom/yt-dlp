@@ -31,7 +31,7 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CDLA-Permissive-2.0",
-    "OpenSSL",
+
     "Unicode-3.0",
     # Weak copyleft
     "LGPL-2.1-or-later",
@@ -72,3 +72,8 @@ allow-git = []
 github = []
 gitlab = []
 bitbucket = []
+
+[advisories]
+ignore = [
+    "RUSTSEC-2024-0436", # paste is unmaintained but lofty depends on it
+]
