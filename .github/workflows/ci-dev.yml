@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 📝 Check spelling
-        uses: crate-ci/typos@cf5f1c29a8ac336af8568821ec41919923b05a83 # v1.45.1
+        uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
 
   check-format:
     name: 💄 Check formatting
@@ -214,7 +214,7 @@ jobs:
           cache-targets: false
 
       - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
           key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -267,7 +267,7 @@ jobs:
           cache-targets: false
 
       - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
           key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -312,7 +312,7 @@ jobs:
           cache-targets: false
 
       - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
           key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
