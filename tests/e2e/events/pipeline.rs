@@ -102,9 +102,10 @@ async fn event_sequence_order() {
 
     // Completed should be last (if present)
     if let Some(last) = our_events.last()
-        && *last == "Completed" {
-            // Valid — the standard successful path
-        }
+        && *last == "Completed"
+    {
+        // Valid — the standard successful path
+    }
 }
 
 /// Multiple subscribers receive the same events.
