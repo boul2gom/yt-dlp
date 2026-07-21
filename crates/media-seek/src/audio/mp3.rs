@@ -475,13 +475,7 @@ fn samples_per_frame(mpeg_version: u8, layer: u8) -> u64 {
     match layer {
         LAYER_I => SAMPLES_PER_FRAME_LAYER_I,
         LAYER_II => SAMPLES_PER_FRAME_LAYER_II,
-        LAYER_III => {
-            if mpeg_version == 3 {
-                1152
-            } else {
-                576
-            }
-        }
+        LAYER_III if mpeg_version == 3 => 1152,
         _ => 576,
     }
 }

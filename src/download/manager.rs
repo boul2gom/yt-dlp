@@ -494,13 +494,12 @@ impl DownloadManager {
                 Ok(_) => continue, // Event for a different download
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     // Channel lagged, check current status
-                    if let Some(status) = self.get_status(id).await {
+                    {
+                        let status = self.get_status(id).await?;
                         if is_terminal_status(&status) {
                             return Some(status);
                         }
                         continue;
-                    } else {
-                        return None;
                     }
                 }
                 Err(_) => return None, // Channel closed
@@ -740,7 +739,7 @@ impl Drop for DownloadManager {
 
         // Abort all in-flight download tasks to prevent resource leaks
         if let Ok(tasks) = self.tasks.try_lock() {
-            for (_, handle) in tasks.iter() {
+            for handle in tasks.values() {
                 handle.abort();
             }
         }

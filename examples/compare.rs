@@ -754,7 +754,7 @@ async fn main() {
         .expect("failed to write info.json");
 
     meta_spinner.finish_and_clear();
-    println!("  {} Metadata fetched: \"{}\"", style("✅").green(), &video.title);
+    println!("  {} Metadata fetched: \"{}\"", style("✅").green(), video.title);
 
     print_header(&args.url, args.runs, &video.title);
 

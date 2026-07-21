@@ -101,11 +101,10 @@ async fn event_sequence_order() {
     assert_eq!(our_events[0], "Queued", "First event should be Queued");
 
     // Completed should be last (if present)
-    if let Some(last) = our_events.last() {
-        if *last == "Completed" {
+    if let Some(last) = our_events.last()
+        && *last == "Completed" {
             // Valid — the standard successful path
         }
-    }
 }
 
 /// Multiple subscribers receive the same events.

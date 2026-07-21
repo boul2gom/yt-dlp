@@ -72,11 +72,8 @@ pub async fn collect_events(
     timeout: std::time::Duration,
 ) -> Vec<Arc<yt_dlp::events::DownloadEvent>> {
     let mut events = Vec::new();
-    loop {
-        match tokio::time::timeout(timeout, rx.recv()).await {
-            Ok(Ok(event)) => events.push(event),
-            _ => break,
-        }
+    while let Ok(Ok(event)) = tokio::time::timeout(timeout, rx.recv()).await {
+        events.push(event);
     }
     events
 }
