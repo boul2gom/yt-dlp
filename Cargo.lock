@@ -3897,8 +3897,3 @@ dependencies = [
  "log",
  "simd-adler32",
 ]
-
-[[patch.unused]]
-name = "lofty"
-version = "0.23.3"
-source = "git+https://github.com/boul2gom/lofty-rs#d2e41640481a48a95303d95939ba831767afcec8"
