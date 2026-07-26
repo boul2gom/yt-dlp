@@ -217,7 +217,7 @@ jobs:
       - name: 📝 Generate release notes
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: generate_release_notes
-        uses: boul2gom/actions/release-notes@0aedeaa11b966fd08ab4d756c33ef76a1638ddac # v1.0.2
+        uses: boul2gom/actions/release-notes@25055c88e2479ad6cc9b9b284976c976df273923 # v1.0.4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ steps.get_version.outputs.version }}
