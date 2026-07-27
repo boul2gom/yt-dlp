@@ -257,7 +257,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 🤖 Update version dropdown
-        uses: boul2gom/actions/versions-dropdown@25055c88e2479ad6cc9b9b284976c976df273923 # v1.0.4
+        uses: boul2gom/actions/versions-dropdown@08b9183c6a385812274e0eb0ff39466587865456 # v1.0.5
         with:
           token: ${{ steps.app-token.outputs.token }}
           gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
