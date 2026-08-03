@@ -1494,9 +1494,9 @@ dependencies = [
 
 [[package]]
 name = "m3u8-rs"
-version = "6.0.0"
+version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f03cd3335fb5f2447755d45cda9c70f76013626a9db44374973791b0926a86c3"
+checksum = "c94fe25bd0d08c68fd0fac4f9537f747246579cd270658fa9fee3d10af382716"
 dependencies = [
  "chrono",
  "nom",
