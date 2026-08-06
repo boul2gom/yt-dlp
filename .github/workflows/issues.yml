@@ -39,7 +39,7 @@ jobs:
 
       - name: 🏷️ Label issues and PRs
         id: labeler
-        uses: boul2gom/actions/label-pr-issue@08b9183c6a385812274e0eb0ff39466587865456 # v1.0.5
+        uses: boul2gom/actions/label-pr-issue@9e1b28ccd1ec6ee4ef44b2603b90b04b4133f9bc # v1.0.6
         with:
           token: ${{ steps.app-token.outputs.token }}
           path_mappings: |
