@@ -62,9 +62,9 @@ body:
       label: 📦 Crate version
       description: Which version of the `yt-dlp` crate are you using?
       options:
-        - 2.8.2 (latest)
+        - 2.8.3 (latest)
+        - 2.8.2
         - 2.8.1
-        - 2.8.0
         - 1.x
         - Other
     validations:
