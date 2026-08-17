@@ -3462,7 +3462,7 @@ dependencies = [
 
 [[package]]
 name = "yt-dlp"
-version = "2.8.2"
+version = "2.8.3"
 dependencies = [
  "assert_matches",
  "async-trait",
