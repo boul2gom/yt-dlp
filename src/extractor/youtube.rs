@@ -339,6 +339,11 @@ impl Youtube {
 
         let url = format!("ytsearch1:{}", query);
         let mut args = self.build_base_args();
+        // "ytsearch" always returns a playlist with `--dump-single-json`, when searching for first,
+        // get a video with `--dump-json`
+        if let Some(json_arg) = args.iter_mut().find(|arg| *arg == "--dump-single-json") {
+            *json_arg = "--dump-json".to_string();
+        }
         args.push(url);
 
         execute_and_parse_video(self.executable_path(), &args, self.timeout()).await
