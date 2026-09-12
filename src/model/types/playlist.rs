@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use serde_with::{DefaultOnNull, serde_as};
 
 /// Represents a YouTube playlist.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,11 +209,13 @@ impl Playlist {
 }
 
 /// Represents an entry (video) in a playlist.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistEntry {
     /// The video ID.
     pub id: String,
     /// The video title.
+    #[serde_as(deserialize_as = "DefaultOnNull")]
     pub title: String,
     /// The video URL.
     pub url: String,
