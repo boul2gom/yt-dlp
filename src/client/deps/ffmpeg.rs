@@ -23,17 +23,17 @@ struct Extraction {
 ///
 /// # Architecture
 ///
-/// Uses GitHub Releases from boul2gom/ffmpeg-builds to find pre-built FFmpeg binaries compatible with the current OS and CPU architecture.
+/// Uses GitHub Releases to find pre-built FFmpeg binaries compatible with the current OS and CPU architecture.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// # use yt_dlp::client::deps::ffmpeg::BuildFetcher;
+/// # use yt_dlp::client::deps::ffmpeg::FfmpegFetcher;
 /// # use std::path::PathBuf;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let path = PathBuf::from("ffmpeg-release.zip");
-/// let fetcher = BuildFetcher::new();
+/// let fetcher = FfmpegFetcher::default();
 ///
 /// let release = fetcher.fetch_binary().await?;
 /// release.download(path.clone()).await?;
@@ -42,17 +42,26 @@ struct Extraction {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug, Default)]
-pub struct BuildFetcher;
+#[derive(Debug)]
+pub struct FfmpegFetcher {
+    fetcher: GitHubFetcher,
+}
 
-impl BuildFetcher {
+impl FfmpegFetcher {
     /// Create a new fetcher for ffmpeg.
+    ///
+    /// # Arguments
+    ///
+    /// * `owner` - The GitHub repository owner
+    /// * `repo` - The GitHub repository name
     ///
     /// # Returns
     ///
-    /// A new `BuildFetcher` instance.
-    pub fn new() -> Self {
-        Self
+    /// A new `FfmpegFetcher` instance.
+    pub fn new(owner: impl Into<String>, repo: impl Into<String>) -> Self {
+        Self {
+            fetcher: GitHubFetcher::new(owner, repo),
+        }
     }
 
     /// Fetch the ffmpeg binary for the current platform and architecture.
@@ -99,8 +108,7 @@ impl BuildFetcher {
 
         match platform {
             Platform::Windows | Platform::Linux | Platform::Mac => {
-                let fetcher = GitHubFetcher::new("boul2gom", "ffmpeg-builds");
-                fetcher
+                self.fetcher
                     .fetch_release_for_platform(platform, architecture, None, |release, platform, architecture| {
                         let os_str = platform.as_str();
                         let arch_str = architecture.as_str();
@@ -281,8 +289,16 @@ impl BuildFetcher {
     }
 }
 
-impl fmt::Display for BuildFetcher {
+impl Default for FfmpegFetcher {
+    fn default() -> Self {
+        Self {
+            fetcher: GitHubFetcher::new("boul2gom", "ffmpeg-builds"),
+        }
+    }
+}
+
+impl fmt::Display for FfmpegFetcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BuildFetcher")
+        write!(f, "FfmpegFetcher")
     }
 }
