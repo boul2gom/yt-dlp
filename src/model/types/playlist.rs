@@ -214,7 +214,7 @@ impl Playlist {
 pub struct PlaylistEntry {
     /// The video ID.
     pub id: String,
-    /// The video title.
+    /// The video title. May be an empty string if the video is private.
     #[serde_as(deserialize_as = "DefaultOnNull")]
     pub title: String,
     /// The video URL.
