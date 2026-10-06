@@ -38,6 +38,7 @@ pub mod ytdlp;
 /// # }
 /// ```
 #[derive(Constructor, Clone, Debug)]
+#[allow(clippy::redundant_field_names)]
 pub struct LibraryInstaller {
     /// The destination directory for the libraries.
     pub destination: PathBuf,
@@ -68,6 +69,7 @@ impl fmt::Display for LibraryInstaller {
 /// # }
 /// ```
 #[derive(Constructor, Clone, Debug)]
+#[allow(clippy::redundant_field_names)]
 pub struct Libraries {
     /// The path to the installed yt-dlp binary.
     pub youtube: PathBuf,

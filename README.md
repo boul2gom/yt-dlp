@@ -485,6 +485,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use yt_dlp::Downloader;
 use std::path::PathBuf;
 use yt_dlp::client::deps::Libraries;
+use yt_dlp::download::config::postprocess::{PostProcessConfig, AudioCodec};
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -501,7 +502,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
     let video = downloader.fetch_video_infos(url).await?;
-    downloader.download_audio_stream(&video, "audio.mp3").await?;
+    
+    // Download the best available audio (often WebM/Opus or M4A/AAC)
+    let raw_audio = downloader.download_audio_stream(&video, "audio_raw.webm").await?;
+    
+    // Convert to MP3 using FFmpeg post-processing
+    let config = PostProcessConfig::new()
+        .with_audio_codec(AudioCodec::MP3)
+        .with_audio_bitrate("192k");
+        
+    downloader.postprocess_audio(raw_audio, "audio.mp3", config).await?;
+    
     Ok(())
 }
 ```

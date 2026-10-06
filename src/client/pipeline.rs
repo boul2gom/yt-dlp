@@ -290,6 +290,79 @@ impl Downloader {
         Ok(result)
     }
 
+    /// Applies post-processing to an audio file.
+    ///
+    /// This method uses FFmpeg to process the downloaded audio file
+    /// applying codecs, bitrates, and other configurations.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_path` - Path to the input audio file
+    /// * `output` - The relative path (to `output_dir`) or absolute path for the processed output file
+    /// * `config` - Post-processing configuration
+    ///
+    /// # Returns
+    ///
+    /// The path to the processed audio file
+    pub async fn postprocess_audio(
+        &self,
+        input_path: impl Into<PathBuf>,
+        output: impl AsRef<str>,
+        config: download::config::postprocess::PostProcessConfig,
+    ) -> Result<PathBuf> {
+        let input = input_path.into();
+        let output_path = self.output_dir.join(output.as_ref());
+
+        tracing::debug!(
+            input = ?input,
+            output = ?output_path,
+            audio_codec = ?config.audio_codec,
+            audio_bitrate = ?config.audio_bitrate,
+            "🎵 Applying post-processing to audio file"
+        );
+
+        self.postprocess_audio_to_path(input, output_path, config).await
+    }
+
+    /// Applies post-processing to an audio file, saving to a specific path.
+    ///
+    /// Unlike [`postprocess_audio`](Self::postprocess_audio), this method writes the file
+    /// to the exact path specified, ignoring the configured `output_dir`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_path` - Path to the input audio file
+    /// * `output` - The full path for the processed output file
+    /// * `config` - Post-processing configuration
+    pub async fn postprocess_audio_to_path(
+        &self,
+        input_path: impl Into<PathBuf>,
+        output: impl Into<PathBuf>,
+        config: PostProcessConfig,
+    ) -> Result<PathBuf> {
+        let input_path = input_path.into();
+        let output_path = output.into();
+
+        tracing::debug!(
+            input = ?input_path,
+            output = ?output_path,
+            audio_codec = ?config.audio_codec,
+            audio_bitrate = ?config.audio_bitrate,
+            "🎵 Applying post-processing to audio file"
+        );
+
+        let result =
+            metadata::postprocess::apply_postprocess(input_path, output_path, &config, &self.libraries, self.timeout)
+                .await?;
+
+        tracing::info!(
+            output = ?result,
+            "✅ Audio post-processing completed"
+        );
+
+        Ok(result)
+    }
+
     /// Returns a stream of all download events.
     ///
     /// This method creates a new subscriber to the event bus and returns
