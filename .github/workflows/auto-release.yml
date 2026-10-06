@@ -58,7 +58,7 @@ jobs:
 
       - name: ✅ Check CI status
         id: check_ci
-        uses: boul2gom/actions/ci-status@24be8edc73dcb0ce83ceddbd217be2072eee0751 # v1.0.8
+        uses: boul2gom/actions/ci-status@09aa081c57ef2cb210f7eddd4179186a997baacf # v1.0.9
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
