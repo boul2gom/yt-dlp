@@ -1,4 +1,5 @@
 mod common {
+    #![allow(dead_code)]
     #[path = "../common/assertions.rs"]
     pub mod assertions;
     #[path = "../common/downloader.rs"]

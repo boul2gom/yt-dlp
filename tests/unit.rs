@@ -1,4 +1,5 @@
 mod common {
+    #![allow(dead_code)]
     #[path = "../common/fixtures.rs"]
     pub mod fixtures;
     #[path = "../common/media_seek.rs"]

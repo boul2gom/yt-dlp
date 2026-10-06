@@ -1,4 +1,5 @@
 mod common {
+    #![allow(dead_code)]
     #[path = "../common/cache.rs"]
     pub mod cache;
     #[path = "../common/fixtures.rs"]
