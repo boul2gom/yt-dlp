@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -52,13 +52,13 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
       - name: ✅ Check CI status
         id: check_ci
-        uses: boul2gom/actions/ci-status@24be8edc73dcb0ce83ceddbd217be2072eee0751 # v1.0.8
+        uses: boul2gom/actions/ci-status@09aa081c57ef2cb210f7eddd4179186a997baacf # v1.0.9
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -75,7 +75,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -150,7 +150,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
           
@@ -245,7 +245,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -257,7 +257,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 🤖 Update version dropdown
-        uses: boul2gom/actions/versions-dropdown@24be8edc73dcb0ce83ceddbd217be2072eee0751 # v1.0.8
+        uses: boul2gom/actions/versions-dropdown@09aa081c57ef2cb210f7eddd4179186a997baacf # v1.0.9
         with:
           token: ${{ steps.app-token.outputs.token }}
           gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}

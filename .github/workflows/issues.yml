@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -39,7 +39,7 @@ jobs:
 
       - name: 🏷️ Label issues and PRs
         id: labeler
-        uses: boul2gom/actions/label-pr-issue@964f6ad140a83f6e0193f22604b55a8925b56378 # v1.0.7
+        uses: boul2gom/actions/label-pr-issue@09aa081c57ef2cb210f7eddd4179186a997baacf # v1.0.9
         with:
           token: ${{ steps.app-token.outputs.token }}
           path_mappings: |
@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -95,7 +95,7 @@ jobs:
 
     steps:
       - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 

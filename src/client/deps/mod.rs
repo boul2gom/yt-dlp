@@ -9,7 +9,7 @@ use derive_more::Constructor;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::client::deps::ffmpeg::BuildFetcher;
+use crate::client::deps::ffmpeg::FfmpegFetcher;
 use crate::client::deps::ytdlp::YoutubeFetcher;
 use crate::download::Fetcher;
 use crate::error::Result;
@@ -137,12 +137,29 @@ impl LibraryInstaller {
         Ok(path)
     }
 
-    /// Install ffmpeg from static builds.
+    /// Install ffmpeg from static builds in the boul2gom/ffmpeg-builds repository.
     ///
     /// # Arguments
     ///
     /// * `custom_name` - Optional custom name for the executable.
     pub async fn install_ffmpeg(&self, custom_name: Option<String>) -> Result<PathBuf> {
+        self.install_ffmpeg_from_repo("boul2gom", "ffmpeg-builds", custom_name)
+            .await
+    }
+
+    /// Install ffmpeg from static builds.
+    ///
+    /// # Arguments
+    ///
+    /// * `owner` - The owner of the repository.
+    /// * `repo` - The name of the repository.
+    /// * `custom_name` - Optional custom name for the executable.
+    pub async fn install_ffmpeg_from_repo(
+        &self,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+        custom_name: Option<String>,
+    ) -> Result<PathBuf> {
         tracing::debug!(
             custom_name = ?custom_name,
             destination = ?self.destination,
@@ -151,7 +168,7 @@ impl LibraryInstaller {
 
         fs::create_dir(self.destination.clone()).await?;
 
-        let fetcher = BuildFetcher::new();
+        let fetcher = FfmpegFetcher::new(owner, repo);
         let archive = self.destination.join("ffmpeg-release.zip");
 
         let release = fetcher.fetch_binary().await?;
