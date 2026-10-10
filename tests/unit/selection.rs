@@ -854,13 +854,13 @@ fn select_video_format_fallback_when_no_exact_height() {
 fn best_audio_format_prefers_higher_language_preference_over_bitrate() {
     let mut a1 = make_audio_format("a1_en", "opus", 128.0, 48000, 2, 7.0);
     a1.language_preference = Some(10); // Original language (en)
-    
+
     let mut a2 = make_audio_format("a2_uk", "opus", 256.0, 48000, 2, 7.0);
     a2.language_preference = Some(-1); // Dubbed language (uk)
 
     // Even though a2_uk has a much higher bitrate (256 vs 128), a1_en should win
     let video = make_test_video(vec![a1, a2]);
-    
+
     let best = video.best_audio_format().unwrap();
     assert_eq!(best.format_id, "a1_en");
 }
@@ -875,7 +875,7 @@ fn best_video_format_prefers_higher_language_preference_over_resolution() {
 
     // v1_en has lower resolution, fps, and quality but higher language preference
     let video = make_test_video(vec![v1, v2]);
-    
+
     let best = video.best_video_format().unwrap();
     assert_eq!(best.format_id, "v1_en");
 }
