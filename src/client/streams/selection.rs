@@ -51,7 +51,7 @@ pub trait VideoSelection {
 
     /// Compares two video formats for ordering.
     ///
-    /// Sorting criteria: quality → resolution height → fps → video bitrate.
+    /// Sorting criteria: language preference → quality → resolution height → fps → video bitrate.
     ///
     /// # Arguments
     ///
@@ -65,7 +65,7 @@ pub trait VideoSelection {
 
     /// Compares two audio formats for ordering.
     ///
-    /// Sorting criteria: quality → audio bitrate → sample rate → audio channels.
+    /// Sorting criteria: language preference → quality → audio bitrate → sample rate → audio channels.
     ///
     /// # Arguments
     ///
@@ -215,8 +215,16 @@ impl VideoSelection for Video {
     }
 
     /// Compares two video formats.
-    /// Formats sorting : "quality", "video resolution", "fps", "video bitrate"
+    /// Formats sorting : "language preference", "quality", "video resolution", "fps", "video bitrate"
     fn compare_video_formats(&self, a: &Format, b: &Format) -> Ordering {
+        let a_lang = a.language_preference.unwrap_or(0);
+        let b_lang = b.language_preference.unwrap_or(0);
+
+        let cmp_lang = a_lang.cmp(&b_lang);
+        if cmp_lang != Ordering::Equal {
+            return cmp_lang;
+        }
+
         let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
         let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
 
@@ -248,8 +256,16 @@ impl VideoSelection for Video {
     }
 
     /// Compares two audio formats.
-    /// Formats sorting : "quality", "audio bitrate", "sample rate", "audio channels"
+    /// Formats sorting : "language preference", "quality", "audio bitrate", "sample rate", "audio channels"
     fn compare_audio_formats(&self, a: &Format, b: &Format) -> Ordering {
+        let a_lang = a.language_preference.unwrap_or(0);
+        let b_lang = b.language_preference.unwrap_or(0);
+
+        let cmp_lang = a_lang.cmp(&b_lang);
+        if cmp_lang != Ordering::Equal {
+            return cmp_lang;
+        }
+
         let a_quality = a.quality_info.quality.unwrap_or(OrderedFloat(0.0));
         let b_quality = b.quality_info.quality.unwrap_or(OrderedFloat(0.0));
 
