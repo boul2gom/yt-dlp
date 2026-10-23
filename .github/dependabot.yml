@@ -29,3 +29,16 @@ updates:
       prefix: "🔌 [Github Actions] "
     target-branch: "develop"
     rebase-strategy: "auto"
+    groups:
+      boul2gom-actions:
+        patterns:
+          - "boul2gom/actions/*"
+      codeql-actions:
+        patterns:
+          - "github/codeql-action/*"
+      other-actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "boul2gom/actions/*"
+          - "github/codeql-action/*"

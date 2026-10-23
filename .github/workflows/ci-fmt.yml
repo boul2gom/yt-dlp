@@ -51,6 +51,9 @@ jobs:
         run: |
           find src crates -name '*.rs' -exec sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' {} +
 
+      - name: 📦 Update Cargo.lock dependencies
+        run: cargo update
+
       - name: 🔐 Import GPG Key and setup Git
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
@@ -64,10 +67,10 @@ jobs:
           git_committer_name: "boul2gom-bot"
           git_committer_email: "actions-bot@boul2gom.com"
 
-      - name: 🤖 Commit formatted code
+      - name: 🤖 Commit formatted code and updated lockfile
         uses: stefanzweifel/git-auto-commit-action@4a55954c782fc1ea30b9056cd3e7a2b40ca8887d # v7.2.0
         with:
-          commit_message: "💄 Format code with Cargo formatter [skip ci]"
+          commit_message: "💄 Format code and update Cargo.lock [skip ci]"
           commit_user_name: "boul2gom-bot"
           commit_user_email: "actions-bot@boul2gom.com"
           commit_author: "boul2gom-bot <actions-bot@boul2gom.com>"

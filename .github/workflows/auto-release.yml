@@ -193,6 +193,18 @@ jobs:
           git_committer_name: "boul2gom-bot"
           git_committer_email: "actions-bot@boul2gom.com"
 
+      - name: 📦 Update Cargo.lock dependencies
+        run: cargo update
+
+      - name: 🤖 Commit updated Cargo.lock
+        uses: stefanzweifel/git-auto-commit-action@4a55954c782fc1ea30b9056cd3e7a2b40ca8887d # v7.2.0
+        with:
+          commit_message: "🔒 Update Cargo.lock dependencies [skip ci]"
+          commit_user_name: "boul2gom-bot"
+          commit_user_email: "actions-bot@boul2gom.com"
+          commit_author: "boul2gom-bot <actions-bot@boul2gom.com>"
+          file_pattern: "Cargo.lock"
+
       - name: 🚀 Publish media-seek to crates.io
         if: ${{ needs.check_updates.outputs.has_ms_updates == 'true' }}
         env:
