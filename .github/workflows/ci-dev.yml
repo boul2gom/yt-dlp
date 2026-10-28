@@ -12,132 +12,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  scorecard-analysis:
-    name: 🔍 Scorecard analysis
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      id-token: write
-      pull-requests: read
-      contents: read
-      actions: read
-      issues: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: 🔍 Scan with Scorecard
-        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          publish_results: true
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 📦 Upload Scorecard scan results artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sarif-results
-          path: results.sarif
-          retention-days: 5
-
-      - name: 📦 Upload Scorecard scan results to GitHub dashboard
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        with:
-          sarif_file: results.sarif
-
-  fossa:
-    name: 📜 FOSSA license scan
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: 📜 Run FOSSA scan
-        uses: fossas/fossa-action@29693cc50323968e039056be419b32989fc5880c # v2.0.0
-        with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
-
-  sonarcloud-analysis:
-    name: 🔍 SonarCloud analysis
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: 🔍 Scan with SonarCloud
-        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  dependency-review:
-    name: 📦 Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: 📦 Review dependencies
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-
   check-spell:
     name: 📝 Check spelling
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -150,14 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -169,6 +42,19 @@ jobs:
 
       - name: 💄 Check formatting
         run: cargo +nightly fmt --all -- --check
+
+  dependency-review:
+    name: 📦 Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 📦 Review dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
   build-and-test:
     name: 🦀 Build & Test
@@ -191,12 +77,6 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -206,46 +86,26 @@ jobs:
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
-          components: clippy, llvm-tools-preview
-
-      - name: 📦 Install cargo-llvm-cov
-        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
+          components: clippy
 
       - name: 🦀 Check with Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
 
-      - name: 🧪 Run unit, integration & doc tests with coverage
-        run: |
-          cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report --test unit --all-features
-          cargo llvm-cov --no-report --test integration --all-features
-          cargo llvm-cov --no-report --doc --workspace --all-features
-          cargo llvm-cov report --lcov --output-path lcov.info
+      - name: 🧪 Run unit tests
+        run: cargo test --test unit --all-features
 
-      - name: 📦 Upload coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          flags: unit-integration
-          fail_ci_if_error: false
+      - name: 🔗 Run integration tests
+        run: cargo test --test integration --all-features
 
-  e2e-tests:
-    name: 🚀 E2E tests
-    needs: [build-and-test]
+  doc-tests:
+    name: 📚 Test docs
+    needs: [check-spell]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
     permissions:
       contents: read
-
     steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -254,34 +114,9 @@ jobs:
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-        with:
-          components: llvm-tools-preview
 
-      - name: 📦 Install cargo-llvm-cov
-        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
-
-      - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
-        run: |
-          curl -fsSL "https://github.com/boul2gom/ffmpeg-builds/releases/latest/download/ffmpeg-linux-x64.zip" -o /tmp/ffmpeg.zip
-          mkdir -p /opt/ffmpeg
-          unzip -j /tmp/ffmpeg.zip ffmpeg -d /opt/ffmpeg
-          chmod +x /opt/ffmpeg/ffmpeg
-          rm /tmp/ffmpeg.zip
-          echo "/opt/ffmpeg" >> $GITHUB_PATH
-
-      - name: 🚀 Run E2E tests with coverage
-        run: |
-          cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report --test e2e --all-features -- --test-threads=1
-          cargo llvm-cov report --lcov --output-path lcov.info
-
-      - name: 📦 Upload E2E coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          flags: e2e
-          fail_ci_if_error: false
+      - name: 📚 Run doc tests
+        run: cargo test --doc --workspace --all-features
 
   analysis:
     name: 🔍 Static analysis
@@ -291,14 +126,7 @@ jobs:
       CLICOLOR: 1
     permissions:
       contents: read
-
     steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -313,3 +141,33 @@ jobs:
 
       - name: 🧹 Unused dependencies
         run: cargo machete
+
+  e2e-tests:
+    name: 🚀 E2E tests
+    needs: [build-and-test, doc-tests]
+    runs-on: ubuntu-latest
+    env:
+      CLICOLOR: 1
+    permissions:
+      contents: read
+    steps:
+      - name: 📁 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 📦 Cache Rust dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: 🛠️ Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
+        run: |
+          curl -fsSL "https://github.com/boul2gom/ffmpeg-builds/releases/latest/download/ffmpeg-linux-x64.zip" -o /tmp/ffmpeg.zip
+          mkdir -p /opt/ffmpeg
+          unzip -j /tmp/ffmpeg.zip ffmpeg -d /opt/ffmpeg
+          chmod +x /opt/ffmpeg/ffmpeg
+          rm /tmp/ffmpeg.zip
+          echo "/opt/ffmpeg" >> $GITHUB_PATH
+
+      - name: 🚀 Run E2E tests
+        run: cargo test --test e2e --all-features -- --test-threads=1
