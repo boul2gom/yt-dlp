@@ -176,8 +176,6 @@ jobs:
     needs: [check-spell]
     env:
       CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
       REDIS_URL: redis://localhost:6379
     permissions:
       contents: read
@@ -188,8 +186,8 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
+          --health-interval 1s
+          --health-timeout 2s
           --health-retries 5
 
     steps:
@@ -202,91 +200,42 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust registry
+      - name: 📦 Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: "full"
-          cache-targets: false
-
-      - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: target/
-          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-full-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
-          components: clippy
+          components: clippy, llvm-tools-preview
+
+      - name: 📦 Install cargo-llvm-cov
+        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
 
       - name: 🦀 Check with Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
 
-      - name: 🧪 Run unit tests
-        run: cargo test --test unit --all-features
+      - name: 🧪 Run unit, integration & doc tests with coverage
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report --test unit --all-features
+          cargo llvm-cov --no-report --test integration --all-features
+          cargo llvm-cov --no-report --doc --workspace --all-features
+          cargo llvm-cov report --lcov --output-path lcov.info
 
-      - name: 🔗 Run integration tests
-        run: cargo test --test integration --all-features
-
-  doc-tests:
-    name: 📚 Test docs
-    needs: [check-spell]
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+      - name: 📦 Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust registry
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: "full"
-          cache-targets: false
-
-      - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: target/
-          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-full-${{ runner.os }}-
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-
-      - name: 📚 Run doc tests
-        run: cargo test --doc --workspace --all-features
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: unit-integration
+          fail_ci_if_error: false
 
   e2e-tests:
     name: 🚀 E2E tests
-    needs: [build-and-test, doc-tests]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     env:
       CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     permissions:
       contents: read
 
@@ -300,26 +249,16 @@ jobs:
       - name: 📁 Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust registry
+      - name: 📦 Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: "full"
-          cache-targets: false
-
-      - name: 📦 Restore compiled dependencies
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: target/
-          key: target-full-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: target-full-${{ runner.os }}-
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          components: llvm-tools-preview
+
+      - name: 📦 Install cargo-llvm-cov
+        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
 
       - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
         run: |
@@ -330,8 +269,19 @@ jobs:
           rm /tmp/ffmpeg.zip
           echo "/opt/ffmpeg" >> $GITHUB_PATH
 
-      - name: 🚀 Run E2E tests
-        run: cargo test --test e2e --all-features -- --test-threads=1
+      - name: 🚀 Run E2E tests with coverage
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report --test e2e --all-features -- --test-threads=1
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: 📦 Upload E2E coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: e2e
+          fail_ci_if_error: false
 
   analysis:
     name: 🔍 Static analysis
@@ -363,67 +313,3 @@ jobs:
 
       - name: 🧹 Unused dependencies
         run: cargo machete
-
-  coverage:
-    name: 📊 Code coverage
-    needs: [e2e-tests]
-    runs-on: ubuntu-latest
-    env:
-      CLICOLOR: 1
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    permissions:
-      contents: read
-
-    steps:
-      - name: 🛡️ Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-          disable-telemetry: true
-
-      - name: 📁 Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: 📦 Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          disable_annotations: true
-
-      - name: 📦 Cache Rust artifacts
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: "coverage"
-          cache-targets: false
-
-      - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-        with:
-          components: llvm-tools-preview
-
-      - name: 📦 Install cargo-llvm-cov
-        uses: taiki-e/install-action@c1305996457413b456b636a549d9f98354fd89cf # cargo-llvm-cov
-
-      - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
-        run: |
-          curl -fsSL "https://github.com/boul2gom/ffmpeg-builds/releases/latest/download/ffmpeg-linux-x64.zip" -o /tmp/ffmpeg.zip
-          mkdir -p /opt/ffmpeg
-          unzip -j /tmp/ffmpeg.zip ffmpeg -d /opt/ffmpeg
-          chmod +x /opt/ffmpeg/ffmpeg
-          rm /tmp/ffmpeg.zip
-          echo "/opt/ffmpeg" >> $GITHUB_PATH
-
-      - name: 📊 Generate coverage (unit + integration + e2e)
-        run: |
-          cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report --test unit --all-features
-          cargo llvm-cov --no-report --test integration --all-features
-          cargo llvm-cov --no-report --test e2e --all-features -- --test-threads=1
-          cargo llvm-cov report --lcov --output-path lcov.info
-
-      - name: 📦 Upload coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          fail_ci_if_error: false
