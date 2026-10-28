@@ -29,6 +29,7 @@ pub fn load_e2e_video(base_url: &str) -> yt_dlp::model::Video {
 }
 
 /// Loads the live video fixture with `{{MOCK_SERVER}}` replaced.
+#[allow(dead_code)]
 pub fn load_e2e_live_video(base_url: &str) -> yt_dlp::model::Video {
     fixtures::load_fixture_with_url("live_video.json", base_url)
 }

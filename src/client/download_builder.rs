@@ -39,6 +39,8 @@ struct EnqueueStreams<'a> {
     audio_path: PathBuf,
     video_headers: HttpHeaders,
     audio_headers: HttpHeaders,
+    video_available_at: Option<i64>,
+    audio_available_at: Option<i64>,
 }
 
 /// Builder for configuring and executing video downloads.
@@ -350,6 +352,30 @@ impl<'a> DownloadBuilder<'a> {
             return Ok(path);
         }
 
+        // Respect available_at restriction if present (e.g. YouTube pre-roll ad restrictions)
+        let max_available_at = [
+            video_format.available_at,
+            audio_format.available_at,
+            self.video.available_at,
+        ]
+        .into_iter()
+        .flatten()
+        .max();
+
+        if let Some(available_at) = max_available_at {
+            let now = crate::utils::current_timestamp();
+            if available_at > now {
+                let wait_secs = (available_at - now) as u64;
+                tracing::info!(
+                    wait_secs = wait_secs,
+                    video_id = %self.video.id,
+                    available_at = available_at,
+                    "⏳ Waiting before download as required by the site (available_at restriction)"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+            }
+        }
+
         // Create output paths
         let video_path = self.downloader.output_dir.join(&video_filename);
         let audio_path = self.downloader.output_dir.join(&audio_filename);
@@ -362,6 +388,8 @@ impl<'a> DownloadBuilder<'a> {
             audio_path: audio_path.clone(),
             video_headers: streams.video_format.download_info.http_headers.clone(),
             audio_headers: streams.audio_format.download_info.http_headers.clone(),
+            video_available_at: video_format.available_at,
+            audio_available_at: audio_format.available_at,
         };
         let enqueued =
             enqueue_both_downloads(self.downloader, enqueue_streams, self.priority, self.progress_callback).await;
@@ -675,23 +703,25 @@ async fn enqueue_both_downloads(
 
         let video_id = downloader
             .download_manager
-            .enqueue_with_progress_and_headers(
+            .enqueue_with_all_options(
                 streams.video_url,
                 streams.video_path,
                 Some(priority),
-                video_callback,
+                Some(video_callback),
                 Some(streams.video_headers),
+                streams.video_available_at,
             )
             .await;
 
         let audio_id = downloader
             .download_manager
-            .enqueue_with_progress_and_headers(
+            .enqueue_with_all_options(
                 streams.audio_url,
                 streams.audio_path,
                 Some(priority),
-                audio_callback,
+                Some(audio_callback),
                 Some(streams.audio_headers),
+                streams.audio_available_at,
             )
             .await;
 
@@ -699,21 +729,25 @@ async fn enqueue_both_downloads(
     } else {
         let video_id = downloader
             .download_manager
-            .enqueue_with_headers(
+            .enqueue_with_all_options::<fn(u64, u64)>(
                 streams.video_url,
                 streams.video_path,
                 Some(priority),
+                None,
                 Some(streams.video_headers),
+                streams.video_available_at,
             )
             .await;
 
         let audio_id = downloader
             .download_manager
-            .enqueue_with_headers(
+            .enqueue_with_all_options::<fn(u64, u64)>(
                 streams.audio_url,
                 streams.audio_path,
                 Some(priority),
+                None,
                 Some(streams.audio_headers),
+                streams.audio_available_at,
             )
             .await;
 

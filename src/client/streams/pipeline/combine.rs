@@ -524,6 +524,7 @@ impl Downloader {
 
         let args = builder
             .args(["-c:v", "copy", "-c:a", audio_codec])
+            .overwrite()
             .output(output)
             .build();
 

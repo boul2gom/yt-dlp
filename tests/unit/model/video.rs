@@ -234,3 +234,41 @@ fn video_serde_round_trip() {
     assert_eq!(original.tags, deserialized.tags);
     assert_eq!(original.chapters.len(), deserialized.chapters.len());
 }
+
+// ============================== available_at ==============================
+
+#[test]
+fn video_required_available_at_computes_max() {
+    let mut video = fixtures::load_video_fixture();
+    for f in &mut video.formats {
+        f.available_at = None;
+    }
+    assert_eq!(video.required_available_at(), None);
+
+    video.available_at = Some(100);
+    assert_eq!(video.required_available_at(), Some(100));
+
+    // formats[0] is storyboard and should be ignored
+    video.formats[0].available_at = Some(999);
+    // formats[1] and formats[2] are video/audio formats
+    video.formats[1].available_at = Some(150);
+    video.formats[2].available_at = Some(120);
+    assert_eq!(video.required_available_at(), Some(150));
+}
+
+#[test]
+fn video_are_format_urls_fresh_with_future_available_at() {
+    let mut video = fixtures::load_video_fixture();
+    for f in &mut video.formats {
+        f.available_at = None;
+    }
+    let now = yt_dlp::utils::current_timestamp();
+
+    // When available_at is in the future (e.g. pre-roll ad delay), it is fresh
+    video.formats[1].available_at = Some(now + 10);
+    assert!(video.are_format_urls_fresh());
+
+    // When available_at is ancient (> 6 hours ago), it is considered expired
+    video.formats[1].available_at = Some(now - 7 * 3600);
+    assert!(!video.are_format_urls_fresh());
+}

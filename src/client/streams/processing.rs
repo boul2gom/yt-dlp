@@ -122,7 +122,11 @@ impl Downloader {
             }
         }
 
-        let args = builder.codec_copy().output(output_path.to_string_lossy()).build();
+        let args = builder
+            .codec_copy()
+            .overwrite()
+            .output(output_path.to_string_lossy())
+            .build();
 
         tracing::debug!(
             args = ?args,

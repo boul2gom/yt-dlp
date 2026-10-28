@@ -1,11 +1,12 @@
 //! Formats-related models.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::Hash;
 use std::str::FromStr;
 
 use ordered_float::OrderedFloat;
-use reqwest::header::{self, HeaderMap, HeaderValue};
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 
 use crate::model::DrmStatus;
@@ -364,6 +365,9 @@ pub struct HttpHeaders {
     /// The accept encoding used by the downloader.
     #[serde(rename = "Sec-Fetch-Mode", default)]
     pub sec_fetch_mode: String,
+    /// Any additional HTTP headers extracted by yt-dlp (e.g. Origin, Referer, Cookie).
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, String>,
 }
 
 impl HttpHeaders {
@@ -382,6 +386,7 @@ impl HttpHeaders {
             accept: "*/*".to_string(),
             accept_language: "en-US,en".to_string(),
             sec_fetch_mode: "navigate".to_string(),
+            extra: BTreeMap::new(),
         }
     }
 
@@ -389,7 +394,8 @@ impl HttpHeaders {
     ///
     /// # Returns
     ///
-    /// A `HeaderMap` with User-Agent, Accept, Accept-Language, and Sec-Fetch-Mode set.
+    /// A `HeaderMap` with User-Agent, Accept, Accept-Language, Sec-Fetch-Mode,
+    /// and any additional headers set.
     pub fn to_header_map(&self) -> reqwest::header::HeaderMap {
         let mut map = HeaderMap::new();
         if let Ok(hv) = HeaderValue::from_str(&self.user_agent) {
@@ -403,6 +409,13 @@ impl HttpHeaders {
         }
         if let Ok(hv) = HeaderValue::from_bytes(self.sec_fetch_mode.as_bytes()) {
             map.insert("Sec-Fetch-Mode", hv);
+        }
+        for (key, val) in &self.extra {
+            if let Ok(name) = HeaderName::try_from(key.as_str())
+                && let Ok(hv) = HeaderValue::from_str(val)
+            {
+                map.insert(name, hv);
+            }
         }
         map
     }

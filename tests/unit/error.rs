@@ -558,3 +558,23 @@ fn error_from_zip_error() {
         _ => panic!("Expected Archive variant"),
     }
 }
+
+// ============================== URL Expiry Check ==============================
+
+#[test]
+fn error_unexpected_status_403_detected_as_expired() {
+    use yt_dlp::utils::{UrlStatus, check_download_error, should_refresh_url};
+
+    let err = Error::UnexpectedStatus {
+        status: 403,
+        url: "https://googlevideo.com/videoplayback?...".to_string(),
+    };
+    assert!(check_download_error(&err).is_expired());
+    assert!(should_refresh_url(&err));
+
+    let err_200 = Error::UnexpectedStatus {
+        status: 200,
+        url: "https://example.com".to_string(),
+    };
+    assert_eq!(check_download_error(&err_200), UrlStatus::Valid);
+}

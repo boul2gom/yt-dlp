@@ -187,6 +187,29 @@ fn http_headers_serde_round_trip() {
     assert_eq!(headers.accept, back.accept);
 }
 
+#[test]
+fn http_headers_deserializes_extra_headers() {
+    let json = r#"{
+        "User-Agent": "custom-agent/2.0",
+        "Accept": "*/*",
+        "Accept-Language": "en",
+        "Sec-Fetch-Mode": "navigate",
+        "Origin": "https://www.youtube.com",
+        "Referer": "https://www.youtube.com/",
+        "Cookie": "PREF=f4=4000000; GPS=1"
+    }"#;
+    let headers: yt_dlp::model::format::HttpHeaders = serde_json::from_str(json).unwrap();
+    assert_eq!(headers.user_agent, "custom-agent/2.0");
+    assert_eq!(headers.extra.get("Origin").unwrap(), "https://www.youtube.com");
+    assert_eq!(headers.extra.get("Referer").unwrap(), "https://www.youtube.com/");
+    assert_eq!(headers.extra.get("Cookie").unwrap(), "PREF=f4=4000000; GPS=1");
+
+    let map = headers.to_header_map();
+    assert_eq!(map.get("origin").unwrap(), "https://www.youtube.com");
+    assert_eq!(map.get("referer").unwrap(), "https://www.youtube.com/");
+    assert_eq!(map.get("cookie").unwrap(), "PREF=f4=4000000; GPS=1");
+}
+
 // ============================== Format serde round-trip ==============================
 
 #[test]

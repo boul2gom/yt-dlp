@@ -80,6 +80,8 @@ pub(crate) struct DownloadTask {
     /// Optional byte sub-range to download: only `[start, end]` bytes are fetched and
     /// written from offset 0 in the destination file.
     pub(crate) range_constraint: Option<(u64, u64)>,
+    /// Optional Unix timestamp when the stream becomes available for download.
+    pub(crate) available_at: Option<i64>,
 }
 
 impl std::fmt::Debug for DownloadTask {

@@ -141,9 +141,25 @@ pub(super) async fn run_download_task(
     destination: PathBuf,
     fetcher: Fetcher,
     permit: tokio::sync::OwnedSemaphorePermit,
+    available_at: Option<i64>,
     ctx: WorkerContext,
 ) -> Result<()> {
     let _permit = permit;
+
+    // Respect available_at timestamp (e.g. YouTube pre-roll ad restrictions)
+    if let Some(available_at) = available_at {
+        let now = crate::utils::current_timestamp();
+        if available_at > now {
+            let wait_secs = (available_at - now) as u64;
+            tracing::info!(
+                task_id = task_id,
+                wait_secs = wait_secs,
+                "⏳ Waiting before download as required by the site (available_at restriction)"
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)).await;
+        }
+    }
+
     let start_time = std::time::Instant::now();
 
     tracing::debug!(

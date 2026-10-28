@@ -90,6 +90,20 @@ impl Downloader {
             available_formats: video.formats.iter().map(|f| f.format_id.clone()).collect(),
         })?;
 
+        // Respect available_at restriction if present (e.g. YouTube pre-roll ad restrictions)
+        if let Some(available_at) = video.required_available_at() {
+            let now = utils::current_timestamp();
+            if available_at > now {
+                let wait_secs = (available_at - now) as u64;
+                tracing::info!(
+                    wait_secs = wait_secs,
+                    video_id = %video.id,
+                    "⏳ Waiting before download as required by the site (available_at restriction)"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+            }
+        }
+
         // Download and combine video and audio, embedding metadata in a single ffmpeg pass
         self.download_and_combine_with_meta(video, best_video, best_audio, &path)
             .await?;
@@ -191,12 +205,10 @@ impl Downloader {
                 video_id: video.id.clone(),
             })?;
 
-        let http_headers = self.user_agent.clone().map(|ua| crate::model::format::HttpHeaders {
-            user_agent: ua,
-            accept: "*/*".to_string(),
-            accept_language: "en-US,en".to_string(),
-            sec_fetch_mode: "navigate".to_string(),
-        });
+        let http_headers = self
+            .user_agent
+            .clone()
+            .map(crate::model::format::HttpHeaders::browser_defaults);
 
         let id = self
             .download_manager
@@ -329,11 +341,29 @@ impl Downloader {
             format_id: format.format_id.clone(),
         })?;
 
+        // Respect available_at restriction if present (e.g. YouTube pre-roll ad restrictions)
+        if let Some(available_at) = format.available_at {
+            let now = utils::current_timestamp();
+            if available_at > now {
+                let wait_secs = (available_at - now) as u64;
+                tracing::info!(
+                    wait_secs = wait_secs,
+                    format_id = %format.format_id,
+                    "⏳ Waiting before download as required by the site (available_at restriction)"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+            }
+        }
+
         // Create an optimized fetcher with parallel downloading, driven by the configured SpeedProfile
-        let fetcher = Fetcher::new(&url, self.proxy.as_ref(), None)?
-            .with_parallel_segments(self.download_manager.parallel_segments())
-            .with_segment_size(self.download_manager.segment_size())
-            .with_retry_attempts(self.download_manager.retry_attempts());
+        let fetcher = Fetcher::new(
+            &url,
+            self.proxy.as_ref(),
+            Some(format.download_info.http_headers.clone()),
+        )?
+        .with_parallel_segments(self.download_manager.parallel_segments())
+        .with_segment_size(self.download_manager.segment_size())
+        .with_retry_attempts(self.download_manager.retry_attempts());
 
         fetcher.fetch_asset(path.clone()).await?;
 

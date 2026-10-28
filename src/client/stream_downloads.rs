@@ -249,12 +249,7 @@ impl<'a> DownloadBuilder<'a> {
             .downloader
             .user_agent
             .clone()
-            .map(|ua| crate::model::format::HttpHeaders {
-                user_agent: ua,
-                accept: "*/*".to_string(),
-                accept_language: "en-US,en".to_string(),
-                sec_fetch_mode: "navigate".to_string(),
-            });
+            .map(crate::model::format::HttpHeaders::browser_defaults);
 
         Self::execute_stream_internal(
             self.downloader,

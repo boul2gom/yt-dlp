@@ -61,6 +61,16 @@ pub struct DownloadManager {
     shutdown_token: CancellationToken,
 }
 
+/// Internal options bundle for enqueuing tasks without parameter explosion.
+#[derive(Default)]
+struct EnqueueOptions {
+    priority: DownloadPriority,
+    progress_callback: Option<ProgressCallback>,
+    http_headers: Option<crate::model::format::HttpHeaders>,
+    range_constraint: Option<(u64, u64)>,
+    available_at: Option<i64>,
+}
+
 impl DownloadManager {
     /// Returns the number of parallel segments configured for downloads.
     pub fn parallel_segments(&self) -> usize {
@@ -192,10 +202,10 @@ impl DownloadManager {
         self.enqueue_internal(
             url.as_ref().to_string(),
             destination.into(),
-            priority.unwrap_or(DownloadPriority::Normal),
-            None,
-            None,
-            None,
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -222,10 +232,11 @@ impl DownloadManager {
         self.enqueue_internal(
             url.as_ref().to_string(),
             destination.into(),
-            priority.unwrap_or(DownloadPriority::Normal),
-            None,
-            http_headers,
-            None,
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                http_headers,
+                ..Default::default()
+            },
         )
         .await
     }
@@ -255,10 +266,11 @@ impl DownloadManager {
         self.enqueue_internal(
             url.as_ref().to_string(),
             destination.into(),
-            priority.unwrap_or(DownloadPriority::Normal),
-            Some(Arc::new(progress_callback)),
-            None,
-            None,
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                progress_callback: Some(Arc::new(progress_callback)),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -278,10 +290,39 @@ impl DownloadManager {
         self.enqueue_internal(
             url.as_ref().to_string(),
             destination.into(),
-            priority.unwrap_or(DownloadPriority::Normal),
-            Some(Arc::new(progress_callback)),
-            http_headers,
-            None,
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                progress_callback: Some(Arc::new(progress_callback)),
+                http_headers,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    /// Add a download to the queue with all options: progress callback, HTTP headers, and available_at timestamp
+    pub async fn enqueue_with_all_options<F>(
+        &self,
+        url: impl AsRef<str>,
+        destination: impl Into<PathBuf>,
+        priority: Option<DownloadPriority>,
+        progress_callback: Option<F>,
+        http_headers: Option<HttpHeaders>,
+        available_at: Option<i64>,
+    ) -> u64
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        self.enqueue_internal(
+            url.as_ref().to_string(),
+            destination.into(),
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                progress_callback: progress_callback.map(|cb| Arc::new(cb) as ProgressCallback),
+                http_headers,
+                available_at,
+                ..Default::default()
+            },
         )
         .await
     }
@@ -316,10 +357,12 @@ impl DownloadManager {
         self.enqueue_internal(
             url.as_ref().to_string(),
             destination.into(),
-            priority.unwrap_or(DownloadPriority::Normal),
-            None,
-            http_headers,
-            Some((byte_start, byte_end)),
+            EnqueueOptions {
+                priority: priority.unwrap_or(DownloadPriority::Normal),
+                http_headers,
+                range_constraint: Some((byte_start, byte_end)),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -604,28 +647,22 @@ impl DownloadManager {
         len_before > queue.len()
     }
 
-    async fn enqueue_internal(
-        &self,
-        url: String,
-        destination: PathBuf,
-        priority: DownloadPriority,
-        progress_callback: Option<ProgressCallback>,
-        http_headers: Option<crate::model::format::HttpHeaders>,
-        range_constraint: Option<(u64, u64)>,
-    ) -> u64 {
+    async fn enqueue_internal(&self, url: String, destination: PathBuf, options: EnqueueOptions) -> u64 {
         let mut id_guard = self.next_id.lock().await;
         let id = *id_guard;
         *id_guard += 1;
         drop(id_guard);
 
+        let priority = options.priority;
         let task = DownloadTask {
             url: url.clone(),
             destination: destination.clone(),
             priority,
             id,
-            progress_callback,
-            http_headers,
-            range_constraint,
+            progress_callback: options.progress_callback,
+            http_headers: options.http_headers,
+            range_constraint: options.range_constraint,
+            available_at: options.available_at,
         };
 
         tracing::debug!(id = id, url = url, destination = ?destination, priority = ?priority, "📥 Enqueuing download");
@@ -913,6 +950,7 @@ async fn process_queued_task(
         task.destination.clone(),
         fetcher,
         permit,
+        task.available_at,
         ctx,
     ));
     tasks.lock().await.insert(task_id, handle);

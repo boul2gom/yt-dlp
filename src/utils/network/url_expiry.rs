@@ -123,6 +123,13 @@ pub fn check_error(error: &reqwest::Error) -> UrlStatus {
 pub fn check_download_error(error: &Error) -> UrlStatus {
     match error {
         Error::Http { source, .. } => check_error(source),
+        Error::UnexpectedStatus { status, .. } => {
+            if let Ok(code) = StatusCode::from_u16(*status) {
+                check_http_status(code)
+            } else {
+                UrlStatus::Unknown
+            }
+        }
         _ => UrlStatus::Unknown,
     }
 }

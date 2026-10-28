@@ -272,8 +272,16 @@ impl Fetcher {
             )
             .await?;
 
+        let status = response.status();
+        if status.is_client_error() || status.is_server_error() {
+            return Err(Error::UnexpectedStatus {
+                status: status.as_u16(),
+                url: self.url.clone(),
+            });
+        }
+
         // 206 Partial Content confirms range support; extract total from Content-Range
-        let supports_ranges = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+        let supports_ranges = status == reqwest::StatusCode::PARTIAL_CONTENT;
         if !supports_ranges {
             tracing::debug!(url = %self.url, "⚙️ Server does not support range requests");
         }

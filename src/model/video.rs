@@ -47,6 +47,10 @@ pub struct Video {
     pub duration_string: Option<String>,
     /// The canonical webpage URL of the video.
     pub webpage_url: Option<String>,
+    /// Timestamp (Unix seconds) when the video media streams become available for download.
+    /// YouTube pre-roll ad restrictions delay stream availability until this time.
+    #[serde(default)]
+    pub available_at: Option<i64>,
     /// The primary language of the video, e.g. 'fr' or 'en'.
     pub language: Option<String>,
     /// The type of media: 'video', 'short', 'podcast', etc.
@@ -222,20 +226,45 @@ impl Video {
             .min()
     }
 
+    /// Returns the required `available_at` timestamp across the video and all downloadable formats.
+    ///
+    /// Following yt-dlp's extractor/downloader behavior, streams cannot be downloaded
+    /// until this timestamp (due to YouTube pre-roll ad restrictions). The maximum is
+    /// taken across all formats to ensure both audio and video streams are unlocked.
+    ///
+    /// # Returns
+    ///
+    /// The maximum `available_at` Unix timestamp, or `None` if no format carries this field.
+    pub fn required_available_at(&self) -> Option<i64> {
+        self.available_at
+            .into_iter()
+            .chain(
+                self.formats
+                    .iter()
+                    .filter(|f| !matches!(f.format_type(), FormatType::Storyboard | FormatType::Manifest))
+                    .filter_map(|f| f.available_at),
+            )
+            .max()
+    }
+
     /// Returns true if the format stream URLs are still within their CDN lifetime.
     ///
     /// YouTube CDN URLs expire approximately [`FORMAT_URL_LIFETIME`] seconds after the
-    /// `available_at` timestamp. Returns `true` when no `available_at` data is present
+    /// `available_at` timestamp. If `available_at` is in the future, the URLs are newly
+    /// issued and pending availability. Returns `true` when no `available_at` data is present
     /// (falls back to the fixed TTL configured on the cache).
     ///
     /// # Returns
     ///
     /// `true` if format URLs are fresh or if expiry data is unavailable.
     pub fn are_format_urls_fresh(&self) -> bool {
-        let Some(available_at) = self.formats_available_at() else {
+        let Some(available_at) = self.required_available_at() else {
             return true;
         };
         let now = crate::utils::current_timestamp();
+        if now <= available_at {
+            return true;
+        }
         now < available_at + FORMAT_URL_LIFETIME
     }
 
