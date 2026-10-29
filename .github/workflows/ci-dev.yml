@@ -82,6 +82,8 @@ jobs:
 
       - name: 📦 Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -90,6 +92,9 @@ jobs:
 
       - name: 🦀 Check with Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
+
+      - name: 📦 Build test targets
+        run: cargo test --no-run --test unit --test integration --all-features
 
       - name: 🧪 Run unit tests
         run: cargo test --test unit --all-features
@@ -111,6 +116,8 @@ jobs:
 
       - name: 📦 Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -156,6 +163,8 @@ jobs:
 
       - name: 📦 Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
