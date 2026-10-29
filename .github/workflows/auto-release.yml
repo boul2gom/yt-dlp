@@ -35,7 +35,7 @@ jobs:
 
       - name: ✅ Check unreleased commits
         id: check_commits
-        uses: boul2gom/actions/unreleased-commits@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/unreleased-commits@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           exclude_patterns: "[Github Actions],[skip ci]"
@@ -58,7 +58,7 @@ jobs:
 
       - name: ✅ Check CI status
         id: check_ci
-        uses: boul2gom/actions/ci-status@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/ci-status@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -229,7 +229,7 @@ jobs:
       - name: 📝 Generate release notes
         if: ${{ needs.check_updates.outputs.has_updates == 'true' }}
         id: generate_release_notes
-        uses: boul2gom/actions/release-notes@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/release-notes@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ steps.get_version.outputs.version }}
@@ -269,7 +269,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 🤖 Update version dropdown
-        uses: boul2gom/actions/versions-dropdown@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/versions-dropdown@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ steps.app-token.outputs.token }}
           gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}

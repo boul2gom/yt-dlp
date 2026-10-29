@@ -39,7 +39,7 @@ jobs:
 
       - name: 🏷️ Label issues and PRs
         id: labeler
-        uses: boul2gom/actions/label-pr-issue@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/label-pr-issue@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ steps.app-token.outputs.token }}
           path_mappings: |
@@ -84,7 +84,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_KEY }}
 
       - name: 🐛 Notify fixed issues
-        uses: boul2gom/actions/fix-notifier@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/fix-notifier@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ steps.app-token.outputs.token }}
 
