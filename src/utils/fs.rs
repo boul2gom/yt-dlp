@@ -514,3 +514,60 @@ pub async fn remove_temp_file(file_path: impl Into<PathBuf>) -> bool {
 
     result.is_ok()
 }
+
+/// RAII guard for a temporary file that automatically deletes it upon drop
+/// unless explicitly disarmed.
+#[derive(Debug)]
+pub struct TempFileGuard {
+    path: PathBuf,
+    active: bool,
+}
+
+impl TempFileGuard {
+    /// Creates a new guard for the given path.
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, active: true }
+    }
+
+    /// Returns a reference to the temporary file path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Disarms the guard so the file will NOT be deleted upon drop.
+    pub fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl AsRef<Path> for TempFileGuard {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for TempFileGuard {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.active && self.path.exists() {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Creates a unique temporary file path wrapped in a [`TempFileGuard`].
+///
+/// The file path is placed in the system temporary directory (`std::env::temp_dir()`).
+pub fn create_temp_file(prefix: &str, ext: &str) -> TempFileGuard {
+    let clean_ext = ext.trim_start_matches('.');
+    let filename = format!("{}_{}.{}", prefix, random_filename(8), clean_ext);
+    let path = std::env::temp_dir().join(filename);
+    TempFileGuard::new(path)
+}

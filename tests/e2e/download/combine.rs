@@ -121,3 +121,43 @@ async fn download_builder_with_priority() {
     // Downloads complete but combine fails
     assert!(result.is_err());
 }
+
+/// DownloadBuilder in audio-only mode downloads audio directly and tracks progress.
+#[tokio::test]
+async fn download_builder_audio_only_downloads_directly() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let progress_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let progress_flag = std::sync::Arc::clone(&progress_called);
+
+    let result = downloader
+        .download(&video, "audio.webm")
+        .audio_only()
+        .with_progress(move |_p| {
+            progress_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+        .execute()
+        .await;
+
+    assert!(result.is_ok(), "Audio-only download should succeed: {:?}", result.err());
+    let path = result.unwrap();
+    assert!(path.exists());
+    assert!(progress_called.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+/// DownloadBuilder in audio-only mode attempting to transcode without ffmpeg fails gracefully.
+#[tokio::test]
+async fn download_builder_audio_only_mp3_fails_without_ffmpeg() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let result = downloader.download(&video, "audio.mp3").execute().await;
+
+    // .mp3 resolves to DownloadMode::AudioOnly, downloads audio format, but transcode fails due to fake ffmpeg
+    assert!(result.is_err());
+}

@@ -54,7 +54,7 @@ pub mod prelude;
 // Re-export of common traits to facilitate their use
 pub use client::streams::selection::VideoSelection;
 // Re-export main types for easy access
-pub use client::{DownloadBuilder, DownloaderBuilder};
+pub use client::{DownloadBuilder, DownloadMode, DownloaderBuilder, is_audio_extension};
 pub use download::{DownloadManager, DownloadPriority, DownloadStatus};
 pub use model::utils::{AllTraits, CommonTraits};
 
@@ -284,6 +284,13 @@ impl Downloader {
     ///     .video_quality(VideoQuality::CustomHeight(1080))
     ///     .video_codec(VideoCodecPreference::AVC1)
     ///     .audio_quality(AudioQuality::Best)
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// // Download audio only into MP3 with progress tracking (auto-detects .mp3)
+    /// let audio_path = downloader.download(&video, "audio.mp3")
+    ///     .audio_quality(AudioQuality::Best)
+    ///     .with_progress(|p| println!("Progress: {:.0}%", p * 100.0))
     ///     .execute()
     ///     .await?;
     /// # Ok(())

@@ -473,7 +473,46 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- 🎵 Fetching an audio and downloading it:
+- 🎵 Fetching audio and downloading it (fluent builder with auto-detection & transcoding):
+```rust,no_run
+use yt_dlp::Downloader;
+use yt_dlp::model::selector::AudioQuality;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries_dir = PathBuf::from("libs");
+    let output_dir = PathBuf::from("output");
+
+    let youtube = libraries_dir.join("yt-dlp");
+    let ffmpeg = libraries_dir.join("ffmpeg");
+
+    let libraries = Libraries::new(youtube, ffmpeg);
+    let downloader = Downloader::builder(libraries, output_dir)
+        .build()
+        .await?;
+
+    let url = String::from("https://www.youtube.com/watch?v=gXtp6C-3JKo");
+    let video = downloader.fetch_video_infos(url).await?;
+
+    // Audio extensions (.mp3, .m4a, .aac, .opus, .ogg, .flac, .wav) automatically
+    // trigger audio-only mode, only download the audio stream, transcode if necessary
+    // (e.g. to MP3 via FFmpeg libmp3lame), and report accurate monotonic progress.
+    let audio_path = downloader.download(&video, "audio.mp3")
+        .audio_quality(AudioQuality::Best)
+        .with_progress(|progress| {
+            println!("Download progress: {:.1}%", progress * 100.0);
+        })
+        .execute()
+        .await?;
+
+    println!("Audio saved to: {:?}", audio_path);
+    Ok(())
+}
+```
+
+- 🎛️ Fetching raw audio and manually post-processing:
 ```rust,no_run
 use yt_dlp::Downloader;
 use std::path::PathBuf;

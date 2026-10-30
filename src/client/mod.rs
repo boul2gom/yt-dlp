@@ -12,7 +12,7 @@ pub mod streams;
 
 pub use builder::DownloaderBuilder;
 pub use deps::{Libraries, LibraryInstaller};
-pub use download_builder::DownloadBuilder;
+pub use download_builder::{DownloadBuilder, DownloadMode, is_audio_extension};
 pub use proxy::{ProxyConfig, ProxyType};
 
 /// Default timeout for network operations (300 seconds)

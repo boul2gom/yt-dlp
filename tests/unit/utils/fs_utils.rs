@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use yt_dlp::utils::fs::{
-    create_temp_path, determine_mime_type, try_extension, try_name, try_parent, try_path_str, try_without_extension,
+    create_temp_file, create_temp_path, determine_mime_type, try_extension, try_name, try_parent, try_path_str,
+    try_without_extension,
 };
 
 // ============================== try_path_str ==============================
@@ -200,4 +201,40 @@ fn try_parent_simple() {
 fn try_parent_nested() {
     let parent = try_parent("/a/b/c/d.txt").unwrap();
     assert_eq!(parent, Path::new("/a/b/c"));
+}
+
+// ============================== TempFileGuard ==============================
+
+#[test]
+fn temp_file_guard_deletes_file_on_drop() {
+    let guard = create_temp_file("test_drop", "tmp");
+    let path = guard.path().to_path_buf();
+    std::fs::write(&path, b"temporary data").unwrap();
+    assert!(path.exists());
+
+    drop(guard);
+    assert!(!path.exists());
+}
+
+#[test]
+fn temp_file_guard_disarmed_preserves_file() {
+    let mut guard = create_temp_file("test_disarm", "tmp");
+    let path = guard.path().to_path_buf();
+    std::fs::write(&path, b"persisted data").unwrap();
+    assert!(path.exists());
+
+    guard.disarm();
+    drop(guard);
+    assert!(path.exists());
+
+    // Clean up manually
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn create_temp_file_in_temp_dir_with_extension() {
+    let guard = create_temp_file("test_path", "mp3");
+    let temp_dir = std::env::temp_dir();
+    assert!(guard.path().starts_with(temp_dir));
+    assert_eq!(guard.extension().and_then(|e| e.to_str()), Some("mp3"));
 }

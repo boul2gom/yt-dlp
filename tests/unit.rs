@@ -13,6 +13,8 @@ mod common {
 mod cache_config;
 #[path = "unit/download/config.rs"]
 mod config;
+#[path = "unit/client/download_builder.rs"]
+mod download_builder;
 #[path = "unit/error.rs"]
 mod error;
 #[path = "unit/events.rs"]
