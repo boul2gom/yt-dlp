@@ -57,6 +57,31 @@ async fn download_builder_mode_resolution() {
     assert_eq!(builder_forced_video.resolved_mode(), DownloadMode::VideoAudio);
 }
 
+#[tokio::test]
+async fn download_builder_embed_thumbnail_configuration() {
+    use yt_dlp::model::selector::ThumbnailQuality;
+
+    let libs = Libraries::new(PathBuf::from("yt-dlp"), PathBuf::from("ffmpeg"));
+    let downloader = Downloader::builder(libs, "/tmp/downloads").build().await.unwrap();
+    let video = crate::common::fixtures::load_video_fixture();
+
+    let builder_default = downloader.download(&video, "track.mp3");
+    assert!(!builder_default.is_embed_thumbnail_enabled());
+    assert_eq!(builder_default.resolved_thumbnail_quality(), None);
+
+    let builder_embed = downloader.download(&video, "track.mp3").embed_thumbnail(true);
+    assert!(builder_embed.is_embed_thumbnail_enabled());
+
+    let builder_quality = downloader
+        .download(&video, "track.mp3")
+        .embed_thumbnail_quality(ThumbnailQuality::Best);
+    assert!(builder_quality.is_embed_thumbnail_enabled());
+    assert_eq!(
+        builder_quality.resolved_thumbnail_quality(),
+        Some(ThumbnailQuality::Best)
+    );
+}
+
 #[test]
 fn dual_progress_tracker_monotonicity_and_completion() {
     // Access internal tracker

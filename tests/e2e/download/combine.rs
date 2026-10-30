@@ -148,6 +148,30 @@ async fn download_builder_audio_only_downloads_directly() {
     assert!(progress_called.load(std::sync::atomic::Ordering::SeqCst));
 }
 
+/// DownloadBuilder with embed_thumbnail(true) executes and completes download cleanly.
+#[tokio::test]
+async fn download_builder_audio_only_with_embed_thumbnail_succeeds() {
+    let server = helpers::setup_e2e_server().await;
+    let tmp = fixtures::temp_test_dir();
+    let downloader = helpers::build_e2e_downloader(&server.uri(), tmp.path()).await;
+    let video = helpers::load_e2e_video(&server.uri());
+
+    let result = downloader
+        .download(&video, "audio_thumb.webm")
+        .audio_only()
+        .embed_thumbnail(true)
+        .execute()
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Download with embed_thumbnail should succeed: {:?}",
+        result.err()
+    );
+    let path = result.unwrap();
+    assert!(path.exists());
+}
+
 /// DownloadBuilder in audio-only mode attempting to transcode without ffmpeg fails gracefully.
 #[tokio::test]
 async fn download_builder_audio_only_mp3_fails_without_ffmpeg() {

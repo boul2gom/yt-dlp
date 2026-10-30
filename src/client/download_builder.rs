@@ -83,6 +83,7 @@ pub struct DownloadBuilder<'a> {
     pub(super) progress_callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
     pub(super) partial_range: Option<PartialRange>,
     pub(super) mode: DownloadMode,
+    pub(super) embed_thumbnail: bool,
 }
 
 impl<'a> DownloadBuilder<'a> {
@@ -116,6 +117,7 @@ impl<'a> DownloadBuilder<'a> {
             progress_callback: None,
             partial_range: None,
             mode: DownloadMode::Auto,
+            embed_thumbnail: false,
         }
     }
 
@@ -201,6 +203,49 @@ impl<'a> DownloadBuilder<'a> {
     pub fn thumbnail_quality(mut self, quality: ThumbnailQuality) -> Self {
         self.thumbnail_quality = Some(quality);
         self
+    }
+
+    /// Enables or disables embedding the video thumbnail into the downloaded file.
+    ///
+    /// If enabled, the thumbnail is downloaded into a temporary file and embedded into
+    /// the output file's metadata (e.g. ID3 APIC for MP3, cover art for M4A/MP4,
+    /// Vorbis comment for FLAC/OGG, or attachment for WebM/MKV).
+    ///
+    /// # Arguments
+    ///
+    /// * `embed` - Whether to embed the thumbnail
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
+    pub fn embed_thumbnail(mut self, embed: bool) -> Self {
+        self.embed_thumbnail = embed;
+        self
+    }
+
+    /// Sets the desired thumbnail quality and enables embedding it into the downloaded file.
+    ///
+    /// # Arguments
+    ///
+    /// * `quality` - The desired thumbnail quality level
+    ///
+    /// # Returns
+    ///
+    /// The modified `DownloadBuilder` instance.
+    pub fn embed_thumbnail_quality(mut self, quality: ThumbnailQuality) -> Self {
+        self.embed_thumbnail = true;
+        self.thumbnail_quality = Some(quality);
+        self
+    }
+
+    /// Returns whether thumbnail embedding is enabled.
+    pub fn is_embed_thumbnail_enabled(&self) -> bool {
+        self.embed_thumbnail
+    }
+
+    /// Returns the configured thumbnail quality preference, if any.
+    pub fn resolved_thumbnail_quality(&self) -> Option<ThumbnailQuality> {
+        self.thumbnail_quality
     }
 
     /// Sets the download priority.
@@ -348,9 +393,9 @@ impl<'a> DownloadBuilder<'a> {
     }
 
     /// Executes audio-only download and optional transcoding.
-    async fn execute_audio_only(self) -> Result<PathBuf> {
+    async fn execute_audio_only(mut self) -> Result<PathBuf> {
         let audio_quality = self.audio_quality.unwrap_or(AudioQuality::Best);
-        let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
+        let audio_codec = self.audio_codec.clone().unwrap_or(AudioCodecPreference::Any);
 
         tracing::debug!(
             video_id = %self.video.id,
@@ -407,7 +452,7 @@ impl<'a> DownloadBuilder<'a> {
         crate::utils::create_parent_dir(&final_output).await?;
 
         // Track progress if callback is registered
-        let cb_arc: Option<Arc<dyn Fn(f64) + Send + Sync>> = self.progress_callback.map(Arc::from);
+        let cb_arc: Option<Arc<dyn Fn(f64) + Send + Sync>> = self.progress_callback.take().map(Arc::from);
         let progress_cb = cb_arc.as_ref().map(|cb| {
             let cb = Arc::clone(cb);
             move |downloaded: u64, total: u64| {
@@ -647,6 +692,8 @@ impl<'a> DownloadBuilder<'a> {
         let metadata_manager = crate::metadata::MetadataManager::with_ffmpeg_path(&self.downloader.libraries.ffmpeg);
         let _ = metadata_manager.add_metadata(&final_output, self.video).await;
 
+        self.maybe_embed_thumbnail(&final_output).await;
+
         if let Some(ref cb) = cb_arc {
             cb(1.0);
         }
@@ -655,12 +702,12 @@ impl<'a> DownloadBuilder<'a> {
     }
 
     /// Executes both video and audio downloads and combines them.
-    async fn execute_video_and_audio(self) -> Result<PathBuf> {
+    async fn execute_video_and_audio(mut self) -> Result<PathBuf> {
         // Use configured quality/codec or defaults
         let video_quality = self.video_quality.unwrap_or(VideoQuality::Best);
         let audio_quality = self.audio_quality.unwrap_or(AudioQuality::Best);
-        let video_codec = self.video_codec.unwrap_or(VideoCodecPreference::Any);
-        let audio_codec = self.audio_codec.unwrap_or(AudioCodecPreference::Any);
+        let video_codec = self.video_codec.clone().unwrap_or(VideoCodecPreference::Any);
+        let audio_codec = self.audio_codec.clone().unwrap_or(AudioCodecPreference::Any);
 
         tracing::debug!(
             video_id = %self.video.id,
@@ -755,7 +802,10 @@ impl<'a> DownloadBuilder<'a> {
         }
 
         // Create atomic dual progress tracker when callback is set
-        let tracker = self.progress_callback.map(|cb| Arc::new(DualProgressTracker::new(cb)));
+        let tracker = self
+            .progress_callback
+            .take()
+            .map(|cb| Arc::new(DualProgressTracker::new(cb)));
 
         // Enqueue downloads with configured priority
         let enqueue_streams = EnqueueStreams {
@@ -810,13 +860,13 @@ impl<'a> DownloadBuilder<'a> {
                     .await?;
 
                 // Apply exact trim when a partial range was requested
-                if let Some(range) = self.partial_range {
+                if let Some(ref range) = self.partial_range {
                     let time_range = if range.needs_chapter_metadata() {
                         range
                             .to_time_range(&self.video.chapters)
                             .ok_or_else(|| crate::error::Error::invalid_partial_range("chapter index out of bounds"))?
                     } else {
-                        range
+                        range.clone()
                     };
                     let (start_secs, end_secs) = time_range.get_times().ok_or_else(|| {
                         crate::error::Error::invalid_partial_range("could not resolve time boundaries for trim")
@@ -836,6 +886,8 @@ impl<'a> DownloadBuilder<'a> {
                         .await
                         .map_err(|e| crate::error::Error::io_with_path("renaming trimmed output", &combined_path, e))?;
                 }
+
+                self.maybe_embed_thumbnail(&combined_path).await;
 
                 Ok(combined_path)
             }
@@ -857,6 +909,65 @@ impl<'a> DownloadBuilder<'a> {
                 video_download_id,
                 "Unexpected download status",
             )),
+        }
+    }
+
+    /// Embeds the thumbnail into the output file if `embed_thumbnail` is enabled.
+    ///
+    /// Uses best effort: if thumbnail downloading or embedding fails, emits a warning
+    /// log without failing the main download.
+    async fn maybe_embed_thumbnail(&self, output_path: &Path) {
+        if !self.embed_thumbnail {
+            return;
+        }
+
+        let quality = self.thumbnail_quality.unwrap_or(ThumbnailQuality::Best);
+        let Some(thumbnail) = self.video.select_thumbnail(quality) else {
+            tracing::warn!(
+                video_id = %self.video.id,
+                "No thumbnail found to embed into output file"
+            );
+            return;
+        };
+
+        let thumb_ext = thumbnail
+            .url
+            .split('?')
+            .next()
+            .and_then(|u| u.rsplit('.').next())
+            .unwrap_or("jpg");
+
+        let thumb_guard = crate::utils::fs::create_temp_file("thumb_embed", thumb_ext);
+        let thumb_path = thumb_guard.path().to_path_buf();
+
+        match self
+            .downloader
+            .download_thumbnail(self.video, quality, &thumb_path)
+            .await
+        {
+            Ok(_) => {
+                let metadata_manager =
+                    crate::metadata::MetadataManager::with_ffmpeg_path(&self.downloader.libraries.ffmpeg);
+                if let Err(e) = metadata_manager.add_thumbnail_to_file(output_path, &thumb_path).await {
+                    tracing::warn!(
+                        output = ?output_path,
+                        error = %e,
+                        "Failed to embed thumbnail into output file"
+                    );
+                } else {
+                    tracing::debug!(
+                        output = ?output_path,
+                        "✅ Successfully embedded thumbnail into output file"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    output = ?output_path,
+                    error = %e,
+                    "Failed to download thumbnail for embedding"
+                );
+            }
         }
     }
 }

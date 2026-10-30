@@ -167,6 +167,52 @@ async fn add_thumbnail_to_mp3_succeeds() {
 }
 
 // ---------------------------------------------------------------------------
+// Downloader::embed_thumbnail_file and embed_thumbnail_bytes
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn downloader_embed_thumbnail_file_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let media_src = crate::common::fixtures::media_fixture("small.mp3");
+    let thumb_src = crate::common::fixtures::media_fixture("thumb.jpg");
+    let dest = dir.path().join("thumb_file.mp3");
+    std::fs::copy(&media_src, &dest).unwrap();
+
+    let libs =
+        yt_dlp::client::deps::Libraries::new(std::path::PathBuf::from("yt-dlp"), std::path::PathBuf::from("ffmpeg"));
+    let downloader = yt_dlp::Downloader::builder(libs, dir.path()).build().await.unwrap();
+
+    let result = downloader.embed_thumbnail_file(&dest, &thumb_src).await;
+    assert!(
+        result.is_ok(),
+        "Downloader::embed_thumbnail_file should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn downloader_embed_thumbnail_bytes_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let media_src = crate::common::fixtures::media_fixture("small.mp3");
+    let thumb_src = crate::common::fixtures::media_fixture("thumb.jpg");
+    let dest = dir.path().join("thumb_bytes.mp3");
+    std::fs::copy(&media_src, &dest).unwrap();
+
+    let image_bytes = std::fs::read(&thumb_src).unwrap();
+
+    let libs =
+        yt_dlp::client::deps::Libraries::new(std::path::PathBuf::from("yt-dlp"), std::path::PathBuf::from("ffmpeg"));
+    let downloader = yt_dlp::Downloader::builder(libs, dir.path()).build().await.unwrap();
+
+    let result = downloader.embed_thumbnail_bytes(&dest, &image_bytes).await;
+    assert!(
+        result.is_ok(),
+        "Downloader::embed_thumbnail_bytes should succeed: {:?}",
+        result.err()
+    );
+}
+
+// ---------------------------------------------------------------------------
 // MetadataManager::extract_basic_metadata — key fields present
 // ---------------------------------------------------------------------------
 

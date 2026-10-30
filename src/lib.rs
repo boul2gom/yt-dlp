@@ -287,9 +287,10 @@ impl Downloader {
     ///     .execute()
     ///     .await?;
     ///
-    /// // Download audio only into MP3 with progress tracking (auto-detects .mp3)
+    /// // Download audio only into MP3 with embedded cover and progress tracking (auto-detects .mp3)
     /// let audio_path = downloader.download(&video, "audio.mp3")
     ///     .audio_quality(AudioQuality::Best)
+    ///     .embed_thumbnail(true)
     ///     .with_progress(|p| println!("Progress: {:.0}%", p * 100.0))
     ///     .execute()
     ///     .await?;

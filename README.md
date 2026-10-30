@@ -473,7 +473,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- 🎵 Fetching audio and downloading it (fluent builder with auto-detection & transcoding):
+- 🎵 Fetching audio and downloading it (with auto-detection, MP3 transcoding & embedded thumbnail):
 ```rust,no_run
 use yt_dlp::Downloader;
 use yt_dlp::model::selector::AudioQuality;
@@ -498,16 +498,40 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Audio extensions (.mp3, .m4a, .aac, .opus, .ogg, .flac, .wav) automatically
     // trigger audio-only mode, only download the audio stream, transcode if necessary
-    // (e.g. to MP3 via FFmpeg libmp3lame), and report accurate monotonic progress.
+    // (e.g. to MP3 via FFmpeg libmp3lame), report accurate monotonic progress,
+    // and embed the video thumbnail directly into the output file's metadata.
     let audio_path = downloader.download(&video, "audio.mp3")
         .audio_quality(AudioQuality::Best)
+        .embed_thumbnail(true)
         .with_progress(|progress| {
             println!("Download progress: {:.1}%", progress * 100.0);
         })
         .execute()
         .await?;
 
-    println!("Audio saved to: {:?}", audio_path);
+    println!("Audio saved with embedded cover to: {:?}", audio_path);
+    Ok(())
+}
+```
+
+- 🖼️ Embedding a thumbnail into an existing media file:
+```rust,no_run
+use yt_dlp::Downloader;
+use std::path::PathBuf;
+use yt_dlp::client::deps::Libraries;
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    let downloader = Downloader::builder(libraries, "output").build().await?;
+
+    // Embed thumbnail from an image file
+    downloader.embed_thumbnail_file("output/audio.mp3", "cover.jpg").await?;
+
+    // Or embed thumbnail from raw in-memory bytes (format auto-detected via magic bytes)
+    let image_bytes = tokio::fs::read("cover.jpg").await?;
+    downloader.embed_thumbnail_bytes("output/audio.mp3", &image_bytes).await?;
+
     Ok(())
 }
 ```

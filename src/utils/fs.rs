@@ -571,3 +571,20 @@ pub fn create_temp_file(prefix: &str, ext: &str) -> TempFileGuard {
     let path = std::env::temp_dir().join(filename);
     TempFileGuard::new(path)
 }
+
+/// Detects the file extension of an image from its magic bytes.
+///
+/// Returns `"jpg"`, `"png"`, `"webp"`, `"gif"`, or `"jpg"` as a fallback.
+pub fn detect_image_extension(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        "png"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "gif"
+    } else {
+        "jpg"
+    }
+}

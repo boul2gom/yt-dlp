@@ -231,6 +231,91 @@ impl Downloader {
         }
     }
 
+    /// Embeds a thumbnail image from a file into a media file's metadata.
+    ///
+    /// Supports MP3 (ID3 APIC), M4A/MP4 (cover art atom), FLAC/OGG/WAV (Vorbis comment / ID3 via lofty),
+    /// and WebM/MKV (FFmpeg attachment).
+    ///
+    /// # Arguments
+    ///
+    /// * `media_path` - Path to the media file to embed the thumbnail into
+    /// * `thumbnail_path` - Path to the image file to embed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the media or thumbnail file cannot be read, or if writing tags fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// downloader.embed_thumbnail_file("song.mp3", "cover.jpg").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn embed_thumbnail_file(
+        &self,
+        media_path: impl AsRef<Path>,
+        thumbnail_path: impl AsRef<Path>,
+    ) -> crate::error::Result<()> {
+        let metadata_manager = crate::metadata::MetadataManager::with_ffmpeg_path(&self.libraries.ffmpeg);
+        metadata_manager
+            .add_thumbnail_to_file(media_path.as_ref(), thumbnail_path.as_ref())
+            .await
+    }
+
+    /// Embeds a thumbnail image from raw in-memory bytes into a media file's metadata.
+    ///
+    /// The image format is automatically detected from magic bytes (`.jpg`, `.png`, `.webp`, `.gif`).
+    /// A temporary file is written in the OS temp directory and automatically removed upon completion.
+    ///
+    /// # Arguments
+    ///
+    /// * `media_path` - Path to the media file to embed the thumbnail into
+    /// * `image_bytes` - Raw bytes of the image
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the media file cannot be modified, or if writing tags fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use yt_dlp::Downloader;
+    /// # use yt_dlp::client::deps::Libraries;
+    /// # use std::path::PathBuf;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let libraries = Libraries::new(PathBuf::from("libs/yt-dlp"), PathBuf::from("libs/ffmpeg"));
+    /// # let downloader = Downloader::builder(libraries, "output").build().await?;
+    /// let image_bytes = tokio::fs::read("cover.jpg").await?;
+    /// downloader.embed_thumbnail_bytes("song.mp3", &image_bytes).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn embed_thumbnail_bytes(
+        &self,
+        media_path: impl AsRef<Path>,
+        image_bytes: &[u8],
+    ) -> crate::error::Result<()> {
+        let ext = crate::utils::fs::detect_image_extension(image_bytes);
+        let temp_guard = crate::utils::fs::create_temp_file("thumb_bytes", ext);
+        tokio::fs::write(temp_guard.path(), image_bytes).await.map_err(|e| {
+            crate::error::Error::io_with_path("writing thumbnail bytes to temp file", temp_guard.path(), e)
+        })?;
+
+        let metadata_manager = crate::metadata::MetadataManager::with_ffmpeg_path(&self.libraries.ffmpeg);
+        metadata_manager
+            .add_thumbnail_to_file(media_path.as_ref(), temp_guard.path())
+            .await
+    }
+
     /// Fetch the audio stream, download it and returns its path.
     ///
     /// # Arguments

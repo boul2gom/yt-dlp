@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use yt_dlp::utils::fs::{
-    create_temp_file, create_temp_path, determine_mime_type, try_extension, try_name, try_parent, try_path_str,
-    try_without_extension,
+    create_temp_file, create_temp_path, detect_image_extension, determine_mime_type, try_extension, try_name,
+    try_parent, try_path_str, try_without_extension,
 };
 
 // ============================== try_path_str ==============================
@@ -237,4 +237,31 @@ fn create_temp_file_in_temp_dir_with_extension() {
     let temp_dir = std::env::temp_dir();
     assert!(guard.path().starts_with(temp_dir));
     assert_eq!(guard.extension().and_then(|e| e.to_str()), Some("mp3"));
+}
+
+// ============================== detect_image_extension ==============================
+
+#[test]
+fn detect_image_extension_formats() {
+    // JPEG magic bytes
+    let jpeg_bytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+    assert_eq!(detect_image_extension(&jpeg_bytes), "jpg");
+
+    // PNG magic bytes
+    let png_bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+    assert_eq!(detect_image_extension(&png_bytes), "png");
+
+    // WebP magic bytes: RIFF....WEBP
+    let mut webp_bytes = Vec::new();
+    webp_bytes.extend_from_slice(b"RIFF");
+    webp_bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+    webp_bytes.extend_from_slice(b"WEBP");
+    assert_eq!(detect_image_extension(&webp_bytes), "webp");
+
+    // GIF magic bytes
+    assert_eq!(detect_image_extension(b"GIF89a..."), "gif");
+    assert_eq!(detect_image_extension(b"GIF87a..."), "gif");
+
+    // Unknown fallback to jpg
+    assert_eq!(detect_image_extension(&[0x00, 0x01, 0x02]), "jpg");
 }
