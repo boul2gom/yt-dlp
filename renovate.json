@@ -1,0 +1,106 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":disableRateLimiting"
+  ],
+  "timezone": "Europe/Paris",
+  "baseBranches": ["develop"],
+  "assignees": ["boul2gom"],
+  "reviewers": ["boul2gom"],
+  "labels": ["dependencies"],
+  "dependencyDashboard": {
+    "title": "📦 Dashboard - Renovate"
+  },
+
+  "commitMessagePrefix": "🦀 [Rust Crates]",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "from {{currentVersion}} to {{newVersion}}",
+
+  "packageRules": [
+    {
+      "description": "Rust crates: bump versions in Cargo.toml and Cargo.lock, apply rust label, and enforce commit format",
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "bump",
+      "labels": ["dependencies", "rust"],
+      "commitMessagePrefix": "🦀 [Rust Crates]",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "{{depName}}",
+      "commitMessageExtra": "from {{currentVersion}} to {{newVersion}}"
+    },
+    {
+      "description": "Automerge patch updates (x.y.Z) for stable Rust crates >= 1.0.0 after a 24-hour stability period",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch"],
+      "minimumReleaseAge": "1 day",
+      "automerge": true
+    },
+    {
+      "description": "Disable automerge on all 0.x.y Rust crates as patch and minor releases may include breaking changes or new features",
+      "matchManagers": ["cargo"],
+      "matchCurrentVersion": "/^v?0\\./",
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions: apply github_actions label and enforce commit format",
+      "matchManagers": ["github-actions"],
+      "labels": ["dependencies", "github_actions"],
+      "commitMessagePrefix": "🔌 [Github Actions]",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "{{depName}}",
+      "commitMessageExtra": "from {{currentVersion}} to {{newVersion}}"
+    },
+    {
+      "description": "Automerge non-major GitHub Actions updates (minor, patch, digest) after a 24-hour stability period",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "minimumReleaseAge": "1 day",
+      "automerge": true
+    },
+    {
+      "description": "Group all boul2gom/actions updates into a single PR",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": [
+        "boul2gom/actions",
+        "boul2gom/actions/**"
+      ],
+      "groupName": "boul2gom-actions",
+      "commitMessageTopic": "boul2gom/actions",
+      "commitMessageExtra": "to {{newVersion}}"
+    },
+    {
+      "description": "Group all github/codeql-action updates into a single PR",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": [
+        "github/codeql-action",
+        "github/codeql-action/**"
+      ],
+      "groupName": "codeql-actions",
+      "commitMessageTopic": "github/codeql-action",
+      "commitMessageExtra": "to {{newVersion}}"
+    },
+    {
+      "description": "Group all other GitHub Actions updates into a single PR",
+      "matchManagers": ["github-actions"],
+      "excludePackageNames": [
+        "boul2gom/actions",
+        "boul2gom/actions/**",
+        "github/codeql-action",
+        "github/codeql-action/**"
+      ],
+      "groupName": "other-actions"
+    },
+    {
+      "description": "Highlight major updates with a dedicated label and warning banner",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["major-update"],
+      "commitMessageAction": "major update",
+      "prBodyNotes": [
+        "⚠️ **MAJOR UPDATE**: Carefully review the Release Notes and changelog below for potential *Breaking Changes* before merging."
+      ]
+    }
+  ]
+}
