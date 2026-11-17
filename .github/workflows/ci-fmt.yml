@@ -39,7 +39,7 @@ jobs:
           ref: ${{ github.head_ref || github.ref }}
 
       - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # nightly
+        uses: dtolnay/rust-toolchain@6a52aad76a94a5fbc50d567bb5be24419801c1fb # nightly
         with:
           toolchain: nightly
           components: rustfmt
