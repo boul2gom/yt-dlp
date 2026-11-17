@@ -115,7 +115,7 @@ xz2 = "0.1.7"
 sha2 = "0.11.0"
 
 # Date and time
-chrono = "0.4.44"
+chrono = "0.4.45"
 
 # Text and pattern matching
 regex = "1.12.3"
