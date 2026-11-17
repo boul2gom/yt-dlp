@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 📝 Check spelling
-        uses: crate-ci/typos@2611abd15acb0c2e317fb9e45855aabb8b35a414 # v1.52.1
+        uses: crate-ci/typos@276087d9a4f06398b3e04825487805e2d7375888 # v1.52.2
 
   check-format:
     name: 💄 Check formatting
@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🛠️ Set up nightly Rust (for rustfmt)
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # nightly
+        uses: dtolnay/rust-toolchain@6a52aad76a94a5fbc50d567bb5be24419801c1fb # nightly
         with:
           toolchain: nightly
           components: rustfmt
@@ -86,7 +86,7 @@ jobs:
           shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: clippy
 
@@ -120,7 +120,7 @@ jobs:
           shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: 📚 Run doc tests
         run: cargo test --doc --workspace --all-features
@@ -138,13 +138,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🛠️ Install cargo-deny
-        uses: taiki-e/install-action@7fa572463ed6f88f64fd37a4f8ca146df751432d # cargo-deny
+        uses: taiki-e/install-action@4ce04ff71051d1d43b3c1166c70c1e8a958d8dc9 # cargo-deny
 
       - name: 🔐 Security, License and Dependency Audit
         run: cargo deny check
 
       - name: 🛠️ Install cargo-machete
-        uses: taiki-e/install-action@6929d36b9cc9bd3c8a031f179ec7f72cffbfc6fa # cargo-machete
+        uses: taiki-e/install-action@1fb28cf827c910392818bb4ca39d5bdf865f00f2 # cargo-machete
 
       - name: 🧹 Unused dependencies
         run: cargo machete
@@ -167,7 +167,7 @@ jobs:
           shared-key: "yt-dlp"
 
       - name: 🛠️ Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: 🛠️ Install ffmpeg from boul2gom/ffmpeg-builds
         run: |
