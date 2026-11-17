@@ -140,7 +140,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indicatif = "0.18.4"
 console = "0.16.3"
-dhat = "0.3"
+dhat = "0.3.3"
 
 # Test infrastructure
 wiremock = "0.6"
