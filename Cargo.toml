@@ -144,7 +144,7 @@ dhat = "0.3"
 
 # Test infrastructure
 wiremock = "0.6.5"
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"
 assert_matches = "1.5"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4.6"
