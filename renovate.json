@@ -6,7 +6,9 @@
     ":disableRateLimiting"
   ],
   "timezone": "Europe/Paris",
-  "baseBranches": ["develop"],
+  "baseBranchPatterns": [
+    "develop"
+  ],
   "assignees": ["boul2gom"],
   "reviewers": ["boul2gom"],
   "labels": ["dependencies"],
@@ -84,13 +86,13 @@
     {
       "description": "Group all other GitHub Actions updates into a single PR",
       "matchManagers": ["github-actions"],
-      "excludePackageNames": [
-        "boul2gom/actions",
-        "boul2gom/actions/**",
-        "github/codeql-action",
-        "github/codeql-action/**"
-      ],
-      "groupName": "other-actions"
+      "groupName": "other-actions",
+      "matchPackageNames": [
+        "!boul2gom/actions",
+        "!boul2gom/actions/**",
+        "!github/codeql-action",
+        "!github/codeql-action/**"
+      ]
     },
     {
       "description": "Highlight major updates with a dedicated label and warning banner",
