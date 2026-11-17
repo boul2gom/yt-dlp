@@ -122,7 +122,7 @@ regex = "1.12.3"
 url = "2.5.8"
 
 # Type utilities
-ordered-float = { version = "5.3.0", features = ["serde"] }
+ordered-float = { version = "5.5.1", features = ["serde"] }
 uuid = { version = "1.29.3", features = ["v4"] }
 typed-builder = "0.23.2"
 downcast-rs = "2.0.2"
