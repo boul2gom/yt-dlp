@@ -443,10 +443,7 @@ impl WebhookDelivery {
                 },
                 |e: &String| {
                     // Don't retry permanent 4xx client errors (except 429 Too Many Requests)
-                    if e.starts_with("HTTP 4") && !e.starts_with("HTTP 429") {
-                        return false;
-                    }
-                    true
+                    !(e.starts_with("HTTP 4") && !e.starts_with("HTTP 429"))
                 },
             )
             .await;

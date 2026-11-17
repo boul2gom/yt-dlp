@@ -472,7 +472,7 @@ async fn thumbnail_put_and_get_by_video_id() {
 
     // Minimal JPEG bytes
     let src = dir.path().join("thumb.jpg");
-    std::fs::write(&src, &[0xFF, 0xD8, 0xFF, 0xE0]).expect("write thumb");
+    std::fs::write(&src, [0xFF, 0xD8, 0xFF, 0xE0]).expect("write thumb");
 
     let thumbnail = make_cached_thumbnail("thumbhash1", "vid_thumb");
 

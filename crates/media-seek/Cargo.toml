@@ -9,7 +9,6 @@ description = "🔍 Container format index parsing and timestamp-to-byte-offset 
 license = "GPL-3.0-only"
 readme = "README.md"
 documentation = "https://docs.rs/media-seek"
-homepage = "https://github.com/boul2gom/yt-dlp/tree/develop/crates/media-seek"
 repository = "https://github.com/boul2gom/yt-dlp/tree/develop/crates/media-seek"
 
 categories = ["multimedia", "multimedia::audio", "multimedia::video", "parser-implementations"]

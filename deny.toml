@@ -75,4 +75,5 @@ bitbucket = []
 [advisories]
 ignore = [
     "RUSTSEC-2024-0436", # paste is unmaintained but lofty depends on it
+    "RUSTSEC-2026-0543", # chrono is unmaintained (used directly and via m3u8-rs)
 ]
