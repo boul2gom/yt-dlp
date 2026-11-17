@@ -127,7 +127,7 @@ uuid = { version = "1.23.1", features = ["v4"] }
 typed-builder = "0.23.2"
 downcast-rs = "2.0.2"
 dyn-clone = { version = "1.0.20", optional = true }
-rand = "0.10.1"
+rand = "0.10.4"
 
 # General utilities
 tempfile = "3.27.0"
