@@ -118,7 +118,7 @@ sha2 = "0.11.1"
 chrono = "0.4.45"
 
 # Text and pattern matching
-regex = "1.12.3"
+regex = "1.13.1"
 url = "2.5.8"
 
 # Type utilities
