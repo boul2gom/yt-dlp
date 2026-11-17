@@ -83,7 +83,7 @@ tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros", "fs", "ti
 reqwest = { version = "0.13.2", features = ["json", "stream", "http2", "charset", "gzip", "brotli"], default-features = false }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 futures-util = "0.3.34"
-async-trait = "0.1.89"
+async-trait = "0.1.92"
 tokio-util = "0.7.20"
 
 # Cache backends (optional)
