@@ -131,7 +131,7 @@ rand = "0.10.1"
 
 # General utilities
 tempfile = "3.27.0"
-cfg-if = "1.0.4"
+cfg-if = "1.0.5"
 
 # Logging
 tracing = "0.1.44"
