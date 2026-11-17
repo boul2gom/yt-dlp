@@ -137,7 +137,7 @@ cfg-if = "1.0.4"
 tracing = "0.1.44"
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 indicatif = "0.18.4"
 console = "0.16.3"
 dhat = "0.3"
