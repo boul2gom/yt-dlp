@@ -103,7 +103,7 @@ thiserror = "2.0.18"
 # Audio and video
 m3u8-rs = { version = "6.0.1", optional = true }
 mp4ameta = "0.13.0"
-id3 = "1.16.4"
+id3 = "1.17.3"
 lofty = "0.25.5"
 
 # Compression and archives
