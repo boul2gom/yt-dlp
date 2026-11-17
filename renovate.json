@@ -21,9 +21,9 @@
 
   "packageRules": [
     {
-      "description": "Rust crates: bump versions in Cargo.toml and Cargo.lock, apply rust label, and enforce commit format",
+      "description": "Rust crates: enforce full x.y.z versions in Cargo.toml and Cargo.lock, apply rust label, and enforce commit format",
       "matchManagers": ["cargo"],
-      "rangeStrategy": "bump",
+      "rangeStrategy": "replace",
       "labels": ["dependencies", "rust"],
       "commitMessagePrefix": "🦀 [Rust Crates]",
       "commitMessageAction": "update",

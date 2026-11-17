@@ -29,9 +29,9 @@ pre-release-replacements = [
 ]
 
 [dependencies]
-thiserror = "2.0.18"
+thiserror = "2.0.21"
 tracing = "0.1.44"
 futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
-tokio = { version = "1.52.1", features = ["rt", "macros"] }
+tokio = { version = "1.54.1", features = ["rt", "macros"] }
