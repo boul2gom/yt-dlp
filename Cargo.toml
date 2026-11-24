@@ -119,7 +119,7 @@ chrono = "0.4.45"
 
 # Text and pattern matching
 regex = "1.13.1"
-url = "2.5.8"
+url = "2.5.9"
 
 # Type utilities
 ordered-float = { version = "5.5.1", features = ["serde"] }
