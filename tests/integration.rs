@@ -86,3 +86,6 @@ mod http_client;
 
 #[path = "integration/client/deps/github.rs"]
 mod github;
+
+#[path = "integration/client/proxy.rs"]
+mod client_proxy;
