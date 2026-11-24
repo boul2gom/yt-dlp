@@ -120,14 +120,21 @@ pub struct Video {
     pub categories: Vec<String>,
 
     /// If the video is age restricted, the age limit is different from 0.
+    ///
+    /// Missing from generic extractor output, where it defaults to 0 (no restriction).
+    #[serde(default)]
     pub age_limit: i64,
     /// If the video is available in the country.
     #[serde(rename = "_has_drm")]
     pub has_drm: Option<DrmStatus>,
     /// If the video was a live stream.
-    pub live_status: String,
+    ///
+    /// Missing from generic extractor output.
+    pub live_status: Option<String>,
     /// If the video is playable in an embed.
-    pub playable_in_embed: bool,
+    ///
+    /// Missing from generic extractor output.
+    pub playable_in_embed: Option<bool>,
 
     /// The extractor information.
     #[serde(flatten)]
@@ -388,7 +395,7 @@ impl Video {
     pub fn is_currently_live(&self) -> bool {
         const STATUS: &str = "is_live";
 
-        self.is_live == Some(true) || self.live_status == STATUS
+        self.is_live == Some(true) || self.live_status.as_deref() == Some(STATUS)
     }
 
     /// Returns whether the video is an upcoming/scheduled stream.
@@ -400,7 +407,7 @@ impl Video {
     pub fn is_upcoming(&self) -> bool {
         const STATUS: &str = "is_upcoming";
 
-        self.live_status == STATUS
+        self.live_status.as_deref() == Some(STATUS)
     }
 
     /// Returns all formats using the HLS (m3u8) protocol.
