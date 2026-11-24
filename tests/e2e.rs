@@ -28,8 +28,11 @@ mod download_partial;
 mod download_video;
 #[path = "e2e/error_paths.rs"]
 mod error_paths;
+
 #[path = "e2e/events/pipeline.rs"]
 mod events_pipeline;
+#[path = "e2e/extractor_proxy.rs"]
+mod extractor_proxy;
 #[cfg(feature = "live-recording")]
 #[path = "e2e/live/recording.rs"]
 mod live_e2e;
