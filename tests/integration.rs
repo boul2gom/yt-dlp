@@ -49,6 +49,9 @@ mod cache_redis;
 #[path = "integration/cache/layer.rs"]
 mod cache_layer;
 
+#[path = "integration/extractor/generic_json.rs"]
+mod generic_json;
+
 #[path = "integration/download/manager.rs"]
 mod download_manager;
 

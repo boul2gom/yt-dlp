@@ -409,12 +409,16 @@ enum LiveMode {
     Streaming,
 }
 
+/// Live status reported in errors when the extractor did not provide one.
+#[cfg(any(feature = "live-recording", feature = "live-streaming"))]
+const LIVE_STATUS_UNKNOWN: &str = "unknown";
+
 #[cfg(any(feature = "live-recording", feature = "live-streaming"))]
 fn resolve_live_format(video: &Video, format: Option<&Format>, mode: LiveMode) -> Result<ResolvedLiveFormat> {
     if !video.is_currently_live() {
         return Err(Error::live_unavailable(
             video.webpage_url.as_deref().unwrap_or("unknown"),
-            &video.live_status,
+            video.live_status.as_deref().unwrap_or(LIVE_STATUS_UNKNOWN),
             "video is not currently live",
         ));
     }

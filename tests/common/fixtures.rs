@@ -53,6 +53,13 @@ pub fn load_video_with_mock_urls(mock_server_url: &str) -> Video {
     load_fixture_with_url("video.json", mock_server_url)
 }
 
+/// Loads a Video from the generic_video.json fixture, a real `yt-dlp -J` capture of a direct media URL
+/// that was resolved by the generic extractor (no `age_limit`, `live_status` or `playable_in_embed`).
+pub fn load_generic_video_fixture() -> Video {
+    let json = load_json_string("generic_video.json");
+    serde_json::from_str(&json).expect("Failed to deserialize generic video fixture")
+}
+
 /// Loads a Video from the live_video.json fixture.
 pub fn load_live_video_fixture() -> Video {
     let json = load_json_string("live_video.json");
