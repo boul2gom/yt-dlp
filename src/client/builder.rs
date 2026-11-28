@@ -373,6 +373,18 @@ impl DownloaderBuilder {
         let mut youtube_extractor = crate::extractor::Youtube::new(self.libraries.youtube.clone());
         let mut generic_extractor = crate::extractor::Generic::new(self.libraries.youtube.clone());
 
+        // The extractors run their own yt-dlp command lines, so they need the
+        // proxy argument too (`args` below is only used by the downloader).
+        if let Some(ref proxy) = self.proxy {
+            tracing::debug!(proxy_type = ?proxy.proxy_type(), "🔧 Passing proxy to extractors");
+            youtube_extractor
+                .with_arg("--proxy".to_string())
+                .with_arg(proxy.to_ytdlp_arg());
+            generic_extractor
+                .with_arg("--proxy".to_string())
+                .with_arg(proxy.to_ytdlp_arg());
+        }
+
         // Propagate cookie configuration to both extractors and raw args
         if let Some(ref path) = self.cookies {
             youtube_extractor.with_cookies(path);
