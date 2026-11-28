@@ -35,7 +35,7 @@ pub struct ProxyConfig {
 /// Type of proxy to use.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum ProxyType {
-    /// HTTP proxy
+    /// HTTP proxy, used for both http:// and https:// requests
     Http,
     /// HTTPS proxy
     Https,
@@ -202,7 +202,9 @@ impl ProxyConfig {
         tracing::debug!(proxy_type = ?self.proxy_type, no_proxy_count = self.no_proxy.len(), "🔧 Converting to reqwest proxy");
 
         match self.proxy_type {
-            ProxyType::Http => reqwest::Proxy::http(&url),
+            // An HTTP proxy carries every request scheme: plain HTTP directly, HTTPS
+            // through CONNECT. `Proxy::http` would leave HTTPS requests unproxied.
+            ProxyType::Http => reqwest::Proxy::all(&url),
             ProxyType::Https => reqwest::Proxy::https(&url),
             ProxyType::Socks5 => reqwest::Proxy::all(&url),
         }
