@@ -138,13 +138,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🛠️ Install cargo-deny
-        uses: taiki-e/install-action@d5b78900754d505a5f5f996e23d5f039b418e2f3 # cargo-deny
+        uses: taiki-e/install-action@4a39058cbe4cba343b6542e029a11ebc3e723a58 # cargo-deny
 
       - name: 🔐 Security, License and Dependency Audit
         run: cargo deny check
 
       - name: 🛠️ Install cargo-machete
-        uses: taiki-e/install-action@f18ecedf1db700176b43a8b227582d2e9953bbeb # cargo-machete
+        uses: taiki-e/install-action@f6de7d60791333b40b594bb6c72fd5e7810d9408 # cargo-machete
 
       - name: 🧹 Unused dependencies
         run: cargo machete
